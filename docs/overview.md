@@ -1,0 +1,46 @@
+# SpawnHive — Overview
+
+## What it is
+
+A self-hosted platform for orchestrating specialised AI agents. It takes a task → picks an agent template → spawns an isolated Docker container → the agent solves the task using its built-in tools and MCP servers → the result goes to review → the user approves/rejects.
+
+## Who it's for
+
+- Developers and researchers who need several narrowly-specialised agents for different tasks (research, coding, writing, devops…) under a single control plane.
+- Teams who want self-hosting (privacy, control over models, customisation).
+- People who want a visual orchestration layer on top of litellm/MCP without vendor lock-in.
+
+## What makes it different
+
+- **Templates as agent roles**: each template is `(model, soul_md, tools, mcp_servers, limits)`. The LLM provider can be overridden per template.
+- **Structured Memory**: automatic extraction of entities/relations from task results, embedding-based dedup, relevant sub-graph injected into the agent.
+- **Bidirectional control**: the orchestrator can send feedback / abort / switch_model into a live agent container.
+- **MCP-first**: custom MCP servers plug in per template without code changes.
+- **Local-first**: everything runs in Docker Compose; nothing leaves the host.
+
+## Tech stack
+
+| Layer | What |
+|-------|------|
+| Backend API | FastAPI + SQLAlchemy async + Alembic |
+| Storage | PostgreSQL 16 |
+| Vector | Qdrant |
+| Object storage | MinIO (S3-compatible) |
+| LLM abstraction | litellm |
+| Embeddings | fastembed (local) or an OpenAI-compatible API |
+| Scheduler | APScheduler |
+| Agent runtime | Docker (via docker-py + socket mount) |
+| Frontend | React 18 + Vite + TypeScript + TanStack Query |
+| Graph viz | reactflow |
+| Default LLM | MiniMax-M2.7 (any OpenAI-compatible endpoint is supported) |
+
+## Status
+
+- ✅ Core MVP loop: kanban → orchestrator → agent → review → approve.
+- ✅ 11 default agent templates.
+- ✅ RAG (PDF/DOCX/MD/TXT), MCP servers, kill switch, kanban, chat WebSocket.
+- ✅ Pre-backlog (P0–P14): structured memory, bidirectional channel, periodic progress, Pydantic webhook schemas, per-template model routing, cost calculation, analytics + reasoning trail, priority in polling, APScheduler, depends_on in decomposition, audit log, workspace_id labels (stub), per-agent WS, slash commands, versioned templates.
+
+## What's next
+
+See [`production-readiness-tz.md`](production-readiness-tz.md) — work to be done **before** the main `BACKLOG.md` starts. After that — backlog features (visual A2A graph, benchmarks, replay, explainability, etc.).

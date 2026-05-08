@@ -1,0 +1,55 @@
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import Sidebar from './components/layout/Sidebar'
+import WorkspaceSwitcher from './components/layout/WorkspaceSwitcher'
+import Dashboard from './pages/Dashboard'
+import TaskBoard from './pages/TaskBoard'
+import Chat from './pages/Chat'
+import ActivityLog from './pages/ActivityLog'
+import Templates from './pages/Templates'
+import KnowledgeBase from './pages/KnowledgeBase'
+import Memory from './pages/Memory'
+import Settings from './pages/Settings'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import { useAuth } from './stores/auth'
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const token = useAuth((s) => s.token)
+  const location = useLocation()
+  if (!token) return <Navigate to="/login" state={{ from: location }} replace />
+  return <>{children}</>
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route
+        path="*"
+        element={
+          <RequireAuth>
+            <div className="flex h-screen bg-gray-50">
+              <Sidebar />
+              <main className="flex-1 overflow-auto flex flex-col">
+                <WorkspaceSwitcher />
+                <div className="flex-1 overflow-auto">
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/tasks" element={<TaskBoard />} />
+                    <Route path="/chat" element={<Chat />} />
+                    <Route path="/activity" element={<ActivityLog />} />
+                    <Route path="/templates" element={<Templates />} />
+                    <Route path="/knowledge" element={<KnowledgeBase />} />
+                    <Route path="/memory" element={<Memory />} />
+                    <Route path="/settings" element={<Settings />} />
+                  </Routes>
+                </div>
+              </main>
+            </div>
+          </RequireAuth>
+        }
+      />
+    </Routes>
+  )
+}

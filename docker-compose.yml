@@ -1,0 +1,163 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    networks:
+      - spawnhive-net
+
+  api:
+    build: ./backend
+    expose:
+      - "8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/tests:/app/tests
+      - ./backend/pytest.ini:/app/pytest.ini
+      - ./backend/requirements-dev.txt:/app/requirements-dev.txt
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - QDRANT_URL=http://qdrant:6333
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - DATA_DIR=/data
+      - HOST_DATA_DIR=${PWD}/data
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - spawnhive-net
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  orchestrator:
+    build: ./backend
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+      - ./backend/app:/app/app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - QDRANT_URL=http://qdrant:6333
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - DATA_DIR=/data
+      - HOST_DATA_DIR=${PWD}/data
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - spawnhive-net
+    command: python -m app.workers.orchestrator_main
+
+  scheduler:
+    build: ./backend
+    volumes:
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+      - ./backend/app:/app/app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - REDIS_URL=redis://redis:6379/0
+      - DATA_DIR=/data
+      - HOST_DATA_DIR=${PWD}/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - spawnhive-net
+    command: python -m app.workers.scheduler_main
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+    depends_on:
+      - nginx
+    networks:
+      - spawnhive-net
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=spawnhive
+      - POSTGRES_USER=spawnhive
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spawnhive"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spawnhive-net
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrantdata:/qdrant/storage
+    networks:
+      - spawnhive-net
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9001:9001"
+    networks:
+      - spawnhive-net
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - spawnhive-net
+
+volumes:
+  pgdata:
+  qdrantdata:
+  miniodata:
+
+networks:
+  spawnhive-net:
+    driver: bridge

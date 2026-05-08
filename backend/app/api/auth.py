@@ -1,0 +1,167 @@
+import re
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_user
+from app.auth.security import create_access_token, hash_password, verify_password
+from app.config import get_settings
+from app.database import get_db
+from app.models.template import Template
+from app.models.user import User
+from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace, WorkspaceMember
+
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9-]+")
+
+
+def _slugify(s: str) -> str:
+    return _SLUG_RE.sub("-", s.lower()).strip("-") or "ws"
+
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class WorkspaceOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    role: str
+
+
+class UserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    display_name: str | None
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserOut
+    default_workspace_id: uuid.UUID
+
+
+@router.post("/register", response_model=TokenOut)
+async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
+
+    user = User(
+        email=body.email,
+        password_hash=hash_password(body.password),
+        display_name=body.display_name or body.email.split("@")[0],
+    )
+    db.add(user)
+    await db.flush()
+
+    base_slug = _slugify(user.display_name or "ws")
+    slug = base_slug
+    n = 1
+    while True:
+        clash = await db.execute(select(Workspace).where(Workspace.slug == slug))
+        if not clash.scalar_one_or_none():
+            break
+        n += 1
+        slug = f"{base_slug}-{n}"
+
+    workspace = Workspace(name=user.display_name or "Personal", slug=slug, created_by=user.id)
+    db.add(workspace)
+    await db.flush()
+
+    db.add(WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role="owner"))
+
+    # Seed the new workspace with copies of the default workspace's templates.
+    defaults = (
+        await db.execute(
+            select(Template).where(Template.workspace_id == DEFAULT_WORKSPACE_ID)
+        )
+    ).scalars().all()
+    for t in defaults:
+        db.add(Template(
+            name=t.name,
+            description=t.description,
+            soul_md=t.soul_md,
+            model=t.model,
+            provider_url=t.provider_url,
+            provider_api_key=t.provider_api_key,
+            tools=list(t.tools or []),
+            mcp_servers=list(t.mcp_servers or []),
+            max_ram=t.max_ram,
+            max_cpu=t.max_cpu,
+            timeout_minutes=t.timeout_minutes,
+            tags=list(t.tags or []),
+            workspace_id=workspace.id,
+        ))
+
+    await db.commit()
+
+    settings = get_settings()
+    return TokenOut(
+        access_token=create_access_token(user.id, workspace.id),
+        expires_in=settings.jwt_expires_minutes * 60,
+        user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+        default_workspace_id=workspace.id,
+    )
+
+
+@router.post("/login", response_model=TokenOut)
+async def login(body: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active or not verify_password(body.password, user.password_hash or ""):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+
+    membership = await db.execute(
+        select(WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == user.id)
+        .order_by(WorkspaceMember.created_at)
+        .limit(1)
+    )
+    default_ws = membership.scalar_one_or_none()
+    if not default_ws:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "user has no workspace")
+
+    settings = get_settings()
+    return TokenOut(
+        access_token=create_access_token(user.id, default_ws),
+        expires_in=settings.jwt_expires_minutes * 60,
+        user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+        default_workspace_id=default_ws,
+    )
+
+
+@router.get("/me")
+async def me(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await db.execute(
+        select(Workspace, WorkspaceMember.role)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user.id)
+    )
+    workspaces = [
+        {"id": ws.id, "name": ws.name, "slug": ws.slug, "role": role}
+        for ws, role in result.all()
+    ]
+    return {
+        "user": {"id": user.id, "email": user.email, "display_name": user.display_name},
+        "workspaces": workspaces,
+    }

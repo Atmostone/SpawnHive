@@ -1,0 +1,301 @@
+import { authHeaders, useAuth } from '../stores/auth'
+
+const BASE = '/api'
+
+class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const isFormData = options?.body instanceof FormData
+  const headers: Record<string, string> = { ...(authHeaders() as Record<string, string>) }
+  if (!isFormData) headers['Content-Type'] = 'application/json'
+  if (options?.headers) {
+    for (const [k, v] of Object.entries(options.headers as Record<string, string>)) {
+      headers[k] = v
+    }
+  }
+  const res = await fetch(`${BASE}${path}`, { ...options, headers })
+  if (!res.ok) {
+    if (res.status === 401) {
+      useAuth.getState().logout()
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.assign('/login')
+      }
+    }
+    const text = await res.text()
+    throw new ApiError(res.status, text)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+// Auth
+export const authApi = {
+  login: (data: { email: string; password: string }) =>
+    request<{
+      access_token: string
+      token_type: string
+      expires_in: number
+      user: { id: string; email: string; display_name?: string | null }
+      default_workspace_id: string
+    }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  register: (data: { email: string; password: string; display_name?: string }) =>
+    request<{
+      access_token: string
+      token_type: string
+      expires_in: number
+      user: { id: string; email: string; display_name?: string | null }
+      default_workspace_id: string
+    }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  me: () =>
+    request<{
+      user: { id: string; email: string; display_name?: string | null }
+      workspaces: { id: string; name: string; slug: string; role: string }[]
+    }>('/auth/me'),
+}
+
+// Tasks
+export const tasksApi = {
+  list: (params?: { status?: string; parent_id?: string }) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString()
+    return request<Task[]>(`/tasks${qs ? `?${qs}` : ''}`)
+  },
+  get: (id: string) => request<Task & { subtasks: Task[] }>(`/tasks/${id}`),
+  create: (data: { title: string; description?: string; priority?: string }) =>
+    request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Task>) =>
+    request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  approve: (id: string) =>
+    request<Task>(`/tasks/${id}/approve`, { method: 'PATCH' }),
+  reject: (id: string, feedback: string) =>
+    request<Task>(`/tasks/${id}/reject`, { method: 'PATCH', body: JSON.stringify({ feedback }) }),
+  delete: (id: string) =>
+    request<{ status: string }>(`/tasks/${id}`, { method: 'DELETE' }),
+}
+
+// Templates
+export const templatesApi = {
+  list: () => request<Template[]>('/templates'),
+  get: (id: string) => request<Template>(`/templates/${id}`),
+  create: (data: Omit<Template, 'id' | 'created_at' | 'updated_at'>) =>
+    request<Template>('/templates', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Template>) =>
+    request<Template>(`/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    request<{ status: string }>(`/templates/${id}`, { method: 'DELETE' }),
+}
+
+// Agents
+export const agentsApi = {
+  list: () => request<Agent[]>('/agents'),
+  get: (id: string) => request<Agent>(`/agents/${id}`),
+  kill: (id: string) =>
+    request<{ status: string }>(`/agents/${id}/kill`, { method: 'POST' }),
+  killAll: () =>
+    request<{ status: string; killed: number }>('/agents/kill-all', { method: 'POST' }),
+}
+
+// Events
+export const eventsApi = {
+  list: (params?: { task_id?: string; event_type?: string; source?: string; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => { if (v != null) qs.set(k, String(v)) })
+    }
+    const qstr = qs.toString()
+    return request<AgentEvent[]>(`/events${qstr ? `?${qstr}` : ''}`)
+  },
+}
+
+// Settings
+export const settingsApi = {
+  get: () => request<Record<string, unknown>>('/settings'),
+  update: (data: Record<string, unknown>) =>
+    request<{ status: string }>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  testLlm: (data: { llm_base_url?: string; llm_api_key?: string; llm_model?: string }) =>
+    request<{ status: string; latency_ms?: number; sample?: string; error?: string }>(
+      '/settings/test-llm', { method: 'POST', body: JSON.stringify(data) },
+    ),
+}
+
+// Knowledge
+export interface KnowledgeDocument {
+  id: string
+  filename: string
+  chunk_count: number
+  created_at: string
+}
+
+export interface KnowledgeSearchResult {
+  text: string
+  filename: string
+  score: number
+}
+
+export const knowledgeApi = {
+  reset: () =>
+    request<{ docs_deleted: number; s3_objects_removed: number; memory_entities_deleted?: number }>(
+      '/knowledge/reset', { method: 'POST' },
+    ),
+  getRules: () => request<{ content: string }>('/knowledge/rules'),
+  putRules: (content: string) =>
+    request<{ status: string }>('/knowledge/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  getMemory: () => request<{ content: string }>('/knowledge/memory'),
+  putMemory: (content: string) =>
+    request<{ status: string }>('/knowledge/memory', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  listDocuments: () => request<KnowledgeDocument[]>('/knowledge/documents'),
+  uploadDocument: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request<{ id: string; filename: string; chunk_count: number }>(
+      '/knowledge/documents',
+      { method: 'POST', body: fd },
+    )
+  },
+  deleteDocument: (id: string) =>
+    request<{ status: string }>(`/knowledge/documents/${id}`, { method: 'DELETE' }),
+  search: (query: string, limit = 5) =>
+    request<{ results: KnowledgeSearchResult[] }>('/knowledge/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
+    }),
+}
+
+// Chat
+export interface ChatMessage {
+  id?: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at?: string
+}
+
+export const chatApi = {
+  history: (limit = 50) => request<ChatMessage[]>(`/chat/history?limit=${limit}`),
+}
+
+// Memory
+import type { MemoryEntity, MemoryEntityDetail, MemoryRelation } from '../types'
+
+export const memoryApi = {
+  listEntities: (params?: { type?: string; search?: string; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => { if (v != null) qs.set(k, String(v)) })
+    }
+    const qstr = qs.toString()
+    return request<MemoryEntity[]>(`/memory/entities${qstr ? `?${qstr}` : ''}`)
+  },
+  getEntity: (id: string) => request<MemoryEntityDetail>(`/memory/entities/${id}`),
+  createEntity: (data: { type: string; name: string; attributes?: Record<string, unknown> }) =>
+    request<MemoryEntity>('/memory/entities', { method: 'POST', body: JSON.stringify(data) }),
+  updateEntity: (id: string, data: Partial<MemoryEntity>) =>
+    request<MemoryEntity>(`/memory/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEntity: (id: string) => request<void>(`/memory/entities/${id}`, { method: 'DELETE' }),
+  listRelations: (params?: { from_id?: string; to_id?: string; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => { if (v != null) qs.set(k, String(v)) })
+    }
+    const qstr = qs.toString()
+    return request<MemoryRelation[]>(`/memory/relations${qstr ? `?${qstr}` : ''}`)
+  },
+  createRelation: (data: { from_id: string; to_id: string; relation_type: string; attributes?: Record<string, unknown> }) =>
+    request<MemoryRelation>('/memory/relations', { method: 'POST', body: JSON.stringify(data) }),
+  deleteRelation: (id: string) => request<void>(`/memory/relations/${id}`, { method: 'DELETE' }),
+  extract: (taskId: string) =>
+    request<{ status: string; task_id: string }>(
+      `/memory/extract?task_id=${encodeURIComponent(taskId)}`,
+      { method: 'POST' },
+    ),
+}
+
+// Health
+export const healthApi = {
+  check: () => request<HealthStatus>('/health'),
+}
+
+// WebSocket helper — adds ?token=&workspace_id= to authenticated WS endpoints.
+export function buildWsUrl(path: string): string {
+  const { token, workspaceId } = useAuth.getState()
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = new URL(`${proto}//${window.location.host}${path}`)
+  if (token) url.searchParams.set('token', token)
+  if (workspaceId) url.searchParams.set('workspace_id', workspaceId)
+  return url.toString()
+}
+
+// Types (local to API layer)
+interface Task {
+  id: string
+  parent_id?: string | null
+  title: string
+  description?: string | null
+  status: string
+  priority: string
+  template_id?: string | null
+  agent_container_id?: string | null
+  result_summary?: string | null
+  result_files: string[]
+  token_usage: Record<string, number>
+  retry_count: number
+  max_retries: number
+  user_feedback?: string | null
+  orchestrator_feedback?: string | null
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  completed_at?: string | null
+}
+
+interface Template {
+  id: string
+  name: string
+  description: string
+  soul_md: string
+  model: string
+  tools: string[]
+  mcp_servers: { name: string; command: string; args: string[]; env?: Record<string, string> }[]
+  max_ram: string
+  max_cpu: number
+  timeout_minutes: number
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+interface Agent {
+  container_id: string
+  name: string
+  status: string
+  task_id: string
+  template_id: string
+  template_name: string
+  created: string
+}
+
+interface AgentEvent {
+  id: number
+  task_id?: string | null
+  agent_container_id?: string | null
+  event_type: string
+  source: string
+  data: Record<string, unknown>
+  created_at: string
+}
+
+interface HealthStatus {
+  status: string
+  version: string
+  services: Record<string, string>
+}
