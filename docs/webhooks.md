@@ -124,3 +124,7 @@ Internally it is normalised to `input_tokens / output_tokens`. The agent uses `i
 ## OpenAPI
 
 Available at `/openapi.json`. The discriminated union is rendered as `oneOf` with the `event` discriminator.
+
+## Sister channel — `POST /api/v1/agent-log/{task_id}` (Foundations Этапы 1–2)
+
+Same auth model (`Authorization: Bearer <SPAWNHIVE_AGENT_TOKEN>` + `idempotency_key`), separate idempotency table (`agent_log_deliveries`). The agent posts full tool stdout/stderr in chunks here while keeping the existing `agent_progress` webhook (with the 500-char `recent_output` ticker) untouched — the dashboard live-status uses progress, the task-drawer log viewer uses log chunks. After event=completed/failed/aborted the webhook handler compacts chunks to a MinIO blob and prunes `agent_log_chunks`. See `docs/architecture.md` (`Frontend / Tasks (AgentLogViewer)`) and `docs/data-model.md` (`agent_log_chunks`, `agent_log_deliveries`, `tasks.log_archive_s3_path`).

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tasksApi, eventsApi } from '@/api/client'
-import { X, Check, RotateCcw, FileText, Clock, Play, Download } from 'lucide-react'
+import { X, Check, RotateCcw, Clock, Play, Download } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import type { Task } from '@/types'
 import { PRIORITY_COLORS, TASK_STATUS_LABELS, SOURCE_COLORS } from '@/types'
 import { cn } from '@/lib/utils'
+import ReasoningTimeline from './ReasoningTimeline'
+import AgentLogViewer from './AgentLogViewer'
 
 interface TaskDetailProps {
   task: Task
@@ -93,7 +95,19 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
         {/* Files */}
         {t.result_files && t.result_files.length > 0 && (
           <div>
-            <h3 className="text-sm font-medium text-gray-500 mb-1">Files</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-medium text-gray-500">Files</h3>
+              {t.result_files.length > 1 && (
+                <a
+                  href={`/api/tasks/${t.id}/files.zip`}
+                  download
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                >
+                  <Download className="h-3 w-3" />
+                  Скачать все ({t.result_files.length})
+                </a>
+              )}
+            </div>
             <div className="space-y-1">
               {t.result_files.map((f: string) => {
                 const fileName = f.split('/').pop() || f
@@ -180,6 +194,12 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
               </div>
             )}
           </div>
+        )}
+
+        <ReasoningTimeline events={events} />
+
+        {['in_progress', 'review', 'awaiting_approval', 'done', 'failed'].includes(t.status) && (
+          <AgentLogViewer taskId={t.id} archived={!!t.log_archive_s3_path} />
         )}
 
         {/* Event log */}

@@ -1,8 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tasksApi, agentsApi } from '@/api/client'
-import { Activity, Bot, CheckCircle, Clock, Skull, Zap } from 'lucide-react'
-import type { Agent } from '@/types'
-import { formatDistanceToNow } from 'date-fns'
+import { Activity, Bot, CheckCircle, Clock, Zap } from 'lucide-react'
+import AgentCard from '@/components/agents/AgentCard'
 
 function StatCard({ label, value, icon: Icon, color }: { label: string; value: number | string; icon: React.ElementType; color: string }) {
   return (
@@ -13,38 +12,6 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: n
       <div>
         <p className="text-sm text-gray-500">{label}</p>
         <p className="text-2xl font-bold">{value}</p>
-      </div>
-    </div>
-  )
-}
-
-function AgentCard({ agent, onKill }: { agent: Agent; onKill: (id: string) => void }) {
-  return (
-    <div className="bg-white rounded-lg border p-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-blue-50">
-          <Bot className="h-5 w-5 text-blue-600" />
-        </div>
-        <div>
-          <p className="font-medium text-sm">{agent.name}</p>
-          <p className="text-xs text-gray-500">{agent.template_name}</p>
-          <p className="text-xs text-gray-400">
-            Task: {agent.task_id?.slice(0, 8)}...
-            {agent.created && ` | ${formatDistanceToNow(new Date(agent.created))} ago`}
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-          {agent.status}
-        </span>
-        <button
-          onClick={() => onKill(agent.container_id)}
-          className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
-          title="Kill agent"
-        >
-          <Skull className="h-4 w-4" />
-        </button>
       </div>
     </div>
   )

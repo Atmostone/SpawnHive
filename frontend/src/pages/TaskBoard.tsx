@@ -27,7 +27,7 @@ export default function TaskBoard() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: TaskStatus }) =>
       tasksApi.update(id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   })
@@ -61,7 +61,7 @@ export default function TaskBoard() {
     // Don't allow dragging in_progress tasks back to backlog
     if (task.status === 'in_progress' && newStatus === 'backlog') return
 
-    updateMutation.mutate({ id: taskId, status: newStatus })
+    updateMutation.mutate({ id: taskId, status: newStatus as TaskStatus })
   }
 
   return (

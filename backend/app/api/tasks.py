@@ -270,3 +270,44 @@ async def download_task_file(
         )
     except Exception:
         raise HTTPException(status_code=404, detail="File not found")
+
+
+@router.get("/{task_id}/files.zip")
+async def download_task_files_zip(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a ZIP archive containing every result file for this task."""
+    import io
+    import zipfile
+
+    task = await _get_scoped_task(task_id, workspace, db)
+    files = list(task.result_files or [])
+    if not files:
+        raise HTTPException(status_code=404, detail="No files for this task")
+
+    from app.storage.minio_client import get_file_stream
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for s3_path in files:
+            arcname = s3_path.split("/", 2)[-1] if "/" in s3_path else s3_path
+            try:
+                stream = get_file_stream(s3_path)
+                try:
+                    zf.writestr(arcname, stream.read())
+                finally:
+                    stream.close()
+                    stream.release_conn()
+            except Exception:
+                # Skip missing/unreadable files rather than failing the whole archive.
+                continue
+    buf.seek(0)
+
+    fname = f"task_{task_id[:8]}_files.zip"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )

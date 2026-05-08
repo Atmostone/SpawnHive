@@ -249,6 +249,47 @@ After R1 every table except `users`/`workspaces`/`workspace_members`/`settings` 
 
 `list_agents(workspace_id)` / `kill_agent(... workspace_id)` / `kill_all_agents(workspace_id)` filter by that label. Cross-workspace `kill-all` is not allowed.
 
+## Frontend
+
+| Page | Route | What it shows |
+|------|-------|---------------|
+| Dashboard | `/` | Live task counters + active agents (extends to per-agent live data via `/ws/agents/{cid}`) |
+| Task Board | `/tasks` | Kanban over `tasks` rows; opens `TaskDetail` with reasoning timeline + **agent terminal log viewer** + events |
+| Chat | `/chat` | Orchestrator chat (slash commands, `/ws/chat`) |
+| Activity Log | `/activity` | Raw `agent_events` feed with filters |
+| Analytics | `/analytics` | Aggregated metrics over tasks: per-template table + chart, daily timeline, per-model breakdown, A/B compare view. Data comes from the existing `/api/analytics/{templates,timeline,models}` endpoints; no new backend code (see `backend/app/api/analytics.py`). Charts via `recharts`. |
+| Graph | `/graph` | Visual A2A communication graph: orchestrator + per-`agent_container_id` nodes, edges aggregated by direction with per-edge event counts, layout toggle (Force / Hierarchical via `dagre` / Circular), 24h timeline scrubber + Play/Pause + speed (1x/5x/30x). |
+| Templates | `/templates` | CRUD on `templates` (model, tools, MCP servers, soul.md) |
+| Knowledge Base | `/knowledge` | RAG document upload + rules.md / memory.md editors |
+| Memory | `/memory` | Memory entities and relations browser |
+| Settings | `/settings` | Runtime settings + System (admin-only block) |
+
+All routes share the `RequireAuth` wrapper in `App.tsx`; sidebar entries are defined in `components/layout/Sidebar.tsx`.
+
+### Frontend / Tasks (`AgentLogViewer`)
+
+`TaskDetail.tsx` mounts `<AgentLogViewer taskId={t.id} archived={!!t.log_archive_s3_path} />` between `<ReasoningTimeline>` and the Events section, but only when the task has reached `in_progress`/`review`/`awaiting_approval`/`done`/`failed` (statuses where an agent has actually run).
+
+- **Initial load** — `GET /api/tasks/{id}/log?limit=200`. Response carries `archived: bool`. While the task is active it returns DB chunks; after `event=completed/failed/aborted` the orchestrator compacts to MinIO blob (`s3://spawnhive/logs/<task_id>.log`), DELETEs DB chunks, and the same GET transparently reads from the blob with the same per-chunk shape.
+- **Live updates** — opens `WebSocket(/ws/tasks/{id}/log)` via `buildWsUrl`. Frames have wire `type: "log_chunk"` and `_kind: "log_chunk"` filter so the existing `/ws/events` and `/ws/agents/{cid}` subscribers don't accidentally receive them. Component skips WS subscription entirely once `archived=true`.
+- **Virtualization** — `react-virtuoso` `<Virtuoso>` renders only viewport-visible chunks (verified ~6 of 15 rendered at any time within the 360 px container). `followOutput="auto"` auto-scrolls to bottom on append unless the user scrolls up; toggleable via `follow` checkbox.
+- **Pagination** — "Load earlier" button when initial response returned exactly `PAGE_SIZE` items; refetches `?from_seq=` to walk backward without losing append-from-bottom.
+- **Dedup** — incoming WS events checked against `seenIds` (DB-rowed) and `seenSeq` (chunk_seq) to handle WS-after-REST overlap.
+- **`vite.config.ts`** — `optimizeDeps.include` extended with `react-virtuoso` (same React-context duplication pattern as `recharts`/`reactflow`/`dagre`).
+
+### Frontend / Graph (`/graph`)
+
+The page combines a 24h history replay with a live WS feed:
+
+- **Initial load** — `GET /api/events?from_dt=<now-24h ISO>&limit=1000` (the `from_dt` / `to_dt` params on `eventsApi.list()` are typed in `api/client.ts`; backend already supports them).
+- **Live updates** — opens `WebSocket(/ws/events)` (via `buildWsUrl`, same auth/workspace pattern as Activity Log). Each `{type:'event', ...}` frame is appended to the local store; cap is 5000 newest events. On disconnect: 2000 ms reconnect.
+- **Aggregation** — every event with `agent_container_id` produces a directed edge: `source==='agent'` → `agent → orchestrator`, otherwise → `orchestrator → agent`. Edges are deduped per (from,to); the label shows the running event count, the color follows the *latest* event type on that edge.
+- **Edge color legend** — blue: `agent_message` / `task_status_changed`. Green: `agent_completed` / `agent_progress`. Orange: `orchestrator_decision` / `orchestrator_feedback`. Red: `agent_failed` / `agent_killed` / `agent_aborted`. Gray: everything else (heartbeats, reasoning, etc.).
+- **Layout toggle** — `Force` (radial, busier agents pulled closer to center, math-only — no physics lib), `Hierarchical` (`dagre` TB layout, orchestrator on top), `Circular` (orchestrator at center, agents on a circle). Files: `frontend/src/components/graph/{GraphCanvas,EventEdgeAnim,TimelineSlider,NodeDetailsPanel}.tsx` and `pages/Graph.tsx`.
+- **Timeline scrubber** — `<input type="range">` over `[now-24h, now]`. The right edge advances every 30 s and on every WS event. When the slider sits within 1 s of the right edge it is treated as `LIVE` and the cursor follows new events; scrubbing left flips it to `PAUSED`. Play/Pause + 1x/5x/30x speeds replay history forward; reaching the right edge auto-pauses and re-enters live mode.
+- **Edge pulse** — incoming WS events trigger a 600 ms pulse animation on the matching edge (custom reactflow `eventEdge` type, CSS keyframes).
+- **`vite.config.ts`** — `optimizeDeps.include` extended with `reactflow` and `dagre` (same React-context duplication pattern that `recharts` already uses).
+
 ## Known architectural limitations
 
 See `workarounds.md` (migrated from the legacy root `WORKAROUNDS.md`) and `production-readiness-tz.md`.

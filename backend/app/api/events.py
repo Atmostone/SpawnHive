@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -47,6 +47,7 @@ async def list_events(
     task_id: Optional[str] = None,
     event_type: Optional[str] = None,
     source: Optional[str] = None,
+    agent_container_id: Optional[str] = None,
     from_dt: Optional[str] = None,
     to_dt: Optional[str] = None,
     limit: int = 100,
@@ -61,14 +62,22 @@ async def list_events(
         query = query.where(AgentEvent.event_type == event_type)
     if source:
         query = query.where(AgentEvent.source == source)
+    if agent_container_id:
+        query = query.where(AgentEvent.agent_container_id == agent_container_id)
     if from_dt:
         try:
-            query = query.where(AgentEvent.created_at >= datetime.fromisoformat(from_dt))
+            dt = datetime.fromisoformat(from_dt.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            query = query.where(AgentEvent.created_at >= dt)
         except ValueError:
             raise HTTPException(status_code=400, detail="from_dt must be ISO-8601")
     if to_dt:
         try:
-            query = query.where(AgentEvent.created_at <= datetime.fromisoformat(to_dt))
+            dt = datetime.fromisoformat(to_dt.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            query = query.where(AgentEvent.created_at <= dt)
         except ValueError:
             raise HTTPException(status_code=400, detail="to_dt must be ISO-8601")
     query = query.order_by(AgentEvent.created_at.desc()).offset(offset).limit(limit)

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -241,12 +242,57 @@ async def _process_webhook(
     for ev in pending_events:
         await broadcast_committed_event(ev)
 
-    # 6. Cross-task fan-out — happens AFTER commit so it sees the durable state.
+    # 6. Compact agent log chunks → MinIO blob on terminal events. Best-effort:
+    # failure leaves chunks in DB and `log_archive_s3_path` NULL, so the next
+    # webhook delivery (or manual replay) can retry compaction.
+    if event in ("completed", "failed", "aborted"):
+        try:
+            await _compact_agent_log(db, task)
+        except Exception as e:
+            logger.warning(f"agent log compaction failed for task {task.id}: {e}")
+
+    # 7. Cross-task fan-out — happens AFTER commit so it sees the durable state.
     if event == "completed" and task.status == TaskStatus.AWAITING_APPROVAL.value:
         asyncio.create_task(extract_memory(task.id))
     await check_parent_task_completion(db, task)
 
     return {"status": "ok"}
+
+
+async def _compact_agent_log(db: AsyncSession, task: Task) -> None:
+    """Concatenate all agent_log_chunks for this task → MinIO blob, then prune from DB.
+
+    Uses '\\n\\u241E\\n' (record-separator + newline padding) as a chunk
+    delimiter so the GET-from-archive path can still split per-chunk for the
+    UI. Atomic: upload first, set s3_path, DELETE rows in same transaction —
+    if upload fails, nothing changes.
+    """
+    from app.models.agent_log import AgentLogChunk
+    from app.storage.minio_client import upload_log_archive
+
+    if task.log_archive_s3_path:
+        return  # idempotent — already compacted on a prior delivery
+
+    result = await db.execute(
+        select(AgentLogChunk)
+        .where(AgentLogChunk.task_id == task.id)
+        .order_by(AgentLogChunk.chunk_seq)
+    )
+    chunks = result.scalars().all()
+    if not chunks:
+        return
+
+    blob = "\n␞\n".join(c.content for c in chunks).encode("utf-8")
+    s3_path = upload_log_archive(str(task.id), blob)
+
+    task.log_archive_s3_path = s3_path
+    await db.execute(
+        AgentLogChunk.__table__.delete().where(AgentLogChunk.task_id == task.id)
+    )
+    await db.commit()
+    logger.info(
+        f"Compacted {len(chunks)} log chunks for task {task.id} → {s3_path}"
+    )
 
 
 @router.post("/api/v1/agent-webhook/{task_id}")

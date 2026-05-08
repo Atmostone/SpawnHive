@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard'
 import TaskBoard from './pages/TaskBoard'
 import Chat from './pages/Chat'
 import ActivityLog from './pages/ActivityLog'
+import Analytics from './pages/Analytics'
+import Graph from './pages/Graph'
 import Templates from './pages/Templates'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Memory from './pages/Memory'
@@ -39,6 +41,8 @@ export default function App() {
                     <Route path="/tasks" element={<TaskBoard />} />
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/activity" element={<ActivityLog />} />
+                    <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/graph" element={<Graph />} />
                     <Route path="/templates" element={<Templates />} />
                     <Route path="/knowledge" element={<KnowledgeBase />} />
                     <Route path="/memory" element={<Memory />} />

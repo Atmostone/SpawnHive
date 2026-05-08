@@ -8,6 +8,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    include: ['recharts', 'reactflow', 'dagre', 'react-virtuoso', 'react', 'react-dom'],
   },
   server: {
     host: '0.0.0.0',

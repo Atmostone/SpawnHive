@@ -19,6 +19,7 @@ from app.api.knowledge import router as knowledge_router
 from app.api.memory import router as memory_router
 from app.api.analytics import router as analytics_router
 from app.api.scheduled_jobs import router as scheduled_jobs_router
+from app.api.agent_logs import router as agent_logs_router, ws_router as agent_logs_ws_router
 from app.config import get_settings
 from app.database import async_session
 from app.models.setting import Setting
@@ -204,3 +205,5 @@ app.include_router(knowledge_router)
 app.include_router(memory_router)
 app.include_router(analytics_router)
 app.include_router(scheduled_jobs_router)
+app.include_router(agent_logs_router)
+app.include_router(agent_logs_ws_router)

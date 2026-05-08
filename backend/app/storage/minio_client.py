@@ -55,3 +55,32 @@ def get_file_stream(s3_path: str):
     """Get a file stream from MinIO."""
     client = get_minio_client()
     return client.get_object(BUCKET, s3_path)
+
+
+def upload_log_archive(task_id: str, content: bytes) -> str:
+    """Upload compacted agent log to MinIO. Returns the s3 path."""
+    client = get_minio_client()
+    ensure_bucket()
+    import io
+
+    s3_path = f"logs/{task_id}.log"
+    client.put_object(
+        BUCKET,
+        s3_path,
+        io.BytesIO(content),
+        length=len(content),
+        content_type="text/plain",
+    )
+    logger.info(f"Uploaded agent log -> s3://{BUCKET}/{s3_path} ({len(content)} bytes)")
+    return s3_path
+
+
+def read_log_archive(s3_path: str) -> bytes:
+    """Read a compacted agent log blob. Returns raw bytes."""
+    client = get_minio_client()
+    obj = client.get_object(BUCKET, s3_path)
+    try:
+        return obj.read()
+    finally:
+        obj.close()
+        obj.release_conn()

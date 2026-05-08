@@ -29,6 +29,8 @@ b8c9d0e1f2a3  template_versions (P14)
 c9d0e1f2a3b4  users + workspaces + workspace_members + service_tokens; NOT NULL workspace_id everywhere (R1)
      ↓
 d0e1f2a3b4c5  webhook_deliveries (R2)
+     ↓
+e1f2a3b4c5d6  agent_log_chunks + agent_log_deliveries + tasks.log_archive_s3_path
 ```
 
 ## Tables
@@ -265,6 +267,39 @@ Stores the `(task_id, idempotency_key)` pairs that have already been processed; 
 | received_at | TIMESTAMP | |
 
 Unique: `(task_id, idempotency_key)`.
+
+### agent_log_chunks (Foundations Этап 1)
+
+Append-only stream of full agent stdout/stderr per tool call. Replaces the 500-char `recent_output` ticker for browseable history.
+
+| Column | Type | |
+|--------|------|--|
+| id | UUID PK | |
+| task_id | UUID FK→tasks.id ON DELETE CASCADE | |
+| workspace_id | UUID FK→workspaces.id ON DELETE CASCADE | |
+| chunk_seq | int | per-task monotonically increasing, UNIQUE `(task_id, chunk_seq)` |
+| content | TEXT | ≤256 KB per row (Pydantic-enforced) |
+| tool_name | VARCHAR(255) NULL | bash / file_read / mcp tool name |
+| created_at | TIMESTAMP | |
+
+Indexes: `(task_id, chunk_seq)`, `workspace_id`. After event=completed/failed/aborted the orchestrator concatenates rows → MinIO blob `s3://spawnhive/logs/<task_id>.log`, sets `tasks.log_archive_s3_path`, and DELETEs all chunks (best-effort, atomic).
+
+### agent_log_deliveries (Foundations Этап 1)
+
+Per-chunk idempotency table. Mirror of `webhook_deliveries`.
+
+| Column | Type | |
+|--------|------|--|
+| id | UUID PK | |
+| task_id | UUID FK→tasks.id ON DELETE CASCADE | |
+| idempotency_key | VARCHAR(64) | |
+| received_at | TIMESTAMP | |
+
+Unique: `(task_id, idempotency_key)`.
+
+### tasks.log_archive_s3_path (Foundations Этап 2)
+
+Added to `tasks`: `VARCHAR(500) NULL`. NULL while task is active or never had any chunks; populated to `logs/<task_id>.log` after compaction. GET `/api/tasks/{id}/log` branches on this column.
 
 ## Invariants
 

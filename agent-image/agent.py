@@ -192,6 +192,49 @@ async def _send_progress(payload: dict) -> None:
         logger.debug(f"progress webhook failed (suppressed): {e}")
 
 
+# Per-tool-call max chunk size — must stay below the backend's 256 KB Pydantic
+# cap. Larger tool outputs are split into N consecutive chunks by chunk_seq.
+LOG_CHUNK_MAX_BYTES = 240 * 1024
+
+
+async def _send_log_chunk(content: str, tool_name: str | None, seq_iter: list[int]) -> None:
+    """POST /api/v1/agent-log/{task_id} — full-output streaming.
+
+    `seq_iter` is a single-element list used as a mutable counter shared with
+    the caller (each tool invocation increments it). Long outputs are split
+    into multiple consecutive chunks so each POST stays under the backend cap.
+    """
+    base_url = os.environ.get("API_BASE_URL", "http://api:8000")
+    task_id = os.environ.get("TASK_ID", "")
+    token = os.environ.get("SPAWNHIVE_AGENT_TOKEN", "")
+    if not task_id or not token:
+        return
+
+    pieces = [
+        content[i : i + LOG_CHUNK_MAX_BYTES]
+        for i in range(0, max(len(content), 1), LOG_CHUNK_MAX_BYTES)
+    ] or [""]
+
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{base_url}/api/v1/agent-log/{task_id}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for piece in pieces:
+                payload = {
+                    "chunk_seq": seq_iter[0],
+                    "content": piece,
+                    "tool_name": tool_name,
+                    "idempotency_key": uuid.uuid4().hex,
+                }
+                seq_iter[0] += 1
+                try:
+                    await client.post(url, json=payload, headers=headers)
+                except Exception as e:
+                    logger.debug(f"log chunk POST failed (suppressed): {e}")
+    except Exception as e:
+        logger.debug(f"log chunk transport failed (suppressed): {e}")
+
+
 async def _connect_mcp_servers(stack: AsyncExitStack, configs: list[dict]) -> tuple[list[dict], dict]:
     """Spawn each MCP server, harvest its tools. Returns (extra_tool_specs, name->session)."""
     from mcp import ClientSession, StdioServerParameters
@@ -291,6 +334,7 @@ async def run_agent() -> dict:
     total_output_tokens = 0
     max_iterations = 20
     last_progress_at = 0.0
+    log_chunk_seq = [0]
 
     async with AsyncExitStack() as stack:
         mcp_routing: dict = {}
@@ -402,6 +446,8 @@ async def run_agent() -> dict:
                         "tool_call_id": tool_call.id,
                         "content": str(result),
                     })
+
+                    await _send_log_chunk(str(result), fn.name, log_chunk_seq)
 
                     now = time.monotonic()
                     if now - last_progress_at >= PROGRESS_MIN_INTERVAL:

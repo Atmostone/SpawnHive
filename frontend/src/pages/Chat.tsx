@@ -84,8 +84,6 @@ function ToolResultBlock({ tool, content }: { tool: string; content: string }) {
 
 function MessageContent({ content }: { content: string }) {
   const segments = parseMessage(content)
-  const hasText = segments.some(s => s.type === 'text')
-  const hasTool = segments.some(s => s.type === 'tool')
   const onlyThinking = segments.every(s => s.type === 'thinking')
 
   // If message is only thinking with no text or tool result, show a minimal indicator

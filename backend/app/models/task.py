@@ -84,3 +84,4 @@ class Task(Base):
     )
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    log_archive_s3_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

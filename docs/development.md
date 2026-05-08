@@ -12,7 +12,7 @@ docker compose up -d
 docker compose exec api alembic upgrade head
 ```
 
-UI: http://localhost:3002 — Vite dev (HMR).
+UI: http://localhost:3002 — Vite dev (HMR). Frontend stack: React 18 + TypeScript + Vite + Tailwind + TanStack Query + Zustand + react-router-dom + reactflow + recharts (for the Analytics page).
 API: http://localhost:8001 — FastAPI behind nginx LB.
 OpenAPI: http://localhost:8001/docs.
 

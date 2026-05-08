@@ -29,6 +29,7 @@ export interface Task {
   model_used?: string | null
   cost_usd?: number | null
   depends_on?: string[] | null
+  log_archive_s3_path?: string | null
   created_at: string
   updated_at: string
   started_at?: string | null
@@ -121,6 +122,20 @@ export const KANBAN_COLUMNS: TaskStatus[] = [
   'done',
   'failed',
 ]
+
+export interface LogChunk {
+  id: string | null
+  chunk_seq: number
+  content: string
+  tool_name?: string | null
+  created_at: string | null
+}
+
+export interface LogChunksResponse {
+  archived: boolean
+  archive_path: string | null
+  chunks: LogChunk[]
+}
 
 export interface MemoryEntity {
   id: string

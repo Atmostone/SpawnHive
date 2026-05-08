@@ -117,9 +117,9 @@ export default function ActivityLog() {
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold text-gray-900">Activity Log</h1>
           {wsConnected ? (
-            <Wifi className="h-4 w-4 text-green-500" title="Real-time connected" />
+            <span title="Real-time connected"><Wifi className="h-4 w-4 text-green-500" /></span>
           ) : (
-            <WifiOff className="h-4 w-4 text-gray-400" title="Reconnecting..." />
+            <span title="Reconnecting..."><WifiOff className="h-4 w-4 text-gray-400" /></span>
           )}
         </div>
         <div className="flex items-center gap-2">

@@ -101,10 +101,18 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/events?task_id=&event_type=&source=&from_dt=&to_dt=&limit=&offset=` | Append-only log |
+| GET | `/api/events?task_id=&event_type=&source=&agent_container_id=&from_dt=&to_dt=&limit=&offset=` | Append-only log. `agent_container_id` filter narrows to a single agent (added for live agent-card and graph history-replay). |
 | GET | `/api/events/export/{task_id}` | JSON download covering the entire task lifecycle |
 | WS | `/ws/events` | Real-time. The client sends JSON `{task_id?, source?, event_type?, agent_container_id?}` to set filters. |
 | WS | `/ws/agents/{container_id}` | Events for a single container only (P12) |
+
+### Agent terminal logs (`/api/v1/agent-log`, `/api/tasks/{id}/log`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/agent-log/{task_id}` | Agent → orchestrator chunk ingest. Bearer agent_token + idempotency. Body: `{chunk_seq, content (≤256 KB), tool_name?, idempotency_key}`. Returns `{status: ok\|duplicate, chunk_seq}`. Auto-remap of chunk_seq on retry collision. |
+| GET | `/api/tasks/{task_id}/log?from_seq=&limit=` | Workspace-scoped paginated log. Branches by `tasks.log_archive_s3_path`: live → DB chunks; archived → MinIO blob. Returns `{archived, archive_path, chunks: [{id, chunk_seq, content, tool_name, created_at}]}`. |
+| WS | `/ws/tasks/{task_id}/log` | Live broadcast of new chunks. Filter `_kind=log_chunk`; payload mirrors GET-chunk shape with wire `type: "log_chunk"`. |
 
 ### Chat (`/api/chat`, `/ws/chat`)
 

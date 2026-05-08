@@ -91,6 +91,12 @@ export const templatesApi = {
 }
 
 // Agents
+export interface SwitchModelBody {
+  model?: string
+  base_url?: string
+  api_key?: string
+}
+
 export const agentsApi = {
   list: () => request<Agent[]>('/agents'),
   get: (id: string) => request<Agent>(`/agents/${id}`),
@@ -98,17 +104,43 @@ export const agentsApi = {
     request<{ status: string }>(`/agents/${id}/kill`, { method: 'POST' }),
   killAll: () =>
     request<{ status: string; killed: number }>('/agents/kill-all', { method: 'POST' }),
+  switchModel: (containerId: string, body: SwitchModelBody) =>
+    request<{ status: string }>(`/agents/${containerId}/switch_model`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }
 
 // Events
 export const eventsApi = {
-  list: (params?: { task_id?: string; event_type?: string; source?: string; limit?: number }) => {
+  list: (params?: {
+    task_id?: string
+    agent_container_id?: string
+    event_type?: string
+    source?: string
+    limit?: number
+    from_dt?: string
+    to_dt?: string
+  }) => {
     const qs = new URLSearchParams()
     if (params) {
       Object.entries(params).forEach(([k, v]) => { if (v != null) qs.set(k, String(v)) })
     }
     const qstr = qs.toString()
     return request<AgentEvent[]>(`/events${qstr ? `?${qstr}` : ''}`)
+  },
+}
+
+// Agent logs
+import type { LogChunksResponse } from '../types'
+
+export const logsApi = {
+  list: (taskId: string, params?: { from_seq?: number; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.from_seq != null) qs.set('from_seq', String(params.from_seq))
+    if (params?.limit != null) qs.set('limit', String(params.limit))
+    const qstr = qs.toString()
+    return request<LogChunksResponse>(`/tasks/${taskId}/log${qstr ? `?${qstr}` : ''}`)
   },
 }
 
@@ -220,6 +252,52 @@ export const memoryApi = {
     ),
 }
 
+// Analytics
+export interface TemplateAnalytics {
+  template_id: string
+  template_name: string
+  task_count: number
+  approval_rate: number
+  retry_rate: number
+  failure_rate: number
+  avg_time_seconds: number
+  avg_input_tokens: number
+  avg_output_tokens: number
+  total_cost_usd: number
+  cost_per_task_usd: number
+}
+
+export interface TimelinePoint {
+  date: string | null
+  task_count: number
+  total_cost_usd: number
+  total_tokens: number
+}
+
+export interface ModelAnalytics {
+  model: string
+  task_count: number
+  total_cost_usd: number
+  avg_input_tokens: number
+  avg_output_tokens: number
+}
+
+function analyticsQs(params: Record<string, string | number | undefined>): string {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v != null && v !== '') qs.set(k, String(v)) })
+  const s = qs.toString()
+  return s ? `?${s}` : ''
+}
+
+export const analyticsApi = {
+  templates: (params: { period?: string; from_dt?: string; to_dt?: string } = {}) =>
+    request<TemplateAnalytics[]>(`/analytics/templates${analyticsQs(params)}`),
+  timeline: (params: { days?: number } = {}) =>
+    request<TimelinePoint[]>(`/analytics/timeline${analyticsQs(params)}`),
+  models: (params: { period?: string } = {}) =>
+    request<ModelAnalytics[]>(`/analytics/models${analyticsQs(params)}`),
+}
+
 // Health
 export const healthApi = {
   check: () => request<HealthStatus>('/health'),
@@ -236,34 +314,14 @@ export function buildWsUrl(path: string): string {
 }
 
 // Types (local to API layer)
-interface Task {
-  id: string
-  parent_id?: string | null
-  title: string
-  description?: string | null
-  status: string
-  priority: string
-  template_id?: string | null
-  agent_container_id?: string | null
-  result_summary?: string | null
-  result_files: string[]
-  token_usage: Record<string, number>
-  retry_count: number
-  max_retries: number
-  user_feedback?: string | null
-  orchestrator_feedback?: string | null
-  created_at: string
-  updated_at: string
-  started_at?: string | null
-  completed_at?: string | null
-}
+import type { Task as Task } from '@/types'
 
 interface Template {
   id: string
   name: string
   description: string
   soul_md: string
-  model: string
+  model: string | null
   tools: string[]
   mcp_servers: { name: string; command: string; args: string[]; env?: Record<string, string> }[]
   max_ram: string

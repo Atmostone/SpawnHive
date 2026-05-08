@@ -106,6 +106,10 @@ async def update_event_client_filters(ws: WebSocket, filters: dict):
 def _event_matches_filter(event_dict: dict, filters: dict) -> bool:
     if not filters:
         return True
+    msg_kind = event_dict.get("_kind", "event")
+    expected_kind = filters.get("_kind", "event")
+    if msg_kind != expected_kind:
+        return False
     if filters.get("task_id") and str(event_dict.get("task_id") or "") != filters["task_id"]:
         return False
     if filters.get("source") and event_dict.get("source") != filters["source"]:
@@ -127,7 +131,8 @@ def _event_matches_filter(event_dict: dict, filters: dict) -> bool:
 
 async def _broadcast_event_local(event_dict: dict):
     """Fan out a single event to every locally-registered WS client matching the filter."""
-    message = json.dumps({"type": "event", **event_dict})
+    wire_type = event_dict.get("_kind", "event")
+    message = json.dumps({"type": wire_type, **event_dict})
     disconnected = []
 
     async with _lock:
@@ -237,6 +242,19 @@ async def _notify_event(event_type: str, data: dict, workspace_id: uuid.UUID) ->
         await get_notifier().notify(event_type, data, workspace_id)
     except Exception as e:
         logger.warning(f"Notifier dispatch failed: {e}")
+
+
+async def broadcast_log_chunk(chunk_dict: dict) -> None:
+    """Broadcast a log chunk via the same fan-out as agent_events.
+
+    Subscribers register with `_kind='log_chunk'` filter on `/ws/tasks/{task_id}/log`.
+    Default-kind subscribers (`/ws/events`, `/ws/agents/{cid}`) won't see it.
+    """
+    payload = {**chunk_dict, "_kind": "log_chunk"}
+    try:
+        await _broadcast_event(payload)
+    except Exception as e:
+        logger.warning(f"Log chunk broadcast failed: {e}")
 
 
 async def broadcast_committed_event(event: AgentEvent) -> None:
