@@ -12,6 +12,7 @@ from app.auth.dependencies import get_current_workspace
 from app.database import get_db
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.workspace import Workspace
+from app.schemas.decomposition import DecompositionResponse
 from app.utils.events import log_event
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -245,6 +246,113 @@ async def delete_task(
     await db.delete(task)
     await db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/{task_id}/decomposition", response_model=DecompositionResponse)
+async def get_task_decomposition(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tree + per-attempt timeline for a parent task and its subtasks.
+
+    Used by the Decomposition view (/graph?view=decomposition) to surface the
+    structure of a decomposed task plus the actual chronology of every agent
+    container that ran (including retries) — far more diagnostic than the
+    star-shaped Communication graph for our hub-and-spoke architecture.
+    """
+    from app.models.event import AgentEvent
+    from app.models.template import Template
+
+    parent = await _get_scoped_task(task_id, workspace, db)
+
+    sub_rows = (await db.execute(
+        select(Task, Template.name)
+        .outerjoin(Template, Task.template_id == Template.id)
+        .where(Task.parent_id == parent.id, Task.workspace_id == workspace.id)
+        .order_by(Task.created_at)
+    )).all()
+
+    sub_ids = [s.id for s, _ in sub_rows]
+
+    events_by_container: dict[str, list[AgentEvent]] = {}
+    if sub_ids:
+        events = (await db.execute(
+            select(AgentEvent)
+            .where(
+                AgentEvent.task_id.in_(sub_ids),
+                AgentEvent.event_type.in_(
+                    ("agent_spawned", "agent_completed", "agent_failed", "agent_aborted")
+                ),
+            )
+            .order_by(AgentEvent.created_at)
+        )).scalars().all()
+        for ev in events:
+            cid = ev.agent_container_id
+            if not cid:
+                continue
+            events_by_container.setdefault(cid, []).append(ev)
+
+    OUTCOME_BY_TYPE = {
+        "agent_completed": "completed",
+        "agent_failed": "failed",
+        "agent_aborted": "aborted",
+    }
+
+    def _attempts_for(task_id_: uuid.UUID) -> list[dict]:
+        result: list[dict] = []
+        for cid, evs in events_by_container.items():
+            evs = [e for e in evs if e.task_id == task_id_]
+            if not evs:
+                continue
+            spawned = next((e for e in evs if e.event_type == "agent_spawned"), None)
+            if not spawned:
+                continue
+            terminal = next(
+                (e for e in reversed(evs) if e.event_type != "agent_spawned"), None
+            )
+            outcome = OUTCOME_BY_TYPE.get(terminal.event_type, "running") if terminal else "running"
+            error = None
+            if terminal and outcome in ("failed", "aborted"):
+                error = (terminal.data or {}).get("error") or (terminal.data or {}).get("reason")
+            result.append({
+                "agent_container_id": cid,
+                "spawned_at": spawned.created_at.isoformat(),
+                "finished_at": terminal.created_at.isoformat() if terminal else None,
+                "outcome": outcome,
+                "error": error,
+            })
+        result.sort(key=lambda a: a["spawned_at"])
+        return result
+
+    subtasks = []
+    for s, template_name in sub_rows:
+        subtasks.append({
+            "id": str(s.id),
+            "title": s.title,
+            "template_name": template_name,
+            "status": s.status,
+            "retry_count": s.retry_count,
+            "max_retries": s.max_retries,
+            "depends_on": [str(d) for d in (s.depends_on or [])],
+            "started_at": s.started_at.isoformat() if s.started_at else None,
+            "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+            "cost_usd": float(s.cost_usd) if s.cost_usd is not None else 0.0,
+            "result_files_count": len(s.result_files or []),
+            "attempts": _attempts_for(s.id),
+        })
+
+    return {
+        "parent": {
+            "id": str(parent.id),
+            "title": parent.title,
+            "status": parent.status,
+            "started_at": parent.started_at.isoformat() if parent.started_at else None,
+            "completed_at": parent.completed_at.isoformat() if parent.completed_at else None,
+            "cost_usd": float(parent.cost_usd) if parent.cost_usd is not None else 0.0,
+        },
+        "subtasks": subtasks,
+    }
 
 
 @router.get("/{task_id}/files/{file_name:path}")

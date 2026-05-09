@@ -137,6 +137,43 @@ export interface LogChunksResponse {
   chunks: LogChunk[]
 }
 
+export type AttemptOutcome = 'completed' | 'failed' | 'aborted' | 'running'
+
+export interface AgentAttempt {
+  agent_container_id: string
+  spawned_at: string
+  finished_at: string | null
+  outcome: AttemptOutcome
+  error: string | null
+}
+
+export interface DecompositionSubtask {
+  id: string
+  title: string
+  template_name: string | null
+  status: TaskStatus
+  retry_count: number
+  max_retries: number
+  depends_on: string[]
+  started_at: string | null
+  completed_at: string | null
+  cost_usd: number
+  result_files_count: number
+  attempts: AgentAttempt[]
+}
+
+export interface DecompositionResponse {
+  parent: {
+    id: string
+    title: string
+    status: TaskStatus
+    started_at: string | null
+    completed_at: string | null
+    cost_usd: number
+  }
+  subtasks: DecompositionSubtask[]
+}
+
 export interface MemoryEntity {
   id: string
   type: string

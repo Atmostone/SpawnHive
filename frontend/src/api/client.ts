@@ -76,6 +76,8 @@ export const tasksApi = {
     request<Task>(`/tasks/${id}/reject`, { method: 'PATCH', body: JSON.stringify({ feedback }) }),
   delete: (id: string) =>
     request<{ status: string }>(`/tasks/${id}`, { method: 'DELETE' }),
+  getDecomposition: (id: string) =>
+    request<import('../types').DecompositionResponse>(`/tasks/${id}/decomposition`),
 }
 
 // Templates

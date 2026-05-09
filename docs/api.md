@@ -63,6 +63,7 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 | PATCH | `/api/tasks/{id}/approve` | From `awaiting_approval` → `done` |
 | PATCH | `/api/tasks/{id}/reject` | Body `{feedback}`; sets `ready`, bumps `retry_count` |
 | DELETE | `/api/tasks/{id}` | Delete the task |
+| GET | `/api/tasks/{id}/decomposition` | Tree + per-attempt timeline for a parent task. Returns `{parent, subtasks: [{id, title, template_name, status, retry_count, max_retries, depends_on, started_at, completed_at, cost_usd, result_files_count, attempts: [{agent_container_id, spawned_at, finished_at, outcome, error}]}]}`. Attempts are grouped by `agent_container_id` from `agent_events` (`agent_spawned`/`agent_completed`/`agent_failed`/`agent_aborted`); outcome is the last terminal event or `running` if only spawned. Used by the Decomposition view (`/graph` → Decomposition tab). |
 
 ### Templates (`/api/templates`)
 

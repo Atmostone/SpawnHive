@@ -279,6 +279,20 @@ All routes share the `RequireAuth` wrapper in `App.tsx`; sidebar entries are def
 
 ### Frontend / Graph (`/graph`)
 
+Two-tab page (toggle persisted in `localStorage["graph.tab"]`, default `decomposition`):
+
+#### Tab 1 — Decomposition (default)
+
+`/graph?task=<parent-id>` (default tab). Tree + per-attempt Gantt for one parent task.
+
+- Powered by `GET /api/tasks/{id}/decomposition` (single REST call, no WS — readonly snapshot, refresh button).
+- **Tree** (`DecompositionTree.tsx`) — parent header with totals (`N subtasks · duration · $cost · X failed · Y retries`); below — subtask cards with status-icon, template badge, retry counter, depends-on display, and a `⚠ no dependencies set` warning when `depends_on=[]` AND siblings>1 AND (`status==='failed'` OR `retry_count>0`). Hard-failed subtasks (`status==='failed' && retry_count>=max_retries`) get a red border. Failure messages from `attempts[*].error` are shown below the card.
+- **Gantt** (`DecompositionGantt.tsx`) — span = `min(spawned_at)…max(finished_at|now)`. Each row = one subtask; each absolute-positioned bar = one attempt (grouped by `agent_container_id`). Colors: green=completed, red=failed, orange=aborted, blue+pulse=running. Tick scale 6 labels, min bar width 4px, hover tooltip shows container short id + outcome + duration + error.
+- **TaskSelector** (`TaskSelector.tsx`) — dropdown of tasks with `parent_id===null` AND ≥1 subtask (frontend filter on `tasksApi.list()`). Selected id persisted in URL `?task=`.
+- Files: `frontend/src/components/graph/{DecompositionView,DecompositionTree,DecompositionGantt,TaskSelector}.tsx`; `pages/Graph.tsx` is a thin tab container.
+
+#### Tab 2 — Communication (legacy U-01)
+
 The page combines a 24h history replay with a live WS feed:
 
 - **Initial load** — `GET /api/events?from_dt=<now-24h ISO>&limit=1000` (the `from_dt` / `to_dt` params on `eventsApi.list()` are typed in `api/client.ts`; backend already supports them).
