@@ -92,6 +92,59 @@ async def test_process_ready_task_spawns_when_template_picked(db_session, monkey
 
 
 @pytest.mark.asyncio
+async def test_process_ready_task_skips_decomposition_when_disabled(db_session, monkeypatch):
+    """When decomposition_enabled=False, multi-template root tasks must go
+    straight to single-template selection (decide_decomposition never called)."""
+    from app.models.setting import Setting
+
+    await db_session.merge(Setting(key="decomposition_enabled", value=False))
+
+    def _tpl(name: str) -> Template:
+        return Template(
+            name=name, description="d", soul_md="# soul", model="m",
+            provider_url="u", provider_api_key="k", tools=[], mcp_servers=[],
+            max_ram="1g", max_cpu=100000, timeout_minutes=60, tags=[],
+            workspace_id=DEFAULT_WORKSPACE_ID,
+        )
+
+    tpl_a, tpl_b = _tpl("a"), _tpl("b")
+    db_session.add_all([tpl_a, tpl_b])
+    task = Task(
+        title="multi-step research", description="d", priority="low",
+        status=TaskStatus.READY.value, workspace_id=DEFAULT_WORKSPACE_ID,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(tpl_a)
+    await db_session.refresh(task)
+
+    decompose_mock = AsyncMock(return_value=[{"title": "x", "template_id": str(tpl_a.id)}])
+    monkeypatch.setattr("app.orchestrator.engine.decide_decomposition", decompose_mock)
+
+    async def pick(*a, **kw):
+        return {"template_id": str(tpl_a.id), "reasoning": "single agent path"}
+
+    monkeypatch.setattr("app.orchestrator.engine.select_template_for_task", pick)
+    fake_runtime = MagicMock()
+    fake_runtime.spawn.return_value = "ctr-disabled-deco"
+    monkeypatch.setattr("app.orchestrator.engine.get_agent_runtime", lambda: fake_runtime)
+    monkeypatch.setattr(
+        "app.orchestrator.engine.issue_agent_token",
+        AsyncMock(return_value="fake-token"),
+    )
+
+    await engine.process_ready_task(db_session, task)
+    await db_session.refresh(task)
+
+    decompose_mock.assert_not_called()
+    assert task.status == TaskStatus.IN_PROGRESS.value
+    assert task.template_id == tpl_a.id
+    assert task.agent_container_id == "ctr-disabled-deco"
+    subs = (await db_session.execute(select(Task).where(Task.parent_id == task.id))).scalars().all()
+    assert subs == []
+
+
+@pytest.mark.asyncio
 async def test_check_parent_task_completion_marks_parent_done(db_session):
     parent = Task(
         title="p", priority="medium", status=TaskStatus.IN_PROGRESS.value,

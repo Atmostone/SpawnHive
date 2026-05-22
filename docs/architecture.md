@@ -54,7 +54,7 @@ user moves to ready ── PATCH ──▶ api ── insert agent_events ──
                                                                    │
                                                                    ▼
                             orchestrator_loop polls tasks ─── select template via LLM
-                                  │ (decide_decomposition)
+                                  │ (decide_decomposition — gated by `decomposition_enabled` setting)
                                   │ (select_template_for_task)
                                   ▼
                             spawn_agent(template, env)
@@ -206,7 +206,7 @@ Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_
 | `agent_events` | Append-only event log; source for analytics + WS broadcast |
 | `chat_messages` | Chat history with the orchestrator |
 | `knowledge_documents` | RAG document metadata (files in MinIO, chunks in Qdrant) |
-| `settings` | Runtime config (LLM, embedding, pricing, memory_mode, …) — global |
+| `settings` | Runtime config (LLM, embedding, pricing, `memory_mode`, `decomposition_enabled`, …) — global |
 | `memory_entities` | Structured memory — nodes (P0); workspace-scoped |
 | `memory_relations` | Structured memory — edges (P0); workspace-scoped |
 | `scheduled_jobs` | APScheduler persistent storage (P8); workspace-scoped (built-in jobs live in the default workspace) |

@@ -170,6 +170,21 @@ export default function Settings() {
                 />
               </div>
             ))}
+            <div className="flex items-start gap-2 pt-1">
+              <input
+                id="decomposition_enabled"
+                type="checkbox"
+                checked={form.decomposition_enabled !== false}
+                onChange={e => set('decomposition_enabled', e.target.checked)}
+                className="mt-1"
+              />
+              <label htmlFor="decomposition_enabled" className="text-sm text-gray-700">
+                <span className="font-medium">Enable task decomposition</span>
+                <div className="text-xs text-gray-500">
+                  When off, every root task is handled by a single agent (no auto-split into subtasks).
+                </div>
+              </label>
+            </div>
           </div>
         </div>
       ))}

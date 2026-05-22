@@ -170,7 +170,7 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 | Method | Path | |
 |--------|------|--|
 | GET | `/api/settings` | All keys → JSONB values |
-| PATCH | `/api/settings` | Body — partial dict |
+| PATCH | `/api/settings` | Body — partial dict. Known keys: `llm_*`, `embedding_*`, `max_concurrent_agents`, `task_timeout_minutes`, `max_retries`, `memory_mode` (`flat`\|`structured`), `decomposition_enabled` (bool, default `true`) |
 | GET | `/api/settings/health` | Alias for `/api/health` (per spec §4.7) |
 | POST | `/api/settings/test-llm` | Probe the LLM configuration |
 | GET | `/api/settings/export-all` | ZIP containing tasks/templates/events/settings/rules.md/memory.md/documents.json (capped at 10k events) |

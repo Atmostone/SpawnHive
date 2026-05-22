@@ -12,7 +12,7 @@ from app.auth.tokens import issue_agent_token
 from app.database import async_session
 from app.models.task import Task, TaskStatus
 from app.models.template import Template
-from app.api.settings import get_llm_settings
+from app.api.settings import get_llm_settings, get_setting
 from app.api.templates import template_to_dict
 from app.orchestrator.docker_manager import effective_llm_config
 from app.orchestrator.llm import (
@@ -62,7 +62,8 @@ async def process_ready_task(db: AsyncSession, task: Task):
     templates_list = [template_to_dict(t) for t in templates]
 
     # Step 1: Decide whether to decompose (only if task has no parent — avoid nested decomposition)
-    if not task.parent_id and len(templates_list) > 1:
+    decomposition_enabled = bool(await get_setting(db, "decomposition_enabled", True))
+    if decomposition_enabled and not task.parent_id and len(templates_list) > 1:
         subtasks = await decide_decomposition(
             task.title, task.description or "", templates_list, llm_settings,
             db=db, task_id=task.id,
@@ -172,7 +173,6 @@ async def process_ready_task(db: AsyncSession, task: Task):
                     )
 
         memory_context = ""
-        from app.api.settings import get_setting
 
         if (await get_setting(db, "memory_mode", "flat")) == "structured":
             from app.memory.store import build_memory_context
