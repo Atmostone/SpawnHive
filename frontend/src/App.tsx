@@ -8,6 +8,7 @@ import ActivityLog from './pages/ActivityLog'
 import Analytics from './pages/Analytics'
 import Graph from './pages/Graph'
 import Templates from './pages/Templates'
+import Rubrics from './pages/Rubrics'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Memory from './pages/Memory'
 import Settings from './pages/Settings'
@@ -44,6 +45,7 @@ export default function App() {
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/graph" element={<Graph />} />
                     <Route path="/templates" element={<Templates />} />
+                    <Route path="/rubrics" element={<Rubrics />} />
                     <Route path="/knowledge" element={<KnowledgeBase />} />
                     <Route path="/memory" element={<Memory />} />
                     <Route path="/settings" element={<Settings />} />

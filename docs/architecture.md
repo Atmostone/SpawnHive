@@ -163,6 +163,35 @@ tool-call list. The JSONB slots (`quality_profile`/`trajectory_profile`/
 `human_feedback`/`longitudinal`/`reproducibility`) are left NULL — filled by
 E-02/E-07/E-05/E-22/E-20.
 
+### Quality Rubric Engine (E-02)
+
+Fills the `quality_profile` slot. A **rubric** is a set of independent dimensions;
+the engine scores a finished task into a **profile** (vector of 0–10), not one
+number.
+
+```
+resolve rubric for task:  Template.rubric_id → rubric whose applies_to ∈ template.tags
+                          → workspace is_default rubric → none (skip)
+resolve judge model:      workspace.quality_judge_model_id → orchestrator_model_id → none (skip)
+                                              │
+   per judge dimension (asyncio.gather, independent try/except — one failure
+   never blocks the others): LLM-as-judge call → {score 0-10, reasoning}
+   objective/human dimensions → status "deferred" (E-04/E-05)
+                                              ▼
+   profile = {dimensions[], weighted_score, gate{passed, failed_dimensions},
+              judge_model, judge_tokens, judge_cost_usd}  →  quality_records.quality_profile
+                                              │
+   triggers:  POST /api/quality/records/{task_id}/evaluate  (on-demand, owner/admin)
+              quality_judge_evaluate job (interval 600s) — only when quality_eval_enabled=true
+```
+
+Notes: only the `judge` evaluator is implemented; `objective` (E-04) and `human`
+(E-05) are valid in the schema but deferred. Gating is **soft** — the gate result
+is recorded and surfaced in the UI (radar chart) but does not block the task
+lifecycle. Auto-evaluation is off by default (`quality_eval_enabled=false`) to
+avoid surprise token spend; the on-demand button works regardless. The MinIO blob
+stays immutable; only the Postgres `quality_profile` column is written.
+
 ## Backend components
 
 | Module | Responsibility |
@@ -182,7 +211,10 @@ E-02/E-07/E-05/E-22/E-20.
 | `app/knowledge/rag.py` | Document upload, chunking, embedding, Qdrant search; reset_collection |
 | `app/scheduler.py` | APScheduler wrapper, jobs reload from DB |
 | `app/quality/data_lake.py` | Quality Data Lake (E-01): `assemble_record` + idempotent `build_quality_record` (Postgres summary + MinIO blob) |
+| `app/quality/rubric.py` | Quality Rubric Engine (E-02): `DEFAULT_RUBRICS` (5 built-ins) + `resolve_rubric_for_task` |
+| `app/quality/judge.py` | E-02 LLM-as-judge: `evaluate_task_quality` → per-dimension scoring → `quality_profile` slot |
 | `app/api/data_lake.py` | `/api/data-lake` — records (filter), full blob, group-by query, export (json/parquet) |
+| `app/api/quality.py` | `/api/quality` — rubrics CRUD, task quality profile, on-demand evaluate |
 | `app/utils/cost.py` | Token-usage → USD via the model_pricing setting |
 | `app/utils/events.py` | log_event, broadcast to WS clients with filter matching |
 | `app/schemas/webhooks.py` | Pydantic discriminated union for agent → orchestrator events |
@@ -231,7 +263,7 @@ Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_
 | `workspace_members` | (R1) Many-to-many user↔workspace + role (owner/admin/member/viewer) |
 | `service_tokens` | (R1) Per-task agent tokens (kind=agent), verified by sha256(plain) |
 | `tasks` | The core entity; lifecycle backlog → done. Fields: depends_on UUID[], cost_usd, model_used, **input_price_per_1m_usd / output_price_per_1m_usd** (denormalized at spawn so cost survives model edits), workspace_id |
-| `templates` | Agent roles. References a model via `model_id` (FK → llm_models, ON DELETE SET NULL). |
+| `templates` | Agent roles. References a model via `model_id` and an optional quality rubric via `rubric_id` (both FK ON DELETE SET NULL). |
 | `template_versions` | Template versioning with rollback support (P14) |
 | `providers` | (R7) LLM providers per workspace — name, api_key, endpoint. |
 | `llm_models` | (R7) Models per provider — display_name, api_name, input/output price per 1M tokens. |
@@ -243,6 +275,7 @@ Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_
 | `memory_relations` | Structured memory — edges (P0); workspace-scoped |
 | `scheduled_jobs` | APScheduler persistent storage (P8); workspace-scoped (built-in jobs live in the default workspace) |
 | `quality_records` | (E-01) Quality Data Lake — immutable per-task execution snapshot; summary in PG, full blob in MinIO; nullable slots for eval features |
+| `rubrics` | (E-02) Multi-dimensional quality rubrics — workspace-scoped; 5 built-ins cloned per workspace; fills `quality_records.quality_profile` |
 
 After R1 every table except `users`/`workspaces`/`workspace_members`/`settings` has a NOT NULL `workspace_id` with an FK to `workspaces.id ON DELETE CASCADE`. Old rows are backfilled by the `c9d0e1f2a3b4_users_workspaces_scoping` migration — every NULL → the default workspace `00000000-0000-0000-0000-000000000002` (admin@local).
 
@@ -282,9 +315,10 @@ Consumers:
 - `orchestrator/engine.py` and `orchestrator/llm.py` → `orchestrator_model_id`
 - `api/chat.py` → `chat_model_id`
 - `memory/extractor.py` → `memory_extractor_model_id`
+- `quality/judge.py` (E-02) → `quality_judge_model_id`, **falling back to `orchestrator_model_id`** when unset (the one consumer with a fallback — quality eval is non-critical, so it degrades to skipped rather than erroring)
 - `orchestrator/docker_manager.spawn_agent` → `template.model_id`; at spawn time, the model's prices are denormalized into `tasks.{input,output}_price_per_1m_usd` so cost computation is stable.
 
-If a required role has no model assigned (or the referenced model was deleted), the resolver raises HTTP 400 with an explicit "configure in Settings → System Models" message — no silent fallback to defaults.
+If a required role has no model assigned (or the referenced model was deleted), the resolver raises HTTP 400 with an explicit "configure in Settings → System Models" message — no silent fallback to defaults (except the E-02 judge noted above).
 
 ## Authentication and authorisation (R1)
 

@@ -11,6 +11,7 @@ from app.auth.security import create_access_token, hash_password, verify_passwor
 from app.config import get_settings
 from app.database import get_db
 from app.models.provider import LLMModel, Provider
+from app.models.rubric import Rubric
 from app.models.template import Template
 from app.models.user import User
 from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace, WorkspaceMember
@@ -139,6 +140,31 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> Toke
             workspace.memory_extractor_model_id = model_id_map.get(
                 default_ws.memory_extractor_model_id
             )
+        if default_ws.quality_judge_model_id:
+            workspace.quality_judge_model_id = model_id_map.get(
+                default_ws.quality_judge_model_id
+            )
+
+    # Clone the default workspace's quality rubrics (E-02); map old→new id so a
+    # template's rubric_id points at the cloned rubric.
+    rubric_id_map: dict[uuid.UUID, uuid.UUID] = {}
+    default_rubrics = (
+        await db.execute(
+            select(Rubric).where(Rubric.workspace_id == DEFAULT_WORKSPACE_ID)
+        )
+    ).scalars().all()
+    for r in default_rubrics:
+        new_rubric = Rubric(
+            workspace_id=workspace.id,
+            name=r.name,
+            description=r.description,
+            applies_to=r.applies_to,
+            is_default=r.is_default,
+            dimensions=[dict(d) for d in (r.dimensions or [])],
+        )
+        db.add(new_rubric)
+        await db.flush()
+        rubric_id_map[r.id] = new_rubric.id
 
     # Seed the new workspace with copies of the default workspace's templates.
     defaults = (
@@ -152,6 +178,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> Toke
             description=t.description,
             soul_md=t.soul_md,
             model_id=model_id_map.get(t.model_id) if t.model_id else None,
+            rubric_id=rubric_id_map.get(t.rubric_id) if t.rubric_id else None,
             tools=list(t.tools or []),
             mcp_servers=list(t.mcp_servers or []),
             max_ram=t.max_ram,

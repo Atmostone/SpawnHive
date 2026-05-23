@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { tasksApi, eventsApi } from '@/api/client'
-import { X, Check, RotateCcw, Clock, Play, Download } from 'lucide-react'
+import { tasksApi, eventsApi, qualityApi } from '@/api/client'
+import { X, Check, RotateCcw, Clock, Play, Download, Gauge } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import type { Task } from '@/types'
 import { PRIORITY_COLORS, TASK_STATUS_LABELS, SOURCE_COLORS } from '@/types'
 import { cn } from '@/lib/utils'
 import ReasoningTimeline from './ReasoningTimeline'
 import AgentLogViewer from './AgentLogViewer'
+import QualityRadarChart from '@/components/quality/QualityRadarChart'
 
 interface TaskDetailProps {
   task: Task
@@ -53,6 +54,20 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
   })
 
   const t = detail || task
+  const isTerminal = ['done', 'failed', 'awaiting_approval'].includes(t.status)
+
+  const { data: profileData } = useQuery({
+    queryKey: ['quality-profile', task.id],
+    queryFn: () => qualityApi.getProfile(task.id),
+    enabled: isTerminal,
+    retry: false,
+  })
+  const profile = profileData?.quality_profile ?? null
+
+  const evaluateMutation = useMutation({
+    mutationFn: () => qualityApi.evaluate(task.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['quality-profile', task.id] }),
+  })
 
   return (
     <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-xl border-l z-50 flex flex-col">
@@ -127,6 +142,32 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
         {t.token_usage && (t.token_usage.input_tokens || t.token_usage.output_tokens) && (
           <div className="text-xs text-gray-400">
             Tokens: {(t.token_usage.input_tokens || 0).toLocaleString()} in / {(t.token_usage.output_tokens || 0).toLocaleString()} out
+          </div>
+        )}
+
+        {/* Quality profile (E-02) */}
+        {isTerminal && (
+          <div className="pt-2 border-t">
+            {profile ? (
+              <QualityRadarChart profile={profile} />
+            ) : (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Not yet evaluated for quality.</span>
+              </div>
+            )}
+            <button
+              onClick={() => evaluateMutation.mutate()}
+              disabled={evaluateMutation.isPending}
+              className="mt-2 flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Gauge className="h-4 w-4" />
+              {evaluateMutation.isPending ? 'Evaluating…' : profile ? 'Re-evaluate' : 'Evaluate quality'}
+            </button>
+            {evaluateMutation.data?.skipped && (
+              <p className="text-xs text-orange-600 mt-1">
+                Skipped: {evaluateMutation.data.detail}
+              </p>
+            )}
           </div>
         )}
 

@@ -41,6 +41,7 @@ A self-hosted platform for orchestrating specialised AI agents. It takes a task 
 - ✅ RAG (PDF/DOCX/MD/TXT), MCP servers, kill switch, kanban, chat WebSocket.
 - ✅ Pre-backlog (P0–P14): structured memory, bidirectional channel, periodic progress, Pydantic webhook schemas, per-template model routing, cost calculation, analytics + reasoning trail, priority in polling, APScheduler, depends_on in decomposition, audit log, workspace_id labels (stub), per-agent WS, slash commands, versioned templates.
 - ✅ Eval Phase 0 — **E-01 Quality Data Lake**: immutable, versioned per-task execution snapshots (Postgres summary + MinIO blob), with `/api/data-lake` query + parquet/JSON export, retention + backfill jobs, and nullable slots for downstream eval features (E-02/E-05/E-07/E-20/E-22).
+- ✅ Eval Phase 0 — **E-02 Multi-dimensional Quality Rubric Engine**: per-task rubrics scoring results into a quality profile (vector of 0–10) via LLM-as-judge, with 5 built-in rubrics, custom rubric editor, radar-chart UI, soft threshold gating, and on-demand + async evaluation (fills the `quality_profile` slot).
 
 ## What's next
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { providersApi, templatesApi } from '@/api/client'
+import { providersApi, templatesApi, rubricsApi } from '@/api/client'
 import type { Template } from '@/types'
 import { Plus, Edit2, Trash2, Copy, X, Boxes, ServerIcon, AlertTriangle } from 'lucide-react'
 import { ModelSelect } from '@/components/settings/SystemModelsSection'
@@ -42,6 +42,7 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
     description: template?.description || '',
     soul_md: template?.soul_md || '',
     model_id: template?.model_id ?? null as string | null,
+    rubric_id: template?.rubric_id ?? null as string | null,
     tools: template?.tools || [],
     max_ram: template?.max_ram || '2g',
     max_cpu: template?.max_cpu || 100000,
@@ -59,6 +60,11 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
   const { data: providers = [] } = useQuery({
     queryKey: ['providers'],
     queryFn: providersApi.list,
+  })
+
+  const { data: rubrics = [] } = useQuery({
+    queryKey: ['rubrics'],
+    queryFn: rubricsApi.list,
   })
 
   const createMutation = useMutation({
@@ -152,10 +158,23 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tags (comma-separated)</label>
-            <input value={tagsInput} onChange={e => setTagsInput(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="coding, python" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tags (comma-separated)</label>
+              <input value={tagsInput} onChange={e => setTagsInput(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="coding, python" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Quality rubric</label>
+              <select value={form.rubric_id ?? ''}
+                onChange={e => set('rubric_id', e.target.value || null)}
+                className="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="">— Auto (by tag / default) —</option>
+                {rubrics.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
@@ -233,6 +252,7 @@ export default function Templates() {
       model_display_name: null,
       model_api_name: null,
       provider_name: null,
+      rubric_id: t.rubric_id,
       tools: t.tools,
       mcp_servers: t.mcp_servers,
       max_ram: t.max_ram,

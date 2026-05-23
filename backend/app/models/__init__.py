@@ -13,6 +13,7 @@ from app.models.scheduled_job import ScheduledJob
 from app.models.template_version import TemplateVersion
 from app.models.provider import Provider, LLMModel
 from app.models.quality_record import QualityRecord
+from app.models.rubric import Rubric
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "Provider",
     "LLMModel",
     "QualityRecord",
+    "Rubric",
 ]

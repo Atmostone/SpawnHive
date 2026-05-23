@@ -17,7 +17,7 @@ from app.models.provider import LLMModel, Provider
 from app.models.workspace import Workspace
 
 
-SystemModelKind = Literal["orchestrator", "chat", "memory_extractor"]
+SystemModelKind = Literal["orchestrator", "chat", "memory_extractor", "quality_judge"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +30,7 @@ _WORKSPACE_FIELD = {
     "orchestrator": "orchestrator_model_id",
     "chat": "chat_model_id",
     "memory_extractor": "memory_extractor_model_id",
+    "quality_judge": "quality_judge_model_id",
 }
 
 
