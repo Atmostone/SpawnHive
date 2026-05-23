@@ -20,3 +20,4 @@ apscheduler
 bcrypt
 pyjwt
 redis
+pyarrow

@@ -21,6 +21,7 @@ from app.api.analytics import router as analytics_router
 from app.api.scheduled_jobs import router as scheduled_jobs_router
 from app.api.agent_logs import router as agent_logs_router, ws_router as agent_logs_ws_router
 from app.api.providers import router as providers_router, models_router
+from app.api.data_lake import router as data_lake_router
 from app.api.workspaces import router as workspaces_router
 from app.config import get_settings
 from app.database import async_session
@@ -43,6 +44,9 @@ async def seed_settings():
         "minio_access_key": settings.minio_access_key,
         "minio_secret_key": settings.minio_secret_key,
         "memory_mode": "flat",
+        # Quality Data Lake (E-01)
+        "data_lake_retention_days": 0,  # 0 = keep forever
+        "data_lake_public_opt_in_default": False,  # privacy: opt-in off by default
     }
     async with async_session() as db:
         for key, value in defaults.items():
@@ -268,3 +272,4 @@ app.include_router(agent_logs_ws_router)
 app.include_router(providers_router)
 app.include_router(models_router)
 app.include_router(workspaces_router)
+app.include_router(data_lake_router)

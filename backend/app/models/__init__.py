@@ -12,6 +12,7 @@ from app.models.memory import MemoryEntity, MemoryRelation
 from app.models.scheduled_job import ScheduledJob
 from app.models.template_version import TemplateVersion
 from app.models.provider import Provider, LLMModel
+from app.models.quality_record import QualityRecord
 
 __all__ = [
     "User",
@@ -31,4 +32,5 @@ __all__ = [
     "TemplateVersion",
     "Provider",
     "LLMModel",
+    "QualityRecord",
 ]
