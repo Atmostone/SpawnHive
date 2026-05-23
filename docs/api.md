@@ -157,6 +157,18 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 | GET | `/api/analytics/timeline?days=` | Daily roll-up |
 | GET | `/api/analytics/models?period=` | Per-model |
 
+### Quality Data Lake (`/api/data-lake`) — E-01
+
+Workspace-scoped, read-only. Records are immutable per-task execution snapshots
+(summary in Postgres, full blob in MinIO).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/data-lake/records?template_id=&model_used=&final_status=&title_contains=&from_dt=&to_dt=&limit=&offset=` | Filterable list of record summaries |
+| GET | `/api/data-lake/records/{task_id}` | `{summary, record}` — `record` is the full blob from MinIO (404 if not in workspace) |
+| GET | `/api/data-lake/query?group_by=template_name\|model_used\|final_status&...filters` | Group-by aggregates: count, avg_cost_usd, avg_tokens, avg_duration_s, approval_rate |
+| GET | `/api/data-lake/export?format=json\|parquet&...filters` | **owner/admin** — bulk export of the flattened summary table |
+
 ### Scheduled jobs (`/api/scheduled-jobs`)
 
 | Method | Path | |

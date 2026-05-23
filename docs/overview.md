@@ -40,6 +40,7 @@ A self-hosted platform for orchestrating specialised AI agents. It takes a task 
 - ✅ 11 default agent templates.
 - ✅ RAG (PDF/DOCX/MD/TXT), MCP servers, kill switch, kanban, chat WebSocket.
 - ✅ Pre-backlog (P0–P14): structured memory, bidirectional channel, periodic progress, Pydantic webhook schemas, per-template model routing, cost calculation, analytics + reasoning trail, priority in polling, APScheduler, depends_on in decomposition, audit log, workspace_id labels (stub), per-agent WS, slash commands, versioned templates.
+- ✅ Eval Phase 0 — **E-01 Quality Data Lake**: immutable, versioned per-task execution snapshots (Postgres summary + MinIO blob), with `/api/data-lake` query + parquet/JSON export, retention + backfill jobs, and nullable slots for downstream eval features (E-02/E-05/E-07/E-20/E-22).
 
 ## What's next
 
