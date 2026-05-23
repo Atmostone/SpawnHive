@@ -34,6 +34,8 @@ e1f2a3b4c5d6  agent_log_chunks + agent_log_deliveries + tasks.log_archive_s3_pat
      ↓
 f7e8d9c0b1a2  providers + llm_models; templates.{model,provider_url,provider_api_key} dropped → templates.model_id;
               workspaces.{orchestrator,chat,memory_extractor}_model_id; tasks.{input,output}_price_per_1m_usd (R7)
+     ↓
+b1c2d3e4f5a6  quality_records — Quality Data Lake (E-01)
 ```
 
 ## Tables
@@ -151,7 +153,12 @@ Indexes: `created_at`, `task_id`, `event_type`, `workspace_id`.
 `agent_abort_signaled`, `agent_model_switched`, `task_retry`, `task_timeout`,
 `memory_updated`, `memory_extracted`, `webhook_received`, `webhook_validation_failed`,
 `scheduled_job_fired`, `daily_cost_summary`, `kill_all_agents`, `user_action`,
-`decomposition_failed_cycle`.
+`decomposition_failed_cycle`, `quality_record_backfill`, `quality_record_retention`.
+
+Note: the `agent_spawned` event payload is enriched (E-01) with a full state
+snapshot — `soul_md`, `tools`, `mcp_servers`, model api_name + prices,
+`resource_limits`, `memory_context`, and `flat_memory` (rules.md/memory.md
+content) — the durable source for the data-lake `execution` section.
 
 ### chat_messages
 
@@ -220,9 +227,46 @@ Indexes: `from_id`, `to_id`, `workspace_id`.
 `embedding_provider` ('fastembed'), `embedding_model_local` ('BAAI/bge-small-en-v1.5'),
 `embedding_api_url`, `embedding_api_key`, `embedding_model_api`,
 `minio_endpoint`, `minio_access_key`, `minio_secret_key`,
-`memory_mode` ('flat' | 'structured', default 'flat').
+`memory_mode` ('flat' | 'structured', default 'flat'),
+`data_lake_retention_days` (0 = keep forever), `data_lake_public_opt_in_default` (false) — E-01.
 
 LLM credentials (provider endpoint + API key) and model pricing moved to `providers` and `llm_models` in R7. The legacy keys `llm_base_url`/`llm_api_key`/`llm_model`/`model_pricing` were removed by the migration; the values are seeded as a default Provider+Model in the default workspace.
+
+### quality_records (E-01)
+
+Immutable, versioned snapshot of one task execution — the Quality Data Lake. One
+row per task (UNIQUE `task_id`), built on a settled terminal state. The queryable
+summary lives here; the full execution blob (decomposition tree, per-agent state
+snapshot, tool calls, events) is a JSON object in MinIO at `record_s3_path`
+(`data-lake/<workspace_id>/<task_id>.json`). The JSONB slots are nullable
+placeholders filled by downstream eval features.
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| id | UUID PK | |
+| task_id | UUID FK→tasks ON DELETE CASCADE | UNIQUE `uq_quality_records_task` |
+| workspace_id | UUID FK→workspaces ON DELETE CASCADE | scoping |
+| schema_version | int | default 1 — blob layout is tied to this |
+| template_id / template_name / model_used | UUID? / str? / str? | denormalized (survive source deletion) |
+| final_status | VARCHAR(50) | done / failed / awaiting_approval (reconciled by the backfill job) |
+| is_decomposition_root | bool | parent task with subtasks |
+| cost_usd | NUMERIC(10,6) | denormalized |
+| input_tokens / output_tokens / duration_seconds / tool_call_count | int? | outcome metrics |
+| quality_profile | JSONB? | **slot E-02** |
+| trajectory_profile | JSONB? | **slot E-07** |
+| human_feedback | JSONB? | **slot E-05** |
+| longitudinal | JSONB? | **slot E-22** |
+| reproducibility | JSONB? | **slot E-20** |
+| record_s3_path | VARCHAR(500) | MinIO path of the full JSON blob |
+| public_dataset_opt_in | bool | default false — privacy gate for the public benchmark (E-23) |
+| created_at | TIMESTAMP | |
+
+Indexes: `workspace_id`, `template_id`, `model_used`, `final_status`, `created_at`.
+
+Built best-effort from the webhook terminal path (before log compaction prunes
+the chunks) and reconciled/backfilled by the `quality_record_backfill` scheduled
+job; pruned by `quality_record_retention` per the `data_lake_retention_days`
+setting (0 = keep forever; opted-in records are never auto-deleted).
 
 ### scheduled_jobs (P8)
 
@@ -245,6 +289,8 @@ Index: `enabled`.
 **Built-in jobs** (seed_default_jobs in `app/scheduler.py`):
 - `daily_cost_rollup` — cron `0 0 * * *`, action `daily_cost_rollup`.
 - `agent_progress_check` — interval 60s, action `agent_progress_check`.
+- `quality_record_backfill` — interval 300s, action `quality_record_backfill` (E-01: build/reconcile records for terminal tasks; global).
+- `quality_record_retention` — cron `30 0 * * *`, action `quality_record_retention` (E-01: prune old records per `data_lake_retention_days`).
 
 ### users (R1)
 

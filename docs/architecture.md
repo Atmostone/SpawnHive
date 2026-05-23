@@ -135,6 +135,34 @@ build_memory_context(task.title + description):
     - inject as the AGENT_MEMORY_CONTEXT env var
 ```
 
+### Quality Data Lake (E-01)
+
+```
+spawn (engine.py) ──▶ agent_spawned event enriched with the full state snapshot
+                       (soul_md, tools, mcp, model, memory_context, flat_memory)
+                                              │
+task reaches a settled terminal state (awaiting_approval / failed) via webhook
+                                              │ build_quality_record(db, task)  [BEFORE log compaction]
+                                              ▼
+        assemble blob from tasks + agent_events + agent_log_chunks (+ decomposition tree)
+                                              │
+                       ┌──────────────────────┴───────────────────────┐
+                       ▼                                               ▼
+        quality_records row (queryable summary)        MinIO data-lake/<ws>/<task>.json (full blob)
+                       │
+   scheduled jobs:  quality_record_backfill (interval 300s) — build/reconcile any terminal task missing a record
+                    quality_record_retention (cron 00:30)   — prune blobs+rows older than data_lake_retention_days
+                       │
+   API (/api/data-lake): records (filter) · records/{task_id} (full blob) · query (group-by) · export (json|parquet, admin)
+```
+
+Notes: the build is best-effort (a failure is picked up by the backfill job). It
+runs before `_compact_agent_log` so the per-chunk `tool_name` sequence is
+captured; records created later by backfill (chunks already compacted) carry no
+tool-call list. The JSONB slots (`quality_profile`/`trajectory_profile`/
+`human_feedback`/`longitudinal`/`reproducibility`) are left NULL — filled by
+E-02/E-07/E-05/E-22/E-20.
+
 ## Backend components
 
 | Module | Responsibility |
@@ -153,6 +181,8 @@ build_memory_context(task.title + description):
 | `app/memory/extractor.py` | LLM extraction of facts from task results |
 | `app/knowledge/rag.py` | Document upload, chunking, embedding, Qdrant search; reset_collection |
 | `app/scheduler.py` | APScheduler wrapper, jobs reload from DB |
+| `app/quality/data_lake.py` | Quality Data Lake (E-01): `assemble_record` + idempotent `build_quality_record` (Postgres summary + MinIO blob) |
+| `app/api/data_lake.py` | `/api/data-lake` — records (filter), full blob, group-by query, export (json/parquet) |
 | `app/utils/cost.py` | Token-usage → USD via the model_pricing setting |
 | `app/utils/events.py` | log_event, broadcast to WS clients with filter matching |
 | `app/schemas/webhooks.py` | Pydantic discriminated union for agent → orchestrator events |
@@ -212,6 +242,7 @@ Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_
 | `memory_entities` | Structured memory — nodes (P0); workspace-scoped |
 | `memory_relations` | Structured memory — edges (P0); workspace-scoped |
 | `scheduled_jobs` | APScheduler persistent storage (P8); workspace-scoped (built-in jobs live in the default workspace) |
+| `quality_records` | (E-01) Quality Data Lake — immutable per-task execution snapshot; summary in PG, full blob in MinIO; nullable slots for eval features |
 
 After R1 every table except `users`/`workspaces`/`workspace_members`/`settings` has a NOT NULL `workspace_id` with an FK to `workspaces.id ON DELETE CASCADE`. Old rows are backfilled by the `c9d0e1f2a3b4_users_workspaces_scoping` migration — every NULL → the default workspace `00000000-0000-0000-0000-000000000002` (admin@local).
 

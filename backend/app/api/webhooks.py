@@ -248,7 +248,20 @@ async def _process_webhook(
     for ev in pending_events:
         await broadcast_committed_event(ev)
 
-    # 6. Compact agent log chunks → MinIO blob on terminal events. Best-effort:
+    # 6a. Quality Data Lake (E-01): assemble the execution record on a settled
+    # terminal state, BEFORE log compaction prunes the chunks (the tool_name
+    # source). Best-effort — failure is picked up later by the backfill job.
+    if event in ("completed", "failed", "aborted") and task.status in (
+        TaskStatus.AWAITING_APPROVAL.value,
+        TaskStatus.FAILED.value,
+    ):
+        try:
+            from app.quality.data_lake import build_quality_record
+            await build_quality_record(db, task)
+        except Exception as e:
+            logger.warning(f"quality record build failed for task {task.id}: {e}")
+
+    # 6b. Compact agent log chunks → MinIO blob on terminal events. Best-effort:
     # failure leaves chunks in DB and `log_archive_s3_path` NULL, so the next
     # webhook delivery (or manual replay) can retry compaction.
     if event in ("completed", "failed", "aborted"):

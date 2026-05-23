@@ -84,3 +84,39 @@ def read_log_archive(s3_path: str) -> bytes:
     finally:
         obj.close()
         obj.release_conn()
+
+
+def upload_quality_record(workspace_id: str, task_id: str, content: bytes) -> str:
+    """Upload a Quality Data Lake record blob (JSON). Returns the s3 path."""
+    client = get_minio_client()
+    ensure_bucket()
+    import io
+
+    s3_path = f"data-lake/{workspace_id}/{task_id}.json"
+    client.put_object(
+        BUCKET,
+        s3_path,
+        io.BytesIO(content),
+        length=len(content),
+        content_type="application/json",
+    )
+    logger.info(f"Uploaded quality record -> s3://{BUCKET}/{s3_path} ({len(content)} bytes)")
+    return s3_path
+
+
+def read_quality_record(s3_path: str) -> bytes:
+    """Read a Quality Data Lake record blob. Returns raw bytes."""
+    client = get_minio_client()
+    obj = client.get_object(BUCKET, s3_path)
+    try:
+        return obj.read()
+    finally:
+        obj.close()
+        obj.release_conn()
+
+
+def delete_object(s3_path: str) -> None:
+    """Delete a single object from the bucket (best-effort; used by retention)."""
+    client = get_minio_client()
+    client.remove_object(BUCKET, s3_path)
+    logger.info(f"Deleted s3://{BUCKET}/{s3_path}")

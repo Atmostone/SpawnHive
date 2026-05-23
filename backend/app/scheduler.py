@@ -71,6 +71,88 @@ async def _job_runner(job_id: str):
                         agent_container_id=cid,
                         workspace_id=job.workspace_id,
                     )
+
+        elif action == "quality_record_backfill":
+            # Quality Data Lake (E-01): build records for any terminal task that
+            # has none yet (e.g. user-approved → done, parents, spawn-failures),
+            # and reconcile final_status of existing records. Global (all WS).
+            from app.models.task import Task, TaskStatus
+            from app.models.quality_record import QualityRecord
+            from app.quality.data_lake import build_quality_record
+
+            terminal = (TaskStatus.DONE.value, TaskStatus.FAILED.value)
+            missing = (
+                await db.execute(
+                    select(Task).where(
+                        Task.status.in_(terminal),
+                        Task.id.notin_(select(QualityRecord.task_id)),
+                    )
+                )
+            ).scalars().all()
+            built = 0
+            for t in missing:
+                try:
+                    await build_quality_record(db, t, commit=True)
+                    built += 1
+                except Exception as e:
+                    await db.rollback()
+                    logger.warning(f"quality backfill failed for task {t.id}: {e}")
+
+            reconciled = (
+                await db.execute(
+                    select(QualityRecord, Task)
+                    .join(Task, Task.id == QualityRecord.task_id)
+                    .where(
+                        Task.status.in_(terminal),
+                        QualityRecord.final_status != Task.status,
+                    )
+                )
+            ).all()
+            for rec, t in reconciled:
+                rec.final_status = t.status
+                rec.cost_usd = t.cost_usd or 0
+            await db.commit()
+            if built or reconciled:
+                await log_event(
+                    db, "quality_record_backfill", "system",
+                    {"built": built, "reconciled": len(reconciled)},
+                    workspace_id=job.workspace_id,
+                )
+
+        elif action == "quality_record_retention":
+            # Prune records older than data_lake_retention_days (0 = keep
+            # forever). public_dataset_opt_in records are never auto-deleted.
+            from app.api.settings import get_setting
+            from app.models.quality_record import QualityRecord
+            from app.storage.minio_client import delete_object
+
+            days = int(await get_setting(db, "data_lake_retention_days", 0) or 0)
+            if days > 0:
+                cutoff = datetime.utcnow() - timedelta(days=days)
+                old = (
+                    await db.execute(
+                        select(QualityRecord).where(
+                            QualityRecord.created_at < cutoff,
+                            QualityRecord.public_dataset_opt_in.is_(False),
+                        )
+                    )
+                ).scalars().all()
+                deleted = 0
+                for rec in old:
+                    if rec.record_s3_path:
+                        try:
+                            delete_object(rec.record_s3_path)
+                        except Exception as e:
+                            logger.warning(f"retention blob delete failed: {e}")
+                    await db.delete(rec)
+                    deleted += 1
+                await db.commit()
+                if deleted:
+                    await log_event(
+                        db, "quality_record_retention", "system",
+                        {"deleted": deleted, "retention_days": days},
+                        workspace_id=job.workspace_id,
+                    )
         else:
             await log_event(
                 db, "scheduled_job_fired", "system",
@@ -136,6 +218,18 @@ async def seed_default_jobs():
             db.add(ScheduledJob(
                 name="agent_progress_check", kind="interval", interval_seconds=60,
                 payload={"action": "agent_progress_check"},
+                workspace_id=DEFAULT_WORKSPACE_ID,
+            ))
+        if "quality_record_backfill" not in names:
+            db.add(ScheduledJob(
+                name="quality_record_backfill", kind="interval", interval_seconds=300,
+                payload={"action": "quality_record_backfill"},
+                workspace_id=DEFAULT_WORKSPACE_ID,
+            ))
+        if "quality_record_retention" not in names:
+            db.add(ScheduledJob(
+                name="quality_record_retention", kind="cron", cron_expr="30 0 * * *",
+                payload={"action": "quality_record_retention"},
                 workspace_id=DEFAULT_WORKSPACE_ID,
             ))
         await db.commit()

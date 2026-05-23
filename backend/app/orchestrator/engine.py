@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime
 
@@ -25,6 +26,61 @@ from app.utils.events import log_event
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 5  # seconds
+
+# Cap per flat-memory file captured into the spawn snapshot (chars).
+_FLAT_MEMORY_CAP = 20000
+
+
+def _read_flat_memory(workspace_id) -> dict:
+    """Read the rules.md / memory.md the agent is mounted at spawn time.
+
+    These shared files are mounted read-only into the container; capturing
+    their content here is the only durable record of the flat-memory state the
+    agent actually saw. Best-effort: missing files → empty strings.
+    """
+    from app.config import get_settings
+
+    shared = os.path.join(get_settings().data_dir, "shared", str(workspace_id))
+    out = {}
+    for fname, key in (("rules.md", "rules_md"), ("memory.md", "memory_md")):
+        try:
+            with open(os.path.join(shared, fname)) as fh:
+                out[key] = fh.read()[:_FLAT_MEMORY_CAP]
+        except OSError:
+            out[key] = ""
+    return out
+
+
+def _spawn_snapshot(task, template, agent_llm, memory_context: str) -> dict:
+    """Full state snapshot captured into the `agent_spawned` event.
+
+    Source of truth for the Quality Data Lake (E-01) `execution` section —
+    soul_md, tools, MCP, model, resource limits, and the memory/RAG context
+    the agent received are not recoverable later, so we record them here.
+    """
+    return {
+        "template_id": str(template.id),
+        "template_name": template.name,
+        "soul_md": template.soul_md or "",
+        "tools": list(template.tools or []),
+        "mcp_servers": list(template.mcp_servers or []),
+        "model_api_name": agent_llm.model.api_name,
+        "input_price_per_1m_usd": (
+            float(agent_llm.model.input_price_per_1m_usd)
+            if agent_llm.model.input_price_per_1m_usd is not None else None
+        ),
+        "output_price_per_1m_usd": (
+            float(agent_llm.model.output_price_per_1m_usd)
+            if agent_llm.model.output_price_per_1m_usd is not None else None
+        ),
+        "resource_limits": {
+            "max_ram": template.max_ram,
+            "max_cpu": template.max_cpu,
+            "timeout_minutes": template.timeout_minutes,
+        },
+        "memory_context": memory_context or "",
+        "flat_memory": _read_flat_memory(task.workspace_id),
+    }
 
 
 async def process_ready_task(db: AsyncSession, task: Task):
@@ -250,7 +306,7 @@ async def process_ready_task(db: AsyncSession, task: Task):
 
         await log_event(
             db, "agent_spawned", "orchestrator",
-            {"container_id": container_id, "template_name": template.name},
+            {"container_id": container_id, **_spawn_snapshot(task, template, agent_llm, memory_context)},
             task_id=task.id, agent_container_id=container_id,
         )
         logger.info(f"Spawned agent {container_id[:12]} for task {task.id}")
