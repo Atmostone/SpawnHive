@@ -205,6 +205,34 @@ export const workspaceApi = {
     }),
 }
 
+// Quality Rubric Engine (E-02)
+import type { Rubric, QualityProfile } from '../types'
+
+type RubricInput = Pick<Rubric, 'name' | 'description' | 'applies_to' | 'is_default' | 'dimensions'>
+
+export const rubricsApi = {
+  list: () => request<Rubric[]>('/quality/rubrics'),
+  get: (id: string) => request<Rubric>(`/quality/rubrics/${id}`),
+  create: (data: RubricInput) =>
+    request<Rubric>('/quality/rubrics', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<RubricInput>) =>
+    request<Rubric>(`/quality/rubrics/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/quality/rubrics/${id}`, { method: 'DELETE' }),
+}
+
+export const qualityApi = {
+  getProfile: (taskId: string) =>
+    request<{ task_id: string; quality_profile: QualityProfile | null }>(
+      `/quality/records/${taskId}/profile`,
+    ),
+  evaluate: (taskId: string) =>
+    request<{ task_id: string; quality_profile: QualityProfile | null; skipped: boolean; detail?: string }>(
+      `/quality/records/${taskId}/evaluate`,
+      { method: 'POST' },
+    ),
+}
+
 // Knowledge
 export interface KnowledgeDocument {
   id: string

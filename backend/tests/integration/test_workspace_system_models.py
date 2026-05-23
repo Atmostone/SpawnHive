@@ -12,9 +12,10 @@ async def test_get_system_models_returns_assigned_ids(auth_client: AsyncClient):
     r = await auth_client.get("/api/workspaces/me/system-models")
     assert r.status_code == 200
     body = r.json()
-    # All three FKs are set to the same cloned model (from env bootstrap).
+    # All four system-model FKs are exposed (quality_judge added in E-02).
     assert set(body.keys()) == {
-        "orchestrator_model_id", "chat_model_id", "memory_extractor_model_id"
+        "orchestrator_model_id", "chat_model_id", "memory_extractor_model_id",
+        "quality_judge_model_id",
     }
 
 

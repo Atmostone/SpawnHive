@@ -22,6 +22,7 @@ from app.api.scheduled_jobs import router as scheduled_jobs_router
 from app.api.agent_logs import router as agent_logs_router, ws_router as agent_logs_ws_router
 from app.api.providers import router as providers_router, models_router
 from app.api.data_lake import router as data_lake_router
+from app.api.quality import router as quality_router
 from app.api.workspaces import router as workspaces_router
 from app.config import get_settings
 from app.database import async_session
@@ -47,6 +48,9 @@ async def seed_settings():
         # Quality Data Lake (E-01)
         "data_lake_retention_days": 0,  # 0 = keep forever
         "data_lake_public_opt_in_default": False,  # privacy: opt-in off by default
+        # Quality Rubric Engine (E-02): auto-evaluate off by default to avoid
+        # surprise token spend; the on-demand evaluate button works regardless.
+        "quality_eval_enabled": False,
     }
     async with async_session() as db:
         for key, value in defaults.items():
@@ -184,12 +188,37 @@ async def seed_templates():
         logging.getLogger(__name__).info("Seeded 5 default templates")
 
 
+async def seed_default_rubrics():
+    """Seed the built-in quality rubrics (E-02) into the default workspace if absent.
+
+    New workspaces clone these on registration (see app.api.auth.register).
+    """
+    from sqlalchemy import func, select
+    from app.models.rubric import Rubric
+    from app.models.workspace import DEFAULT_WORKSPACE_ID
+    from app.quality.rubric import iter_default_rubrics
+
+    async with async_session() as db:
+        count = await db.scalar(
+            select(func.count())
+            .select_from(Rubric)
+            .where(Rubric.workspace_id == DEFAULT_WORKSPACE_ID)
+        )
+        if count and count > 0:
+            return
+        for _name, kwargs in iter_default_rubrics():
+            db.add(Rubric(workspace_id=DEFAULT_WORKSPACE_ID, **kwargs))
+        await db.commit()
+        logging.getLogger(__name__).info("Seeded 5 default rubrics")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await seed_settings()
     await seed_default_provider()
     await seed_templates()
+    await seed_default_rubrics()
 
     # Orchestrator + scheduler now run as separate worker containers (R3),
     # holding Postgres advisory locks so only one of each is leader.
@@ -273,3 +302,4 @@ app.include_router(providers_router)
 app.include_router(models_router)
 app.include_router(workspaces_router)
 app.include_router(data_lake_router)
+app.include_router(quality_router)

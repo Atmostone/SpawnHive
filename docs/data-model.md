@@ -36,6 +36,9 @@ f7e8d9c0b1a2  providers + llm_models; templates.{model,provider_url,provider_api
               workspaces.{orchestrator,chat,memory_extractor}_model_id; tasks.{input,output}_price_per_1m_usd (R7)
      ↓
 b1c2d3e4f5a6  quality_records — Quality Data Lake (E-01)
+     ↓
+c2d3e4f5a6b7  rubrics — Quality Rubric Engine (E-02); templates.rubric_id;
+              workspaces.quality_judge_model_id
 ```
 
 ## Tables
@@ -75,6 +78,7 @@ Indexes: `status`, `parent_id`, `workspace_id`.
 | id | UUID PK | uuid4 | |
 | name / description / soul_md | string/text | required | |
 | model_id | UUID FK→llm_models.id ON DELETE SET NULL | NULL | model used to run the agent. NULL → template not spawnable. |
+| rubric_id | UUID FK→rubrics.id ON DELETE SET NULL | NULL | quality rubric for scoring this template's results (E-02); NULL → tag/default rubric |
 | tools | JSONB | [] | list of built-in tools |
 | mcp_servers | JSONB | [] | list of `{name, command, args, env}` |
 | max_ram / max_cpu / timeout_minutes | string/int | "2g" / 100000 / 60 | docker limits |
@@ -268,6 +272,37 @@ the chunks) and reconciled/backfilled by the `quality_record_backfill` scheduled
 job; pruned by `quality_record_retention` per the `data_lake_retention_days`
 setting (0 = keep forever; opted-in records are never auto-deleted).
 
+The `quality_profile` slot is filled by the Quality Rubric Engine (E-02) — see
+`rubrics` below.
+
+### rubrics (E-02)
+
+A multi-dimensional quality rubric: a set of independent dimensions used to score
+a task result into a **profile** (vector of 0–10 scores) rather than one number.
+Five built-ins are seeded into the default workspace (`seed_default_rubrics` in
+`app/main.py`) and cloned to each new workspace on registration.
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| id | UUID PK | |
+| workspace_id | UUID FK→workspaces ON DELETE CASCADE | scoping |
+| name | VARCHAR(255) | e.g. "Code", "Analytical Report" |
+| description | TEXT | |
+| applies_to | VARCHAR(50) NULL | task-type tag for auto-selection (matches a template tag) |
+| is_default | bool | default false — workspace's last-resort rubric |
+| dimensions | JSONB | list of `{key, name, description, evaluator, weight, threshold, critical}` |
+| created_at / updated_at | TIMESTAMP | |
+
+Index: `workspace_id`. A dimension's `evaluator` is one of `judge` (LLM-as-judge,
+O2 — the only one wired today), `objective` (E-04 probes) or `human` (E-05); the
+latter two are recognized but scored as `deferred` until those features land.
+
+**Rubric selection for a task**: `Template.rubric_id` → a workspace rubric whose
+`applies_to` matches a template tag → the workspace's `is_default` rubric → none
+(evaluation skipped). The judge model is the workspace's `quality_judge_model_id`,
+falling back to `orchestrator_model_id`. Profiles are written to
+`quality_records.quality_profile`; the MinIO blob is left immutable.
+
 ### scheduled_jobs (P8)
 
 | Column | Type | |
@@ -291,6 +326,7 @@ Index: `enabled`.
 - `agent_progress_check` — interval 60s, action `agent_progress_check`.
 - `quality_record_backfill` — interval 300s, action `quality_record_backfill` (E-01: build/reconcile records for terminal tasks; global).
 - `quality_record_retention` — cron `30 0 * * *`, action `quality_record_retention` (E-01: prune old records per `data_lake_retention_days`).
+- `quality_judge_evaluate` — interval 600s, action `quality_judge_evaluate` (E-02: score `done` records lacking a `quality_profile`; only runs when the `quality_eval_enabled` setting is true).
 
 ### users (R1)
 
@@ -314,6 +350,7 @@ Index: `enabled`.
 | orchestrator_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used for decomposition / template selection / result evaluation (R7) |
 | chat_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used by the chat panel (R7) |
 | memory_extractor_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used by the structured-memory extractor (R7) |
+| quality_judge_model_id | UUID FK→llm_models.id ON DELETE SET NULL | LLM-as-judge for rubric scoring (E-02); falls back to orchestrator when unset |
 | created_at | TIMESTAMP | |
 
 ### workspace_members (R1)

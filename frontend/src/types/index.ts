@@ -53,6 +53,7 @@ export interface Template {
   model_display_name: string | null
   model_api_name: string | null
   provider_name: string | null
+  rubric_id: string | null
   tools: string[]
   mcp_servers: MCPServer[]
   max_ram: string
@@ -95,6 +96,64 @@ export interface SystemModels {
   orchestrator_model_id: string | null
   chat_model_id: string | null
   memory_extractor_model_id: string | null
+  quality_judge_model_id: string | null
+}
+
+// Quality Rubric Engine (E-02)
+export type EvaluatorType = 'judge' | 'objective' | 'human'
+
+export interface RubricDimension {
+  key: string
+  name: string
+  description: string
+  evaluator: EvaluatorType
+  weight: number
+  threshold: number | null
+  critical: boolean
+}
+
+export interface Rubric {
+  id: string
+  workspace_id: string
+  name: string
+  description: string
+  applies_to: string | null
+  is_default: boolean
+  dimensions: RubricDimension[]
+  created_at: string
+  updated_at: string
+}
+
+export type DimensionStatus = 'scored' | 'deferred' | 'error'
+
+export interface QualityProfileDimension {
+  key: string
+  name: string
+  evaluator: EvaluatorType
+  max: number
+  weight: number | null
+  threshold: number | null
+  critical: boolean
+  status: DimensionStatus
+  score: number | null
+  reasoning?: string
+  passed?: boolean
+  error?: string
+}
+
+export interface QualityProfile {
+  schema_version: number
+  rubric_id: string
+  rubric_name: string
+  dimensions: QualityProfileDimension[]
+  weighted_score: number | null
+  gate: { passed: boolean; failed_dimensions: string[] }
+  judge_model: string
+  judge_input_tokens: number
+  judge_output_tokens: number
+  judge_cost_usd: number
+  evaluated_at: string
+  errors: { key: string; error: string }[]
 }
 
 export interface Agent {

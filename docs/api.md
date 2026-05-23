@@ -31,7 +31,8 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 - `PATCH /api/settings`
 - `GET /api/settings/export-all`
 - `POST/PATCH/DELETE /api/providers`, `POST/PATCH/DELETE /api/providers/{id}/models`, `PATCH/DELETE /api/models/{id}`, `POST /api/models/{id}/test`
-- `PATCH /api/workspaces/me/system-models`
+- `PATCH /api/workspaces/me/system-models` (accepts `orchestrator_model_id`, `chat_model_id`, `memory_extractor_model_id`, `quality_judge_model_id`)
+- `POST/PATCH/DELETE /api/quality/rubrics`, `POST /api/quality/records/{id}/evaluate`
 - `POST /api/agents/{cid}/kill`, `/abort`, `/switch_model`
 - `POST /api/agents/kill-all`
 - `DELETE /api/templates/{id}`, `POST /api/templates/{id}/rollback/{v}`
@@ -169,6 +170,26 @@ Workspace-scoped, read-only. Records are immutable per-task execution snapshots
 | GET | `/api/data-lake/query?group_by=template_name\|model_used\|final_status&...filters` | Group-by aggregates: count, avg_cost_usd, avg_tokens, avg_duration_s, approval_rate |
 | GET | `/api/data-lake/export?format=json\|parquet&...filters` | **owner/admin** — bulk export of the flattened summary table |
 
+### Quality Rubric Engine (`/api/quality`) — E-02
+
+Workspace-scoped. Rubrics define quality dimensions (LLM-as-judge); the engine
+scores a finished task into a profile written to `quality_records.quality_profile`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/quality/rubrics` | List the workspace's rubrics |
+| POST | `/api/quality/rubrics` | **owner/admin** — create. Body: `{name, description?, applies_to?, is_default?, dimensions: [{key, name, description?, evaluator, weight?, threshold?, critical?}]}` |
+| GET | `/api/quality/rubrics/{id}` | Get one (404 if not in workspace) |
+| PATCH | `/api/quality/rubrics/{id}` | **owner/admin** — partial update |
+| DELETE | `/api/quality/rubrics/{id}` | **owner/admin** |
+| GET | `/api/quality/records/{task_id}/profile` | `{task_id, quality_profile}` (404 if no record in workspace; `quality_profile` is null until evaluated) |
+| POST | `/api/quality/records/{task_id}/evaluate` | **owner/admin** — on-demand evaluate (re-runs/overwrites). Returns `{quality_profile, skipped, detail?}`; `skipped=true` when no rubric matched or no judge/orchestrator model is configured |
+
+`evaluator` ∈ `judge` (LLM-as-judge, the only one scored today) \| `objective`
+(E-04) \| `human` (E-05). Setting `is_default` clears the default flag on the
+workspace's other rubrics. Auto-evaluation also runs as the `quality_judge_evaluate`
+scheduler job when the `quality_eval_enabled` setting is true (off by default).
+
 ### Scheduled jobs (`/api/scheduled-jobs`)
 
 | Method | Path | |
@@ -183,7 +204,7 @@ Workspace-scoped, read-only. Records are immutable per-task execution snapshots
 | Method | Path | |
 |--------|------|--|
 | GET | `/api/settings` | All keys → JSONB values |
-| PATCH | `/api/settings` | Body — partial dict. Known keys: `embedding_*`, `max_concurrent_agents`, `task_timeout_minutes`, `max_retries`, `memory_mode` (`flat`\|`structured`), `decomposition_enabled` (bool, default `true`). LLM credentials moved to providers/llm_models (see below). |
+| PATCH | `/api/settings` | Body — partial dict. Known keys: `embedding_*`, `max_concurrent_agents`, `task_timeout_minutes`, `max_retries`, `memory_mode` (`flat`\|`structured`), `decomposition_enabled` (bool, default `true`), `data_lake_retention_days` (int, 0=forever), `data_lake_public_opt_in_default` (bool), `quality_eval_enabled` (bool, default `false` — gates the E-02 auto-evaluation job). LLM credentials moved to providers/llm_models (see below). |
 | GET | `/api/settings/health` | Alias for `/api/health` (per spec §4.7) |
 | GET | `/api/settings/export-all` | ZIP containing tasks/templates/events/settings/rules.md/memory.md/documents.json (capped at 10k events) |
 

@@ -39,6 +39,13 @@ class Workspace(Base):
         ForeignKey("llm_models.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # LLM-as-judge model for quality evaluation (E-02). Falls back to the
+    # orchestrator model when unset (see app.quality.judge).
+    quality_judge_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()

@@ -22,6 +22,7 @@ class SystemModelsBody(BaseModel):
     orchestrator_model_id: Optional[str] = None
     chat_model_id: Optional[str] = None
     memory_extractor_model_id: Optional[str] = None
+    quality_judge_model_id: Optional[str] = None
 
 
 def _system_models_dict(ws: Workspace) -> dict:
@@ -29,6 +30,7 @@ def _system_models_dict(ws: Workspace) -> dict:
         "orchestrator_model_id": str(ws.orchestrator_model_id) if ws.orchestrator_model_id else None,
         "chat_model_id": str(ws.chat_model_id) if ws.chat_model_id else None,
         "memory_extractor_model_id": str(ws.memory_extractor_model_id) if ws.memory_extractor_model_id else None,
+        "quality_judge_model_id": str(ws.quality_judge_model_id) if ws.quality_judge_model_id else None,
     }
 
 

@@ -20,6 +20,11 @@ const KINDS: Array<{ key: keyof SystemModels; label: string; hint: string }> = [
     label: 'Memory extractor',
     hint: 'Extracts durable facts from completed tasks (only when memory_mode=structured).',
   },
+  {
+    key: 'quality_judge_model_id',
+    label: 'Quality judge',
+    hint: 'LLM-as-judge for quality rubric scoring (E-02). Falls back to the orchestrator model when unset.',
+  },
 ]
 
 export function SystemModelsSection({ canEdit }: { canEdit: boolean }) {
