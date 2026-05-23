@@ -1,13 +1,9 @@
 import json
-import time
 import zipfile
 from datetime import datetime
 from io import BytesIO
-from typing import Optional
 
 from fastapi import APIRouter, Depends
-
-from app.plugins.llm import get_llm_provider
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -65,19 +61,6 @@ async def get_setting(db: AsyncSession, key: str, default=None):
     return default
 
 
-async def get_llm_settings(db: AsyncSession) -> dict:
-    """Read LLM connection config. Secrets (api_key) go through SecretsProvider
-    so a future Vault/SOPS-backed impl can take over without rewriting callers."""
-    from app.plugins.secrets import get_secrets_provider
-
-    secrets = get_secrets_provider()
-    return {
-        "llm_base_url": await get_setting(db, "llm_base_url"),
-        "llm_api_key": await secrets.get(db, "llm_api_key"),
-        "llm_model": await get_setting(db, "llm_model"),
-    }
-
-
 @router.get("/health")
 async def settings_health(
     db: AsyncSession = Depends(get_db),
@@ -85,41 +68,6 @@ async def settings_health(
 ):
     """Alias for /api/health, exposed under /api/settings per spec §4.7."""
     return await health_check(db=db, settings=settings)
-
-
-class LLMTestBody(BaseModel):
-    llm_base_url: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    llm_model: Optional[str] = None
-
-
-@router.post("/test-llm", dependencies=[Depends(require_role("owner", "admin"))])
-async def test_llm(body: LLMTestBody, db: AsyncSession = Depends(get_db)):
-    """Probe configured (or supplied) LLM endpoint with a tiny completion."""
-    from app.plugins.secrets import get_secrets_provider
-
-    secrets = get_secrets_provider()
-    base_url = body.llm_base_url or await get_setting(db, "llm_base_url")
-    api_key = body.llm_api_key or await secrets.get(db, "llm_api_key")
-    model = body.llm_model or await get_setting(db, "llm_model") or "MiniMax-M2.7"
-
-    if not base_url or not api_key:
-        return {"status": "error", "error": "llm_base_url or llm_api_key not configured"}
-
-    started = time.perf_counter()
-    try:
-        resp = await get_llm_provider().acompletion(
-            model=model,
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=5,
-            api_base=base_url,
-            api_key=api_key,
-        )
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        sample = (resp.choices[0].message.content or "")[:80]
-        return {"status": "ok", "latency_ms": latency_ms, "model": model, "sample": sample}
-    except Exception as e:
-        return {"status": "error", "error": str(e)[:300]}
 
 
 EXPORT_EVENTS_LIMIT = 10_000

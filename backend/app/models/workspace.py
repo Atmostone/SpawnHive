@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,6 +23,21 @@ class Workspace(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    orchestrator_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    chat_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    memory_extractor_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_models.id", ondelete="SET NULL"),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

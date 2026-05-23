@@ -301,9 +301,14 @@ async def run_agent() -> dict:
     task_id = os.environ.get("TASK_ID", "unknown")
     task_description = os.environ.get("TASK_DESCRIPTION", "No task provided")
     agent_soul = os.environ.get("AGENT_SOUL", "")
-    model = os.environ.get("LLM_MODEL", "MiniMax-M2.7")
+    model = os.environ.get("LLM_MODEL") or ""
     api_key = os.environ.get("OPENAI_API_KEY") or None
     api_base = os.environ.get("OPENAI_BASE_URL") or None
+    if not model:
+        raise RuntimeError(
+            "LLM_MODEL env var is empty — the orchestrator did not pass a model. "
+            "Check the template's model_id and the workspace's system_*_model_id."
+        )
 
     # Built-in tools selection
     try:

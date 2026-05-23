@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.settings import get_llm_settings
+from app.api._resolve_model import resolve_workspace_model
 from app.auth.tokens import verify_agent_token
 from app.config import get_settings
 from app.database import get_db
@@ -117,7 +117,7 @@ async def _process_webhook(
             task.result_summary = data.get("result_summary", "")
             task.result_files = data.get("files", [])
             task.token_usage = data.get("token_usage", {})
-            task.cost_usd = await calculate_cost(db, task.model_used, task.token_usage)
+            task.cost_usd = calculate_cost(task, task.token_usage)
 
             # MinIO upload is best-effort and external; failures don't roll back the tx.
             try:
@@ -141,17 +141,23 @@ async def _process_webhook(
             # sees REVIEW status only if processing takes long enough; otherwise
             # the task moves straight to AWAITING_APPROVAL/READY/FAILED.
             task.status = TaskStatus.REVIEW.value
-            llm_settings = await get_llm_settings(db)
-            evaluation = await evaluate_agent_result(
-                task.title,
-                task.description or "",
-                task.result_summary or "",
-                task.result_files or [],
-                llm_settings,
-                db=db,
-                task_id=task.id,
-                commit=False,
-            )
+            try:
+                orchestrator_llm = await resolve_workspace_model(
+                    db, task.workspace_id, "orchestrator"
+                )
+                evaluation = await evaluate_agent_result(
+                    task.title,
+                    task.description or "",
+                    task.result_summary or "",
+                    task.result_files or [],
+                    orchestrator_llm,
+                    db=db,
+                    task_id=task.id,
+                    commit=False,
+                )
+            except Exception as e:
+                logger.warning(f"evaluation skipped — model not configured: {e}")
+                evaluation = {"approved": True, "feedback": ""}
 
             if evaluation.get("approved", True):
                 task.status = TaskStatus.AWAITING_APPROVAL.value
@@ -187,7 +193,7 @@ async def _process_webhook(
 
             error = data.get("error", "Unknown error")
             task.token_usage = data.get("token_usage", {})
-            task.cost_usd = await calculate_cost(db, task.model_used, task.token_usage)
+            task.cost_usd = calculate_cost(task, task.token_usage)
 
             if task.retry_count < task.max_retries:
                 task.retry_count += 1
@@ -215,7 +221,7 @@ async def _process_webhook(
             from app.utils.cost import calculate_cost
 
             task.token_usage = data.get("token_usage", {})
-            task.cost_usd = await calculate_cost(db, task.model_used, task.token_usage)
+            task.cost_usd = calculate_cost(task, task.token_usage)
             task.status = TaskStatus.FAILED.value
             task.completed_at = datetime.utcnow()
             await _logev(

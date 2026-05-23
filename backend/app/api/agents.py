@@ -120,9 +120,7 @@ async def agent_feedback(
 
 
 class SwitchModelBody(BaseModel):
-    model: str | None = None
-    base_url: str | None = None
-    api_key: str | None = None
+    model_id: str
 
 
 @router.post(
@@ -135,19 +133,34 @@ async def agent_switch_model(
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db),
 ):
-    if not (body.model or body.base_url or body.api_key):
-        raise HTTPException(status_code=400, detail="provide at least one of model/base_url/api_key")
+    from app.api._resolve_model import resolve_model_by_id
+    from app.models.provider import Provider as _Provider
+
+    resolved = await resolve_model_by_id(db, body.model_id)
+    provider = resolved.provider
+    if provider.workspace_id != workspace.id:
+        raise HTTPException(status_code=400, detail="model does not belong to this workspace")
+
     runtime = get_agent_runtime()
     stats = runtime.stats(container_id, workspace_id=str(workspace.id))
     if not stats:
         raise HTTPException(status_code=404, detail="Agent not found")
-    ok = await runtime.send_command(container_id, "switch_model", body.model_dump(exclude_none=True))
+    payload = {
+        "model": resolved.model.api_name,
+        "base_url": provider.endpoint,
+        "api_key": provider.api_key,
+    }
+    ok = await runtime.send_command(container_id, "switch_model", payload)
     if not ok:
         raise HTTPException(status_code=502, detail="Agent did not accept switch_model")
     task_id = stats.get("task_id")
     await log_event(
         db, "agent_model_switched", "user",
-        {"model": body.model, "base_url": body.base_url},
+        {
+            "model_id": body.model_id,
+            "model": resolved.model.api_name,
+            "provider": provider.name,
+        },
         task_id=task_id,
         agent_container_id=container_id,
         workspace_id=workspace.id,

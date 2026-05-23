@@ -38,7 +38,8 @@ def _raise_not_found(cid):
 
 def test_get_llm_env_vars_defaults():
     out = dm.get_llm_env_vars({})
-    assert out["LLM_MODEL"] == "MiniMax-M2.7"
+    # No magic fallback model — env stays empty if not configured.
+    assert out["LLM_MODEL"] == ""
     assert out["OPENAI_API_KEY"] == ""
     assert out["OPENAI_BASE_URL"] == ""
 
@@ -50,20 +51,6 @@ def test_get_llm_env_vars_passthrough():
         "llm_base_url": "http://x",
     })
     assert out == {"LLM_MODEL": "M", "OPENAI_API_KEY": "K", "OPENAI_BASE_URL": "http://x"}
-
-
-def test_effective_llm_config_template_wins():
-    tpl = SimpleNamespace(model="m", provider_url="u", provider_api_key="k")
-    out = dm.effective_llm_config(tpl, {"llm_model": "GLOBAL"})
-    assert out == {"llm_model": "m", "llm_base_url": "u", "llm_api_key": "k"}
-
-
-def test_effective_llm_config_falls_back_to_global():
-    tpl = SimpleNamespace(model=None, provider_url=None, provider_api_key=None)
-    out = dm.effective_llm_config(tpl, {
-        "llm_model": "g", "llm_base_url": "gu", "llm_api_key": "gk",
-    })
-    assert out == {"llm_model": "g", "llm_base_url": "gu", "llm_api_key": "gk"}
 
 
 def test_container_in_workspace():

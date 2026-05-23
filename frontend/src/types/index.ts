@@ -49,9 +49,10 @@ export interface Template {
   name: string
   description: string
   soul_md: string
-  model: string | null
-  provider_url?: string | null
-  provider_api_key?: string | null
+  model_id: string | null
+  model_display_name: string | null
+  model_api_name: string | null
+  provider_name: string | null
   tools: string[]
   mcp_servers: MCPServer[]
   max_ram: string
@@ -60,6 +61,40 @@ export interface Template {
   tags: string[]
   created_at: string
   updated_at: string
+}
+
+export interface Provider {
+  id: string
+  name: string
+  endpoint: string
+  api_key_masked: string
+  created_at: string
+  updated_at: string
+}
+
+export interface LLMModel {
+  id: string
+  provider_id: string
+  display_name: string
+  api_name: string
+  input_price_per_1m_usd: number
+  output_price_per_1m_usd: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ModelTestResponse {
+  status: 'ok' | 'error'
+  latency_ms?: number
+  model?: string
+  sample?: string
+  error?: string
+}
+
+export interface SystemModels {
+  orchestrator_model_id: string | null
+  chat_model_id: string | null
+  memory_extractor_model_id: string | null
 }
 
 export interface Agent {

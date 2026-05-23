@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Wifi, WifiOff, PanelRight } from 'lucide-react'
 import { ReactFlowProvider } from 'reactflow'
 import { eventsApi, buildWsUrl, templatesApi } from '@/api/client'
-import type { AgentEvent, Template } from '@/types'
+import type { AgentEvent } from '@/types'
 import GraphCanvas, { type GraphLayout } from '@/components/graph/GraphCanvas'
 import TimelineSlider from '@/components/graph/TimelineSlider'
 import NodeDetailsPanel, {
@@ -63,7 +63,7 @@ export default function CommunicationView() {
 
   const { data: templates } = useQuery({
     queryKey: ['templates'],
-    queryFn: () => templatesApi.list() as Promise<Template[]>,
+    queryFn: () => templatesApi.list(),
     staleTime: 5 * 60 * 1000,
   })
 

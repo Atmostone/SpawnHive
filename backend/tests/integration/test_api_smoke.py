@@ -278,14 +278,6 @@ async def test_task_approve_path(auth_client: AsyncClient, db_session):
 
 
 @pytest.mark.asyncio
-async def test_settings_test_llm_short_circuits_when_unconfigured(auth_client: AsyncClient):
-    """Without llm_base_url/api_key, test-llm returns the validation error path."""
-    r = await auth_client.post("/api/settings/test-llm", json={})
-    assert r.status_code == 200
-    assert r.json()["status"] in ("error", "ok")
-
-
-@pytest.mark.asyncio
 async def test_template_404_for_missing_id(auth_client: AsyncClient):
     bad_id = uuid.uuid4()
     r = await auth_client.get(f"/api/templates/{bad_id}")

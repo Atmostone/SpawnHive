@@ -18,9 +18,11 @@ class Template(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     soul_md: Mapped[str] = mapped_column(Text, nullable=False)
-    model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    provider_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    provider_api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     tools: Mapped[dict] = mapped_column(JSONB, default=list, server_default="[]")
     mcp_servers: Mapped[dict] = mapped_column(JSONB, default=list, server_default="[]")
     max_ram: Mapped[str] = mapped_column(String(20), default="2g", server_default="2g")

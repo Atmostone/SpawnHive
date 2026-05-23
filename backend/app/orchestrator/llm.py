@@ -7,6 +7,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._resolve_model import ResolvedModel
 from app.plugins.llm import get_llm_provider
 from app.utils.events import log_event
 
@@ -65,7 +66,7 @@ async def select_template_for_task(
     task_title: str,
     task_description: str,
     templates: list[dict],
-    llm_settings: dict,
+    llm: ResolvedModel,
     db: Optional[AsyncSession] = None,
     task_id: Optional[_uuid.UUID | str] = None,
 ) -> dict | None:
@@ -108,15 +109,14 @@ async def select_template_for_task(
         },
     ]
 
-    model = llm_settings.get("llm_model", "MiniMax-M2.7")
     try:
         response = await get_llm_provider().acompletion(
-            model=model,
+            model=llm.model.api_name,
             messages=messages,
             tools=ORCHESTRATOR_TOOLS,
             tool_choice={"type": "function", "function": {"name": "select_template"}},
-            api_key=llm_settings.get("llm_api_key"),
-            api_base=llm_settings.get("llm_base_url"),
+            api_key=llm.provider.api_key,
+            api_base=llm.provider.endpoint,
         )
 
         choice = response.choices[0].message
@@ -202,7 +202,7 @@ async def decide_decomposition(
     task_title: str,
     task_description: str,
     templates: list[dict],
-    llm_settings: dict,
+    llm: ResolvedModel,
     db: Optional[AsyncSession] = None,
     task_id: Optional[_uuid.UUID | str] = None,
 ) -> list[dict] | None:
@@ -228,15 +228,14 @@ async def decide_decomposition(
         },
     ]
 
-    model = llm_settings.get("llm_model", "MiniMax-M2.7")
     try:
         response = await get_llm_provider().acompletion(
-            model=model,
+            model=llm.model.api_name,
             messages=messages,
             tools=DECOMPOSE_TOOLS,
             tool_choice="auto",
-            api_key=llm_settings.get("llm_api_key"),
-            api_base=llm_settings.get("llm_base_url"),
+            api_key=llm.provider.api_key,
+            api_base=llm.provider.endpoint,
         )
 
         choice = response.choices[0].message
@@ -295,7 +294,7 @@ async def evaluate_agent_result(
     task_description: str,
     result_summary: str,
     result_files: list[str],
-    llm_settings: dict,
+    llm: ResolvedModel,
     db: Optional[AsyncSession] = None,
     task_id: Optional[_uuid.UUID | str] = None,
     *,
@@ -326,15 +325,14 @@ async def evaluate_agent_result(
         },
     ]
 
-    model = llm_settings.get("llm_model", "MiniMax-M2.7")
     try:
         response = await get_llm_provider().acompletion(
-            model=model,
+            model=llm.model.api_name,
             messages=messages,
             tools=EVALUATE_TOOLS,
             tool_choice={"type": "function", "function": {"name": "evaluate_result"}},
-            api_key=llm_settings.get("llm_api_key"),
-            api_base=llm_settings.get("llm_base_url"),
+            api_key=llm.provider.api_key,
+            api_base=llm.provider.endpoint,
         )
 
         choice = response.choices[0].message

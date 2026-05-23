@@ -12,10 +12,13 @@ class Settings(BaseSettings):
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
 
-    # LLM settings (from .env, seeded into DB on startup)
-    llm_base_url: str = "https://api.minimax.io/v1"
+    # Optional bootstrap LLM env vars. If all three are set, an initial
+    # Provider+Model row is seeded into the default workspace on first boot
+    # (see app.main.seed_default_provider). Otherwise the admin must add
+    # a provider via UI → Settings → Providers & Models.
+    llm_base_url: str = ""
     llm_api_key: str = ""
-    llm_model: str = "MiniMax-M2.7"
+    llm_model: str = ""
 
     # Paths
     data_dir: str = "/data"  # inside api container

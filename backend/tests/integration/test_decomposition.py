@@ -17,7 +17,6 @@ async def _create_template(db_session, workspace_id, name="Researcher"):
         name=name,
         description=f"{name} template",
         soul_md="# soul",
-        model="test-model",
         tools=[],
         mcp_servers=[],
         tags=[],

@@ -10,6 +10,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.config import get_settings
 from app.database import get_db
+from app.models.provider import LLMModel, Provider
 from app.models.template import Template
 from app.models.user import User
 from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace, WorkspaceMember
@@ -87,6 +88,58 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> Toke
 
     db.add(WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role="owner"))
 
+    # Clone providers + models from the default workspace so the new user has
+    # a working LLM config out of the box. Templates' model_id is then mapped
+    # to the cloned model row via (provider.name, model.api_name).
+    default_providers = (
+        await db.execute(
+            select(Provider).where(Provider.workspace_id == DEFAULT_WORKSPACE_ID)
+        )
+    ).scalars().all()
+
+    # old_model_id -> new_model_id mapping (used to map system_*_model_id and templates.model_id)
+    model_id_map: dict[uuid.UUID, uuid.UUID] = {}
+    for old_provider in default_providers:
+        new_provider = Provider(
+            workspace_id=workspace.id,
+            name=old_provider.name,
+            api_key=old_provider.api_key,
+            endpoint=old_provider.endpoint,
+        )
+        db.add(new_provider)
+        await db.flush()
+
+        old_models = (
+            await db.execute(
+                select(LLMModel).where(LLMModel.provider_id == old_provider.id)
+            )
+        ).scalars().all()
+        for om in old_models:
+            new_model = LLMModel(
+                provider_id=new_provider.id,
+                display_name=om.display_name,
+                api_name=om.api_name,
+                input_price_per_1m_usd=om.input_price_per_1m_usd,
+                output_price_per_1m_usd=om.output_price_per_1m_usd,
+            )
+            db.add(new_model)
+            await db.flush()
+            model_id_map[om.id] = new_model.id
+
+    # Mirror the default workspace's system model assignments
+    default_ws = await db.get(Workspace, DEFAULT_WORKSPACE_ID)
+    if default_ws:
+        if default_ws.orchestrator_model_id:
+            workspace.orchestrator_model_id = model_id_map.get(
+                default_ws.orchestrator_model_id
+            )
+        if default_ws.chat_model_id:
+            workspace.chat_model_id = model_id_map.get(default_ws.chat_model_id)
+        if default_ws.memory_extractor_model_id:
+            workspace.memory_extractor_model_id = model_id_map.get(
+                default_ws.memory_extractor_model_id
+            )
+
     # Seed the new workspace with copies of the default workspace's templates.
     defaults = (
         await db.execute(
@@ -98,9 +151,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> Toke
             name=t.name,
             description=t.description,
             soul_md=t.soul_md,
-            model=t.model,
-            provider_url=t.provider_url,
-            provider_api_key=t.provider_api_key,
+            model_id=model_id_map.get(t.model_id) if t.model_id else None,
             tools=list(t.tools or []),
             mcp_servers=list(t.mcp_servers or []),
             max_ram=t.max_ram,

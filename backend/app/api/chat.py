@@ -11,6 +11,7 @@ from app.plugins.llm import get_llm_provider
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._resolve_model import resolve_workspace_model
 from app.api.events import _ws_authenticate
 from app.auth.dependencies import get_current_workspace
 from app.database import async_session, get_db
@@ -18,7 +19,6 @@ from app.models.chat_message import ChatMessage
 from app.models.task import Task, TaskStatus
 from app.models.template import Template
 from app.models.workspace import Workspace
-from app.api.settings import get_llm_settings
 from app.orchestrator.prompts import build_orchestrator_system_prompt
 from app.knowledge.rag import search_documents
 from app.utils.events import log_event
@@ -434,10 +434,17 @@ async def chat_websocket(ws: WebSocket):
                     await db.commit()
                     continue
 
-                # Get context and LLM settings
+                # Get context and resolve chat model for this workspace
                 ctx = await get_context(db, workspace_id=workspace_id)
-                llm_settings = await get_llm_settings(db)
-                model = llm_settings.get("llm_model", "MiniMax-M2.7")
+                try:
+                    chat_llm = await resolve_workspace_model(db, workspace_id, "chat")
+                except Exception as e:
+                    await ws.send_text(json.dumps({
+                        "type": "stream",
+                        "content": f"⚠ chat model not configured: {e}",
+                    }))
+                    await ws.send_text(json.dumps({"type": "done"}))
+                    continue
 
                 system_prompt = build_orchestrator_system_prompt(
                     rules_md=ctx["rules"],
@@ -462,13 +469,13 @@ async def chat_websocket(ws: WebSocket):
                 # Call LLM with streaming
                 try:
                     response = await get_llm_provider().acompletion(
-                        model=model,
+                        model=chat_llm.model.api_name,
                         messages=messages,
                         tools=CHAT_TOOLS,
                         tool_choice="auto",
                         stream=True,
-                        api_key=llm_settings.get("llm_api_key"),
-                        api_base=llm_settings.get("llm_base_url"),
+                        api_key=chat_llm.provider.api_key,
+                        api_base=chat_llm.provider.endpoint,
                     )
 
                     full_content = ""

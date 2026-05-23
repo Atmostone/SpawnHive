@@ -11,6 +11,7 @@ from app.models.knowledge_document import KnowledgeDocument
 from app.models.memory import MemoryEntity, MemoryRelation
 from app.models.scheduled_job import ScheduledJob
 from app.models.template_version import TemplateVersion
+from app.models.provider import Provider, LLMModel
 
 __all__ = [
     "User",
@@ -28,4 +29,6 @@ __all__ = [
     "MemoryRelation",
     "ScheduledJob",
     "TemplateVersion",
+    "Provider",
+    "LLMModel",
 ]

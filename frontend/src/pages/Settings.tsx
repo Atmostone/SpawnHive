@@ -2,25 +2,14 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, healthApi, agentsApi, knowledgeApi } from '@/api/client'
 import { useAuth } from '@/stores/auth'
-import { Save, RefreshCw, Skull, Plug, Download, Trash } from 'lucide-react'
+import { Save, RefreshCw, Skull, Download, Trash } from 'lucide-react'
+import { ProvidersSection } from '@/components/settings/ProvidersSection'
+import { SystemModelsSection } from '@/components/settings/SystemModelsSection'
 
-const SETTING_GROUPS = [
-  {
-    title: 'LLM Provider',
-    keys: [
-      { key: 'llm_base_url', label: 'API Base URL', type: 'text' },
-      { key: 'llm_api_key', label: 'API Key', type: 'password' },
-      { key: 'llm_model', label: 'Model Name', type: 'text' },
-    ],
-  },
-  {
-    title: 'Orchestrator',
-    keys: [
-      { key: 'max_concurrent_agents', label: 'Max Concurrent Agents', type: 'number' },
-      { key: 'task_timeout_minutes', label: 'Task Timeout (min)', type: 'number' },
-      { key: 'max_retries', label: 'Max Retries', type: 'number' },
-    ],
-  },
+const ORCHESTRATOR_FIELDS = [
+  { key: 'max_concurrent_agents', label: 'Max Concurrent Agents', type: 'number' },
+  { key: 'task_timeout_minutes', label: 'Task Timeout (min)', type: 'number' },
+  { key: 'max_retries', label: 'Max Retries', type: 'number' },
 ]
 
 const STORAGE_FIELDS = [
@@ -33,7 +22,6 @@ export default function Settings() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [saved, setSaved] = useState(false)
-  const [llmTest, setLlmTest] = useState<{ status: string; latency_ms?: number; error?: string } | null>(null)
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -64,16 +52,6 @@ export default function Settings() {
   const killAllMutation = useMutation({
     mutationFn: () => agentsApi.killAll(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
-  })
-
-  const testLlmMutation = useMutation({
-    mutationFn: () => settingsApi.testLlm({
-      llm_base_url: form.llm_base_url as string,
-      llm_api_key: form.llm_api_key as string,
-      llm_model: form.llm_model as string,
-    }),
-    onSuccess: (r) => setLlmTest(r),
-    onError: (e: Error) => setLlmTest({ status: 'error', error: e.message }),
   })
 
   const resetRagMutation = useMutation({
@@ -113,81 +91,47 @@ export default function Settings() {
         )}
       </div>
 
-      {/* LLM Provider with Test Connection */}
+      {/* Providers & Models */}
+      <ProvidersSection canEdit={isAdminRole} />
+
+      {/* System Models */}
+      <SystemModelsSection canEdit={isAdminRole} />
+
+      {/* Orchestrator */}
       <div className="bg-white rounded-lg border p-4 mb-4">
-        <h2 className="font-semibold mb-3">LLM Provider</h2>
+        <h2 className="font-semibold mb-3">Orchestrator</h2>
         <div className="space-y-3">
-          {SETTING_GROUPS[0].keys.map(({ key, label, type }) => (
+          {ORCHESTRATOR_FIELDS.map(({ key, label, type }) => (
             <div key={key}>
               <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
               <input
                 type={type}
                 value={form[key] != null ? String(form[key]) : ''}
-                onChange={e => set(key, e.target.value)}
+                onChange={e => {
+                  const val = type === 'number' ? Number(e.target.value) : e.target.value
+                  set(key, val)
+                }}
                 className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           ))}
-        </div>
-        <div className="flex items-center gap-3 mt-3">
-          <button
-            onClick={() => { setLlmTest(null); testLlmMutation.mutate() }}
-            disabled={testLlmMutation.isPending}
-            className="flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Plug className="h-4 w-4" /> {testLlmMutation.isPending ? 'Testing...' : 'Test Connection'}
-          </button>
-          {llmTest && (
-            <span className={`text-xs px-2 py-1 rounded-full ${
-              llmTest.status === 'ok'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-red-100 text-red-700'
-            }`}>
-              {llmTest.status === 'ok'
-                ? `OK · ${llmTest.latency_ms}ms`
-                : `Failed: ${llmTest.error?.slice(0, 60)}`}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Orchestrator */}
-      {SETTING_GROUPS.slice(1).map(group => (
-        <div key={group.title} className="bg-white rounded-lg border p-4 mb-4">
-          <h2 className="font-semibold mb-3">{group.title}</h2>
-          <div className="space-y-3">
-            {group.keys.map(({ key, label, type }) => (
-              <div key={key}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-                <input
-                  type={type}
-                  value={form[key] != null ? String(form[key]) : ''}
-                  onChange={e => {
-                    const val = type === 'number' ? Number(e.target.value) : e.target.value
-                    set(key, val)
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+          <div className="flex items-start gap-2 pt-1">
+            <input
+              id="decomposition_enabled"
+              type="checkbox"
+              checked={form.decomposition_enabled !== false}
+              onChange={e => set('decomposition_enabled', e.target.checked)}
+              className="mt-1"
+            />
+            <label htmlFor="decomposition_enabled" className="text-sm text-gray-700">
+              <span className="font-medium">Enable task decomposition</span>
+              <div className="text-xs text-gray-500">
+                When off, every root task is handled by a single agent (no auto-split into subtasks).
               </div>
-            ))}
-            <div className="flex items-start gap-2 pt-1">
-              <input
-                id="decomposition_enabled"
-                type="checkbox"
-                checked={form.decomposition_enabled !== false}
-                onChange={e => set('decomposition_enabled', e.target.checked)}
-                className="mt-1"
-              />
-              <label htmlFor="decomposition_enabled" className="text-sm text-gray-700">
-                <span className="font-medium">Enable task decomposition</span>
-                <div className="text-xs text-gray-500">
-                  When off, every root task is handled by a single agent (no auto-split into subtasks).
-                </div>
-              </label>
-            </div>
+            </label>
           </div>
         </div>
-      ))}
+      </div>
 
       {/* Embedding Model */}
       <div className="bg-white rounded-lg border p-4 mb-4">

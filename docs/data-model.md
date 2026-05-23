@@ -31,6 +31,9 @@ c9d0e1f2a3b4  users + workspaces + workspace_members + service_tokens; NOT NULL 
 d0e1f2a3b4c5  webhook_deliveries (R2)
      ↓
 e1f2a3b4c5d6  agent_log_chunks + agent_log_deliveries + tasks.log_archive_s3_path
+     ↓
+f7e8d9c0b1a2  providers + llm_models; templates.{model,provider_url,provider_api_key} dropped → templates.model_id;
+              workspaces.{orchestrator,chat,memory_extractor}_model_id; tasks.{input,output}_price_per_1m_usd (R7)
 ```
 
 ## Tables
@@ -53,8 +56,10 @@ e1f2a3b4c5d6  agent_log_chunks + agent_log_deliveries + tasks.log_archive_s3_pat
 | retry_count / max_retries | int | 0 / 1 | |
 | user_feedback | TEXT | NULL | on reject |
 | orchestrator_feedback | TEXT | NULL | from auto-review |
-| model_used | VARCHAR(255) | NULL | which model was actually used (P4) |
-| cost_usd | NUMERIC(10,6) | 0 | computed cost (P5) |
+| model_used | VARCHAR(255) | NULL | denormalized api_name of the model used (kept even if LLMModel is later deleted) |
+| input_price_per_1m_usd | NUMERIC(12,6) | NULL | denormalized at spawn time from `llm_models.input_price_per_1m_usd`; used by cost.py so deleting/repricing a model doesn't retro-change cost |
+| output_price_per_1m_usd | NUMERIC(12,6) | NULL | denormalized at spawn time from `llm_models.output_price_per_1m_usd` |
+| cost_usd | NUMERIC(10,6) | 0 | computed cost (input_price × input_tokens / 1M + output_price × output_tokens / 1M) |
 | depends_on | UUID[] | {} | ids of dependency tasks (P9) |
 | workspace_id | UUID NOT NULL | | scoping (post-R1, FK CASCADE) |
 | created_at / updated_at / started_at / completed_at | TIMESTAMP | now() / onupdate | |
@@ -67,14 +72,46 @@ Indexes: `status`, `parent_id`, `workspace_id`.
 |--------|------|---------|---------|
 | id | UUID PK | uuid4 | |
 | name / description / soul_md | string/text | required | |
-| model | VARCHAR(255) | NULL | nullable after P4 — empty means "inherit global" |
-| provider_url / provider_api_key | VARCHAR(500) | NULL | per-template override (P4) |
+| model_id | UUID FK→llm_models.id ON DELETE SET NULL | NULL | model used to run the agent. NULL → template not spawnable. |
 | tools | JSONB | [] | list of built-in tools |
 | mcp_servers | JSONB | [] | list of `{name, command, args, env}` |
 | max_ram / max_cpu / timeout_minutes | string/int | "2g" / 100000 / 60 | docker limits |
 | tags | TEXT[] | {} | |
 | workspace_id | UUID NOT NULL | | (post-R1) |
 | created_at / updated_at | TIMESTAMP | now() / onupdate | |
+
+Legacy columns `model`/`provider_url`/`provider_api_key` were dropped by migration `f7e8d9c0b1a2`; the existing data was migrated into a Provider+Model pair per workspace.
+
+### providers (R7)
+
+LLM provider records (one or many per workspace). Created/updated through `/api/providers`.
+
+| Column | Type | Default | Purpose |
+|--------|------|---------|---------|
+| id | UUID PK | uuid4 | |
+| workspace_id | UUID FK→workspaces.id ON DELETE CASCADE | | |
+| name | VARCHAR(200) | required | UNIQUE per workspace |
+| api_key | VARCHAR(500) | required | full key (masked in API responses) |
+| endpoint | VARCHAR(500) | required | base URL (e.g. `https://api.openai.com/v1`) |
+| created_at / updated_at | TIMESTAMP | now() / onupdate | |
+
+Index: `workspace_id`. UNIQUE constraint: `(workspace_id, name)`.
+
+### llm_models (R7)
+
+Models offered by a provider. Created/updated through `/api/providers/{id}/models` and `/api/models/{id}`.
+
+| Column | Type | Default | Purpose |
+|--------|------|---------|---------|
+| id | UUID PK | uuid4 | |
+| provider_id | UUID FK→providers.id ON DELETE CASCADE | | |
+| display_name | VARCHAR(255) | required | UI label (e.g. "GPT-4o") |
+| api_name | VARCHAR(255) | required | identifier sent to the LLM endpoint (e.g. `gpt-4o`). UNIQUE per provider. |
+| input_price_per_1m_usd | NUMERIC(12,6) | 0 | tokens-in price per 1M tokens |
+| output_price_per_1m_usd | NUMERIC(12,6) | 0 | tokens-out price per 1M tokens |
+| created_at / updated_at | TIMESTAMP | now() / onupdate | |
+
+Index: `provider_id`. UNIQUE constraint: `(provider_id, api_name)`.
 
 ### template_versions (P14)
 
@@ -179,13 +216,13 @@ Indexes: `from_id`, `to_id`, `workspace_id`.
 | updated_at | TIMESTAMP | |
 
 **Seeded keys** (seed_settings):
-`llm_base_url`, `llm_api_key`, `llm_model`,
 `max_concurrent_agents` (3), `task_timeout_minutes` (60), `max_retries` (1),
 `embedding_provider` ('fastembed'), `embedding_model_local` ('BAAI/bge-small-en-v1.5'),
 `embedding_api_url`, `embedding_api_key`, `embedding_model_api`,
 `minio_endpoint`, `minio_access_key`, `minio_secret_key`,
-`memory_mode` ('flat' | 'structured', default 'flat'),
-`model_pricing` ({}, shape `{model: {input_per_1m_usd, output_per_1m_usd}}`).
+`memory_mode` ('flat' | 'structured', default 'flat').
+
+LLM credentials (provider endpoint + API key) and model pricing moved to `providers` and `llm_models` in R7. The legacy keys `llm_base_url`/`llm_api_key`/`llm_model`/`model_pricing` were removed by the migration; the values are seeded as a default Provider+Model in the default workspace.
 
 ### scheduled_jobs (P8)
 
@@ -228,6 +265,9 @@ Index: `enabled`.
 | name | VARCHAR(200) | |
 | slug | VARCHAR(120) UNIQUE | URL-safe identifier |
 | created_by | UUID FK→users.id | |
+| orchestrator_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used for decomposition / template selection / result evaluation (R7) |
+| chat_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used by the chat panel (R7) |
+| memory_extractor_model_id | UUID FK→llm_models.id ON DELETE SET NULL | model used by the structured-memory extractor (R7) |
 | created_at | TIMESTAMP | |
 
 ### workspace_members (R1)

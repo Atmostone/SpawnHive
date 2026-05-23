@@ -20,18 +20,17 @@ from app.api.memory import router as memory_router
 from app.api.analytics import router as analytics_router
 from app.api.scheduled_jobs import router as scheduled_jobs_router
 from app.api.agent_logs import router as agent_logs_router, ws_router as agent_logs_ws_router
+from app.api.providers import router as providers_router, models_router
+from app.api.workspaces import router as workspaces_router
 from app.config import get_settings
 from app.database import async_session
 from app.models.setting import Setting
 
 
 async def seed_settings():
-    """Seed LLM settings from env vars if not already in DB."""
+    """Seed non-LLM operational settings; LLM credentials live in providers/llm_models."""
     settings = get_settings()
     defaults = {
-        "llm_base_url": settings.llm_base_url,
-        "llm_api_key": settings.llm_api_key,
-        "llm_model": settings.llm_model,
         "max_concurrent_agents": 3,
         "task_timeout_minutes": 60,
         "max_retries": 1,
@@ -44,7 +43,6 @@ async def seed_settings():
         "minio_access_key": settings.minio_access_key,
         "minio_secret_key": settings.minio_secret_key,
         "memory_mode": "flat",
-        "model_pricing": {},
     }
     async with async_session() as db:
         for key, value in defaults.items():
@@ -54,11 +52,67 @@ async def seed_settings():
         await db.commit()
 
 
+async def seed_default_provider():
+    """Create one default Provider+Model in default workspace from env, if no providers exist there.
+
+    Also assigns it to the workspace's three system_*_model_id FKs.
+    """
+    from sqlalchemy import func, select
+    from app.models.provider import LLMModel, Provider
+    from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace
+
+    settings = get_settings()
+    if not (settings.llm_base_url and settings.llm_api_key and settings.llm_model):
+        return  # nothing to seed; user will configure via UI
+
+    async with async_session() as db:
+        existing = await db.scalar(
+            select(func.count())
+            .select_from(Provider)
+            .where(Provider.workspace_id == DEFAULT_WORKSPACE_ID)
+        )
+        if existing and existing > 0:
+            return
+
+        provider = Provider(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            name="default",
+            api_key=settings.llm_api_key,
+            endpoint=settings.llm_base_url,
+        )
+        db.add(provider)
+        await db.flush()
+
+        model = LLMModel(
+            provider_id=provider.id,
+            display_name=settings.llm_model,
+            api_name=settings.llm_model,
+        )
+        db.add(model)
+        await db.flush()
+
+        workspace = await db.get(Workspace, DEFAULT_WORKSPACE_ID)
+        if workspace is not None:
+            if workspace.orchestrator_model_id is None:
+                workspace.orchestrator_model_id = model.id
+            if workspace.chat_model_id is None:
+                workspace.chat_model_id = model.id
+            if workspace.memory_extractor_model_id is None:
+                workspace.memory_extractor_model_id = model.id
+
+        await db.commit()
+        logging.getLogger(__name__).info("Seeded default provider+model from env")
+
+
 async def seed_templates():
-    """Seed 5 default templates into the default workspace if none exist there."""
+    """Seed 5 default templates into the default workspace if none exist there.
+
+    Templates inherit the workspace's orchestrator_model_id (default model) — if no
+    model is configured yet, they are seeded without one and the user can pick later.
+    """
     from sqlalchemy import func, select
     from app.models.template import Template
-    from app.models.workspace import DEFAULT_WORKSPACE_ID
+    from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace
 
     async with async_session() as db:
         count = await db.scalar(
@@ -69,12 +123,15 @@ async def seed_templates():
         if count and count > 0:
             return
 
+        workspace = await db.get(Workspace, DEFAULT_WORKSPACE_ID)
+        default_model_id = workspace.orchestrator_model_id if workspace else None
+
         templates = [
             Template(
                 name="Researcher",
                 description="Searches the internet, analyzes findings, and creates research reports. Use for any information gathering tasks.",
                 soul_md="You are an expert researcher. Search for information thoroughly, analyze it critically, and produce well-structured reports with sources.",
-                model="MiniMax-M2.7",
+                model_id=default_model_id,
                 tools=["bash", "file_write", "file_read"],
                 tags=["research", "analysis"],
                 workspace_id=DEFAULT_WORKSPACE_ID,
@@ -83,7 +140,7 @@ async def seed_templates():
                 name="Writer",
                 description="Writes texts: articles, posts, documentation, emails, creative writing. Use for any text creation tasks.",
                 soul_md="You are a skilled writer. Write clear, engaging, well-structured texts. Adapt your style to the task: formal for docs, engaging for articles, concise for emails.",
-                model="MiniMax-M2.7",
+                model_id=default_model_id,
                 tools=["file_write", "file_read"],
                 tags=["writing", "content"],
                 workspace_id=DEFAULT_WORKSPACE_ID,
@@ -92,7 +149,7 @@ async def seed_templates():
                 name="Coder",
                 description="Writes and debugs code, creates scripts and utilities. Use for programming and software development tasks.",
                 soul_md="You are an expert programmer. Write clean, well-tested, production-ready code. Use best practices. Always test your code before submitting.",
-                model="MiniMax-M2.7",
+                model_id=default_model_id,
                 tools=["bash", "file_read", "file_write"],
                 tags=["coding", "programming"],
                 workspace_id=DEFAULT_WORKSPACE_ID,
@@ -101,7 +158,7 @@ async def seed_templates():
                 name="Analyst",
                 description="Analyzes data, creates reports with insights and recommendations. Use for data analysis and business intelligence tasks.",
                 soul_md="You are a data analyst. Analyze data thoroughly, find patterns and insights, and present clear recommendations with supporting evidence.",
-                model="MiniMax-M2.7",
+                model_id=default_model_id,
                 tools=["bash", "file_read", "file_write"],
                 tags=["analysis", "data"],
                 workspace_id=DEFAULT_WORKSPACE_ID,
@@ -110,7 +167,7 @@ async def seed_templates():
                 name="Designer",
                 description="Creates HTML pages, UI components, and web designs. Use for frontend design and prototyping tasks.",
                 soul_md="You are a UI/UX designer who codes. Create beautiful, responsive HTML/CSS pages. Focus on clean design, good typography, and modern aesthetics.",
-                model="MiniMax-M2.7",
+                model_id=default_model_id,
                 tools=["bash", "file_write", "file_read"],
                 tags=["design", "frontend"],
                 workspace_id=DEFAULT_WORKSPACE_ID,
@@ -127,6 +184,7 @@ async def seed_templates():
 async def lifespan(app: FastAPI):
     # Startup
     await seed_settings()
+    await seed_default_provider()
     await seed_templates()
 
     # Orchestrator + scheduler now run as separate worker containers (R3),
@@ -207,3 +265,6 @@ app.include_router(analytics_router)
 app.include_router(scheduled_jobs_router)
 app.include_router(agent_logs_router)
 app.include_router(agent_logs_ws_router)
+app.include_router(providers_router)
+app.include_router(models_router)
+app.include_router(workspaces_router)

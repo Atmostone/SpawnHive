@@ -8,13 +8,13 @@ from datetime import datetime
 from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._resolve_model import resolve_model_by_id, resolve_workspace_model
+from app.api.settings import get_setting
+from app.api.templates import template_to_dict
 from app.auth.tokens import issue_agent_token
 from app.database import async_session
 from app.models.task import Task, TaskStatus
 from app.models.template import Template
-from app.api.settings import get_llm_settings, get_setting
-from app.api.templates import template_to_dict
-from app.orchestrator.docker_manager import effective_llm_config
 from app.orchestrator.llm import (
     decide_decomposition,
     select_template_for_task,
@@ -41,8 +41,22 @@ async def process_ready_task(db: AsyncSession, task: Task):
         task_id=task.id,
     )
 
-    # Get LLM settings and templates (scoped to task's workspace)
-    llm_settings = await get_llm_settings(db)
+    # Resolve orchestrator model from the workspace; surface 400 if not configured.
+    try:
+        orchestrator_llm = await resolve_workspace_model(
+            db, task.workspace_id, "orchestrator"
+        )
+    except Exception as e:
+        logger.error(f"orchestrator model not configured for task {task.id}: {e}")
+        task.status = TaskStatus.FAILED.value
+        await db.commit()
+        await log_event(
+            db, "orchestrator_decision", "orchestrator",
+            {"action": "failed", "reason": "orchestrator model not configured"},
+            task_id=task.id,
+        )
+        return
+
     result = await db.execute(
         select(Template).where(Template.workspace_id == task.workspace_id)
     )
@@ -65,7 +79,7 @@ async def process_ready_task(db: AsyncSession, task: Task):
     decomposition_enabled = bool(await get_setting(db, "decomposition_enabled", True))
     if decomposition_enabled and not task.parent_id and len(templates_list) > 1:
         subtasks = await decide_decomposition(
-            task.title, task.description or "", templates_list, llm_settings,
+            task.title, task.description or "", templates_list, orchestrator_llm,
             db=db, task_id=task.id,
         )
         if subtasks:
@@ -120,7 +134,7 @@ async def process_ready_task(db: AsyncSession, task: Task):
 
     # Step 2: Select template
     selection = await select_template_for_task(
-        task.title, task.description or "", templates_list, llm_settings,
+        task.title, task.description or "", templates_list, orchestrator_llm,
         db=db, task_id=task.id,
     )
     if not selection:
@@ -186,7 +200,19 @@ async def process_ready_task(db: AsyncSession, task: Task):
             except Exception as e:
                 logger.warning(f"Memory context build failed for task {task.id}: {e}")
 
-        agent_llm = effective_llm_config(template, llm_settings)
+        try:
+            agent_llm = await resolve_model_by_id(db, template.model_id)
+        except Exception as e:
+            logger.error(f"template {template.id} has no model configured: {e}")
+            task.status = TaskStatus.FAILED.value
+            await db.commit()
+            await log_event(
+                db, "orchestrator_decision", "orchestrator",
+                {"action": "spawn_failed", "error": "template model not configured"},
+                task_id=task.id,
+            )
+            return
+
         agent_token = await issue_agent_token(
             db, task_id=task.id, workspace_id=task.workspace_id
         )
@@ -201,9 +227,9 @@ async def process_ready_task(db: AsyncSession, task: Task):
             tools=list(template.tools or []),
             mcp_servers=list(template.mcp_servers or []),
             env={
-                "OPENAI_API_KEY": agent_llm.get("llm_api_key", ""),
-                "OPENAI_BASE_URL": agent_llm.get("llm_base_url", ""),
-                "LLM_MODEL": agent_llm.get("llm_model", ""),
+                "OPENAI_API_KEY": agent_llm.provider.api_key,
+                "OPENAI_BASE_URL": agent_llm.provider.endpoint,
+                "LLM_MODEL": agent_llm.model.api_name,
             },
             resource_limits={
                 "max_ram": template.max_ram,
@@ -215,7 +241,9 @@ async def process_ready_task(db: AsyncSession, task: Task):
         )
         container_id = runtime.spawn(spec)
         task.agent_container_id = container_id
-        task.model_used = agent_llm.get("llm_model")
+        task.model_used = agent_llm.model.api_name
+        task.input_price_per_1m_usd = agent_llm.model.input_price_per_1m_usd
+        task.output_price_per_1m_usd = agent_llm.model.output_price_per_1m_usd
         task.status = TaskStatus.IN_PROGRESS.value
         task.started_at = datetime.utcnow()
         await db.commit()

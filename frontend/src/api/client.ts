@@ -94,9 +94,7 @@ export const templatesApi = {
 
 // Agents
 export interface SwitchModelBody {
-  model?: string
-  base_url?: string
-  api_key?: string
+  model_id: string
 }
 
 export const agentsApi = {
@@ -151,10 +149,60 @@ export const settingsApi = {
   get: () => request<Record<string, unknown>>('/settings'),
   update: (data: Record<string, unknown>) =>
     request<{ status: string }>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
-  testLlm: (data: { llm_base_url?: string; llm_api_key?: string; llm_model?: string }) =>
-    request<{ status: string; latency_ms?: number; sample?: string; error?: string }>(
-      '/settings/test-llm', { method: 'POST', body: JSON.stringify(data) },
-    ),
+}
+
+// Providers & Models
+import type { Provider, LLMModel, ModelTestResponse, SystemModels } from '../types'
+
+export const providersApi = {
+  list: () => request<Provider[]>('/providers'),
+  create: (data: { name: string; api_key: string; endpoint: string }) =>
+    request<Provider>('/providers', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: { name?: string; api_key?: string; endpoint?: string }) =>
+    request<Provider>(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id: string) =>
+    request<void>(`/providers/${id}`, { method: 'DELETE' }),
+  listModels: (providerId: string) =>
+    request<LLMModel[]>(`/providers/${providerId}/models`),
+  createModel: (
+    providerId: string,
+    data: {
+      display_name: string
+      api_name: string
+      input_price_per_1m_usd?: number
+      output_price_per_1m_usd?: number
+    },
+  ) =>
+    request<LLMModel>(`/providers/${providerId}/models`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
+export const modelsApi = {
+  update: (
+    id: string,
+    data: {
+      display_name?: string
+      api_name?: string
+      input_price_per_1m_usd?: number
+      output_price_per_1m_usd?: number
+    },
+  ) =>
+    request<LLMModel>(`/models/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id: string) =>
+    request<void>(`/models/${id}`, { method: 'DELETE' }),
+  test: (id: string) =>
+    request<ModelTestResponse>(`/models/${id}/test`, { method: 'POST' }),
+}
+
+export const workspaceApi = {
+  getSystemModels: () => request<SystemModels>('/workspaces/me/system-models'),
+  updateSystemModels: (data: Partial<SystemModels>) =>
+    request<SystemModels>('/workspaces/me/system-models', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 }
 
 // Knowledge
@@ -316,23 +364,7 @@ export function buildWsUrl(path: string): string {
 }
 
 // Types (local to API layer)
-import type { Task as Task } from '@/types'
-
-interface Template {
-  id: string
-  name: string
-  description: string
-  soul_md: string
-  model: string | null
-  tools: string[]
-  mcp_servers: { name: string; command: string; args: string[]; env?: Record<string, string> }[]
-  max_ram: string
-  max_cpu: number
-  timeout_minutes: number
-  tags: string[]
-  created_at: string
-  updated_at: string
-}
+import type { Task as Task, Template } from '@/types'
 
 interface Agent {
   container_id: string

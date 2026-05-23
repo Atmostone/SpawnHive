@@ -116,7 +116,7 @@ async def test_webhook_atomic_rollback_on_processing_failure(
     import app.api.webhooks as webhooks_mod
     from app.utils import cost as cost_mod
 
-    async def boom(*a, **kw):
+    def boom(*a, **kw):
         raise RuntimeError("simulated crash mid-processing")
 
     monkeypatch.setattr(cost_mod, "calculate_cost", boom)

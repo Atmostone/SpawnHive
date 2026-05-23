@@ -108,6 +108,7 @@ async def _truncate(_engine) -> AsyncIterator[None]:
             "TRUNCATE TABLE webhook_deliveries, agent_events, chat_messages, "
             "tasks, template_versions, templates, knowledge_documents, "
             "memory_relations, memory_entities, scheduled_jobs, service_tokens, "
+            "llm_models, providers, "
             "workspace_members, workspaces, users RESTART IDENTITY CASCADE;"
         ))
         await conn.execute(text(
@@ -128,3 +129,39 @@ async def _truncate(_engine) -> AsyncIterator[None]:
             "ON CONFLICT (user_id, workspace_id) DO NOTHING;"
         ))
     yield
+
+
+@pytest_asyncio.fixture
+async def default_model(db_session):
+    """Seed a Provider + LLMModel in the default workspace and assign all three system
+    model FKs to it. Returns the LLMModel id (UUID).
+
+    Use this in tests that exercise paths needing a configured LLM (orchestrator,
+    chat, memory_extractor) or a template with model_id set.
+    """
+    from app.models.provider import LLMModel, Provider
+    from app.models.workspace import DEFAULT_WORKSPACE_ID, Workspace
+
+    provider = Provider(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        name="test-provider",
+        api_key="test-key",
+        endpoint="http://test.local/v1",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+    model = LLMModel(
+        provider_id=provider.id,
+        display_name="TestModel",
+        api_name="test-model",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    workspace = await db_session.get(Workspace, DEFAULT_WORKSPACE_ID)
+    workspace.orchestrator_model_id = model.id
+    workspace.chat_model_id = model.id
+    workspace.memory_extractor_model_id = model.id
+    await db_session.commit()
+    await db_session.refresh(model)
+    return model

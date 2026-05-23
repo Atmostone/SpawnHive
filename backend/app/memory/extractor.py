@@ -71,9 +71,9 @@ EXTRACT_TOOLS = [
 
 
 async def _llm_extract(
-    title: str, description: str, result_summary: str, llm_settings: dict
+    title: str, description: str, result_summary: str, llm
 ) -> dict:
-    model = llm_settings.get("llm_model", "MiniMax-M2.7")
+    """``llm`` is a ResolvedModel (provider+model) from app.api._resolve_model."""
     messages = [
         {
             "role": "system",
@@ -93,12 +93,12 @@ async def _llm_extract(
     ]
     try:
         resp = await get_llm_provider().acompletion(
-            model=model,
+            model=llm.model.api_name,
             messages=messages,
             tools=EXTRACT_TOOLS,
             tool_choice={"type": "function", "function": {"name": "extract_memory_facts"}},
-            api_key=llm_settings.get("llm_api_key"),
-            api_base=llm_settings.get("llm_base_url"),
+            api_key=llm.provider.api_key,
+            api_base=llm.provider.endpoint,
         )
     except Exception as e:
         logger.error(f"Memory extraction LLM call failed: {e}")
@@ -127,11 +127,17 @@ async def extract_memory(task_id: uuid.UUID | str) -> None:
         if not task or not task.result_summary:
             return
 
-        from app.api.settings import get_llm_settings
+        from app.api._resolve_model import resolve_workspace_model
 
-        llm_settings = await get_llm_settings(db)
+        try:
+            memory_llm = await resolve_workspace_model(
+                db, task.workspace_id, "memory_extractor"
+            )
+        except Exception as e:
+            logger.info(f"memory extraction skipped — model not configured: {e}")
+            return
         extracted = await _llm_extract(
-            task.title, task.description or "", task.result_summary, llm_settings
+            task.title, task.description or "", task.result_summary, memory_llm
         )
 
         new_entities = 0

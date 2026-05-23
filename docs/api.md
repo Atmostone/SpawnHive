@@ -29,8 +29,9 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 
 `require_role("owner","admin")` is enforced on:
 - `PATCH /api/settings`
-- `POST /api/settings/test-llm`
 - `GET /api/settings/export-all`
+- `POST/PATCH/DELETE /api/providers`, `POST/PATCH/DELETE /api/providers/{id}/models`, `PATCH/DELETE /api/models/{id}`, `POST /api/models/{id}/test`
+- `PATCH /api/workspaces/me/system-models`
 - `POST /api/agents/{cid}/kill`, `/abort`, `/switch_model`
 - `POST /api/agents/kill-all`
 - `DELETE /api/templates/{id}`, `POST /api/templates/{id}/rollback/{v}`
@@ -69,14 +70,14 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/templates` | List |
-| POST | `/api/templates` | Create. Fields: name/description/soul_md/model/provider_url/provider_api_key/tools/mcp_servers/limits/tags |
-| GET | `/api/templates/{id}` | Single (api_key is masked as `***`) |
-| PUT | `/api/templates/{id}` | Update (creates a version snapshot before applying changes) |
+| GET | `/api/templates` | List. Each row includes `model_id` (FK → llm_models), denormalized `model_display_name`/`model_api_name`/`provider_name`. |
+| POST | `/api/templates` | Create. Fields: name/description/soul_md/`model_id`/tools/mcp_servers/limits/tags. `model_id` must reference a model in the same workspace. |
+| GET | `/api/templates/{id}` | Single |
+| PUT | `/api/templates/{id}` | Update (creates a version snapshot before applying changes). Accepts `model_id`. |
 | DELETE | `/api/templates/{id}` | |
 | GET | `/api/templates/{id}/versions` | List versions |
 | GET | `/api/templates/{id}/versions/{v}` | Snapshot v |
-| POST | `/api/templates/{id}/rollback/{v}` | Apply snapshot v as the current state (creates two new versions: pre-rollback + post-rollback) |
+| POST | `/api/templates/{id}/rollback/{v}` | Apply snapshot v as the current state (creates two new versions: pre-rollback + post-rollback). Legacy snapshots with a `model` string are best-effort mapped to `model_id` via api_name. |
 
 ### Agents (`/api/agents`)
 
@@ -88,7 +89,7 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 | POST | `/api/agents/kill-all` | Kill switch |
 | GET | `/api/agents/{cid}/health` | Forwarded from the agent's `:8080/health` (uptime/iteration/tokens) |
 | POST | `/api/agents/{cid}/feedback` | Body `{message}` → injected as a user message into the agent loop |
-| POST | `/api/agents/{cid}/switch_model` | Body `{model?, base_url?, api_key?}` |
+| POST | `/api/agents/{cid}/switch_model` | Body `{model_id}` — resolved server-side to (provider, model); creds are forwarded to the agent. |
 | POST | `/api/agents/{cid}/abort` | Body `{reason}` → the agent finishes its loop with `event=aborted` |
 
 ### Webhooks (`/api/v1/agent-webhook`, legacy `/api/agent-webhook`)
@@ -170,10 +171,32 @@ Token: HS256, ttl=24h, payload `{sub: user_id, ws: default_workspace_id, iat, ex
 | Method | Path | |
 |--------|------|--|
 | GET | `/api/settings` | All keys → JSONB values |
-| PATCH | `/api/settings` | Body — partial dict. Known keys: `llm_*`, `embedding_*`, `max_concurrent_agents`, `task_timeout_minutes`, `max_retries`, `memory_mode` (`flat`\|`structured`), `decomposition_enabled` (bool, default `true`) |
+| PATCH | `/api/settings` | Body — partial dict. Known keys: `embedding_*`, `max_concurrent_agents`, `task_timeout_minutes`, `max_retries`, `memory_mode` (`flat`\|`structured`), `decomposition_enabled` (bool, default `true`). LLM credentials moved to providers/llm_models (see below). |
 | GET | `/api/settings/health` | Alias for `/api/health` (per spec §4.7) |
-| POST | `/api/settings/test-llm` | Probe the LLM configuration |
 | GET | `/api/settings/export-all` | ZIP containing tasks/templates/events/settings/rules.md/memory.md/documents.json (capped at 10k events) |
+
+### Providers & Models (`/api/providers`, `/api/models`)
+
+Workspace-scoped CRUD for LLM providers and their models. The `api_key` field is never returned in responses — only a `api_key_masked` field of the form `***<last4>`.
+
+| Method | Path | Body / Returns |
+|--------|------|-----|
+| GET | `/api/providers` | List providers in current workspace |
+| POST | `/api/providers` | `{name, api_key, endpoint}` → 201 with `api_key_masked` |
+| PATCH | `/api/providers/{id}` | Partial. Omit `api_key` to keep current. 409 on name collision. |
+| DELETE | `/api/providers/{id}` | Cascades to models. Templates/workspaces referencing those models get `model_id=NULL`. |
+| GET | `/api/providers/{id}/models` | List models for one provider |
+| POST | `/api/providers/{id}/models` | `{display_name, api_name, input_price_per_1m_usd?, output_price_per_1m_usd?}` — defaults to 0. 409 on (provider_id, api_name) collision. |
+| PATCH | `/api/models/{id}` | Partial update of any field |
+| DELETE | `/api/models/{id}` | Sets `templates.model_id = NULL` and `workspaces.*_model_id = NULL` for references |
+| POST | `/api/models/{id}/test` | Probe the model with a tiny "ping" completion. Returns `{status: "ok", latency_ms, sample}` or `{status: "error", error}`. |
+
+### Workspaces (`/api/workspaces`)
+
+| Method | Path | Body / Returns |
+|--------|------|-----|
+| GET | `/api/workspaces/me/system-models` | `{orchestrator_model_id, chat_model_id, memory_extractor_model_id}` — current assignments |
+| PATCH | `/api/workspaces/me/system-models` | Partial. Each id must reference a model in this workspace; pass `null` to clear. |
 
 ### Health
 

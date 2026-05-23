@@ -23,26 +23,7 @@ def get_llm_env_vars(llm_settings: dict) -> dict:
     return {
         "OPENAI_API_KEY": llm_settings.get("llm_api_key", ""),
         "OPENAI_BASE_URL": llm_settings.get("llm_base_url", ""),
-        "LLM_MODEL": llm_settings.get("llm_model", "MiniMax-M2.7"),
-    }
-
-
-def effective_llm_config(template: Template, llm_settings: dict) -> dict:
-    """Choose between per-template provider config and global settings.
-
-    Per-template config wins if all three of (model, provider_url, provider_api_key) are set.
-    Otherwise everything inherits from global llm_settings.
-    """
-    if template.model and template.provider_url and template.provider_api_key:
-        return {
-            "llm_model": template.model,
-            "llm_base_url": template.provider_url,
-            "llm_api_key": template.provider_api_key,
-        }
-    return {
-        "llm_model": llm_settings.get("llm_model", "MiniMax-M2.7"),
-        "llm_base_url": llm_settings.get("llm_base_url", ""),
-        "llm_api_key": llm_settings.get("llm_api_key", ""),
+        "LLM_MODEL": llm_settings.get("llm_model", ""),
     }
 
 

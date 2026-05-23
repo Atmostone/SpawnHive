@@ -32,7 +32,7 @@ A self-hosted platform for orchestrating specialised AI agents. It takes a task 
 | Agent runtime | Docker (via docker-py + socket mount) |
 | Frontend | React 18 + Vite + TypeScript + TanStack Query |
 | Graph viz | reactflow |
-| Default LLM | MiniMax-M2.7 (any OpenAI-compatible endpoint is supported) |
+| LLM | Any OpenAI-compatible endpoint (configured via UI → Settings → Providers & Models, no hardcoded default) |
 
 ## Status
 

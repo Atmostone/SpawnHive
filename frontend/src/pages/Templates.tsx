@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { templatesApi } from '@/api/client'
+import { providersApi, templatesApi } from '@/api/client'
 import type { Template } from '@/types'
-import { Plus, Edit2, Trash2, Copy, X, Boxes, ServerIcon } from 'lucide-react'
+import { Plus, Edit2, Trash2, Copy, X, Boxes, ServerIcon, AlertTriangle } from 'lucide-react'
+import { ModelSelect } from '@/components/settings/SystemModelsSection'
 
 interface MCPServerForm {
   name: string
@@ -40,9 +41,7 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
     name: template?.name || '',
     description: template?.description || '',
     soul_md: template?.soul_md || '',
-    model: template?.model ?? '',
-    provider_url: template?.provider_url ?? '',
-    provider_api_key: '',
+    model_id: template?.model_id ?? null as string | null,
     tools: template?.tools || [],
     max_ram: template?.max_ram || '2g',
     max_cpu: template?.max_cpu || 100000,
@@ -56,6 +55,11 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
   const [mcpForms, setMcpForms] = useState<MCPServerForm[]>(
     (template?.mcp_servers || []).map(mcpToForm),
   )
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ['providers'],
+    queryFn: providersApi.list,
+  })
 
   const createMutation = useMutation({
     mutationFn: () => templatesApi.create(form as Parameters<typeof templatesApi.create>[0]),
@@ -112,26 +116,23 @@ function TemplateForm({ template, onClose }: { template?: Template; onClose: () 
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Model <span className="text-xs text-gray-400">(empty → global)</span></label>
-              <input value={form.model} onChange={e => set('model', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="leave empty to inherit" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
+              <ModelSelect
+                providers={providers}
+                value={form.model_id}
+                onChange={(v) => set('model_id', v)}
+                placeholder="— Pick a model —"
+              />
+              {!form.model_id && (
+                <p className="text-xs text-orange-600 mt-1">
+                  Without a model, the agent cannot be spawned.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tools (comma-separated)</label>
               <input value={toolsInput} onChange={e => setToolsInput(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="bash, file_write, file_read" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provider URL</label>
-              <input value={form.provider_url || ''} onChange={e => set('provider_url', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="leave empty to inherit" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provider API Key</label>
-              <input type="password" value={form.provider_api_key || ''} onChange={e => set('provider_api_key', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="leave empty to inherit" />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -228,9 +229,12 @@ export default function Templates() {
       name: `${t.name} (copy)`,
       description: t.description,
       soul_md: t.soul_md,
-      model: t.model,
+      model_id: t.model_id,
+      model_display_name: null,
+      model_api_name: null,
+      provider_name: null,
       tools: t.tools,
-      mcp_servers: t.mcp_servers as [],
+      mcp_servers: t.mcp_servers,
       max_ram: t.max_ram,
       max_cpu: t.max_cpu,
       timeout_minutes: t.timeout_minutes,
@@ -276,7 +280,15 @@ export default function Templates() {
               </div>
               <p className="text-sm text-gray-500 mb-3 line-clamp-2">{t.description}</p>
               <div className="flex flex-wrap gap-1.5">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{t.model || 'inherits global'}</span>
+                {t.model_id ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                    {t.provider_name ? `${t.provider_name} / ` : ''}{t.model_display_name || t.model_api_name}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                    <AlertTriangle className="h-3 w-3" /> Not configured
+                  </span>
+                )}
                 {t.tools.map(s => (
                   <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{s}</span>
                 ))}

@@ -200,18 +200,60 @@ Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_
 | `workspaces` | (R1) Container for all data of one customer/project; slug is unique |
 | `workspace_members` | (R1) Many-to-many user↔workspace + role (owner/admin/member/viewer) |
 | `service_tokens` | (R1) Per-task agent tokens (kind=agent), verified by sha256(plain) |
-| `tasks` | The core entity; lifecycle backlog → done. Fields: depends_on UUID[], cost_usd, model_used, workspace_id |
-| `templates` | Agent roles. `model` nullable + provider_url/api_key for per-template routing |
+| `tasks` | The core entity; lifecycle backlog → done. Fields: depends_on UUID[], cost_usd, model_used, **input_price_per_1m_usd / output_price_per_1m_usd** (denormalized at spawn so cost survives model edits), workspace_id |
+| `templates` | Agent roles. References a model via `model_id` (FK → llm_models, ON DELETE SET NULL). |
 | `template_versions` | Template versioning with rollback support (P14) |
+| `providers` | (R7) LLM providers per workspace — name, api_key, endpoint. |
+| `llm_models` | (R7) Models per provider — display_name, api_name, input/output price per 1M tokens. |
 | `agent_events` | Append-only event log; source for analytics + WS broadcast |
 | `chat_messages` | Chat history with the orchestrator |
 | `knowledge_documents` | RAG document metadata (files in MinIO, chunks in Qdrant) |
-| `settings` | Runtime config (LLM, embedding, pricing, `memory_mode`, `decomposition_enabled`, …) — global |
+| `settings` | Runtime config (embedding, `memory_mode`, `decomposition_enabled`, max_concurrent_agents, …) — global. LLM creds and pricing live in `providers`/`llm_models` (R7). |
 | `memory_entities` | Structured memory — nodes (P0); workspace-scoped |
 | `memory_relations` | Structured memory — edges (P0); workspace-scoped |
 | `scheduled_jobs` | APScheduler persistent storage (P8); workspace-scoped (built-in jobs live in the default workspace) |
 
 After R1 every table except `users`/`workspaces`/`workspace_members`/`settings` has a NOT NULL `workspace_id` with an FK to `workspaces.id ON DELETE CASCADE`. Old rows are backfilled by the `c9d0e1f2a3b4_users_workspaces_scoping` migration — every NULL → the default workspace `00000000-0000-0000-0000-000000000002` (admin@local).
+
+## LLM model resolution (R7)
+
+Every LLM call resolves through `app/api/_resolve_model.py`, which returns a `(Provider, LLMModel)` pair:
+
+```
+                       (system roles)            (per-agent)
+┌──────────────┐   ┌──────────────────┐    ┌──────────────────┐
+│ workspaces   │   │ workspaces       │    │ templates        │
+│ .orchestra-  │   │ .chat_model_id   │    │ .model_id        │
+│  tor_model_id│   │ .memory_extra-   │    │                  │
+│              │   │  ctor_model_id   │    │                  │
+└──────┬───────┘   └──────┬───────────┘    └──────┬───────────┘
+       │                  │                       │
+       │   resolve_workspace_model(ws, kind)      │ resolve_model_by_id(model_id)
+       │                  │                       │
+       └──────────────────┴───────┬───────────────┘
+                                  ▼
+                          ┌───────────────┐
+                          │ llm_models    │
+                          │   ↓ FK        │
+                          │ providers     │
+                          └───────────────┘
+                                  │
+                                  ▼
+                       (api_name, endpoint, api_key)
+                                  │
+                                  ▼
+                       get_llm_provider().acompletion(...)
+                                  ▼
+                       spawn_agent env → OPENAI_API_KEY/OPENAI_BASE_URL/LLM_MODEL
+```
+
+Consumers:
+- `orchestrator/engine.py` and `orchestrator/llm.py` → `orchestrator_model_id`
+- `api/chat.py` → `chat_model_id`
+- `memory/extractor.py` → `memory_extractor_model_id`
+- `orchestrator/docker_manager.spawn_agent` → `template.model_id`; at spawn time, the model's prices are denormalized into `tasks.{input,output}_price_per_1m_usd` so cost computation is stable.
+
+If a required role has no model assigned (or the referenced model was deleted), the resolver raises HTTP 400 with an explicit "configure in Settings → System Models" message — no silent fallback to defaults.
 
 ## Authentication and authorisation (R1)
 

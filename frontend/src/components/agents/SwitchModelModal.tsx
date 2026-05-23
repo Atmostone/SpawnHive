@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { agentsApi, type SwitchModelBody } from '@/api/client'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { agentsApi, providersApi, type SwitchModelBody } from '@/api/client'
 import { X } from 'lucide-react'
-
-const COMMON_MODELS = [
-  'gpt-4o-mini',
-  'gpt-4o',
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-] as const
+import { ModelSelect } from '@/components/settings/SystemModelsSection'
 
 interface Props {
   containerId: string
@@ -17,12 +11,14 @@ interface Props {
 }
 
 export default function SwitchModelModal({ containerId, agentName, onClose }: Props) {
-  const [preset, setPreset] = useState<string>(COMMON_MODELS[0])
-  const [customModel, setCustomModel] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
+  const [modelId, setModelId] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ['providers'],
+    queryFn: providersApi.list,
+  })
 
   const mutation = useMutation({
     mutationFn: (body: SwitchModelBody) => agentsApi.switchModel(containerId, body),
@@ -49,16 +45,11 @@ export default function SwitchModelModal({ containerId, agentName, onClose }: Pr
     e.preventDefault()
     setError(null)
     setSuccess(null)
-    const model = customModel.trim() || preset.trim()
-    const body: SwitchModelBody = {}
-    if (model) body.model = model
-    if (baseUrl.trim()) body.base_url = baseUrl.trim()
-    if (apiKey.trim()) body.api_key = apiKey.trim()
-    if (!body.model && !body.base_url && !body.api_key) {
-      setError('Provide at least one of model, base URL, or API key')
+    if (!modelId) {
+      setError('Pick a model first')
       return
     }
-    mutation.mutate(body)
+    mutation.mutate({ model_id: modelId })
   }
 
   return (
@@ -88,59 +79,17 @@ export default function SwitchModelModal({ containerId, agentName, onClose }: Pr
         <form onSubmit={submit} className="px-5 py-4 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              Common model
+              Model
             </label>
-            <select
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {COMMON_MODELS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Custom model (overrides preset)
-            </label>
-            <input
-              type="text"
-              value={customModel}
-              onChange={(e) => setCustomModel(e.target.value)}
-              placeholder="e.g. gpt-4o-2024-11-20"
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <ModelSelect
+              providers={providers}
+              value={modelId}
+              onChange={setModelId}
+              placeholder="— Pick a model —"
             />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Base URL (optional)
-            </label>
-            <input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.openai.com/v1"
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              API key (optional)
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              autoComplete="off"
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <p className="text-xs text-gray-500 mt-1">
+              Manage providers and models in Settings → Providers & Models.
+            </p>
           </div>
 
           {error && (
@@ -164,7 +113,7 @@ export default function SwitchModelModal({ containerId, agentName, onClose }: Pr
             </button>
             <button
               type="submit"
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || !modelId}
               className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {mutation.isPending ? 'Switching...' : 'Switch'}

@@ -67,6 +67,12 @@ class Task(Base):
     user_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     orchestrator_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     model_used: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    input_price_per_1m_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 6), nullable=True
+    )
+    output_price_per_1m_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 6), nullable=True
+    )
     cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(10, 6), default=Decimal("0"), server_default="0"
     )

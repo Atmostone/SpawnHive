@@ -15,7 +15,8 @@ from app.orchestrator import engine
 
 
 @pytest.mark.asyncio
-async def test_process_ready_task_no_templates_marks_failed(db_session):
+async def test_process_ready_task_no_orchestrator_model_marks_failed(db_session):
+    """When workspace has no orchestrator_model_id, the engine must fail loudly."""
     task = Task(
         title="t",
         description="d",
@@ -27,7 +28,7 @@ async def test_process_ready_task_no_templates_marks_failed(db_session):
     await db_session.commit()
     await db_session.refresh(task)
 
-    # No templates exist in the test DB by default → engine bails out with FAILED.
+    # No orchestrator model configured → engine fails before checking templates.
     await engine.process_ready_task(db_session, task)
 
     await db_session.refresh(task)
@@ -35,15 +36,34 @@ async def test_process_ready_task_no_templates_marks_failed(db_session):
 
 
 @pytest.mark.asyncio
-async def test_process_ready_task_spawns_when_template_picked(db_session, monkeypatch):
+async def test_process_ready_task_no_templates_marks_failed(db_session, default_model):
+    task = Task(
+        title="t",
+        description="d",
+        priority="low",
+        status=TaskStatus.READY.value,
+        workspace_id=DEFAULT_WORKSPACE_ID,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    # Orchestrator model is configured (via default_model fixture) but no templates
+    # exist → engine bails out with FAILED at the second guard.
+    await engine.process_ready_task(db_session, task)
+
+    await db_session.refresh(task)
+    assert task.status == TaskStatus.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_process_ready_task_spawns_when_template_picked(db_session, default_model, monkeypatch):
     # Seed exactly one template so the orchestrator skips decomposition (needs >1).
     tpl = Template(
         name="solo",
         description="d",
         soul_md="# soul",
-        model="m",
-        provider_url="u",
-        provider_api_key="k",
+        model_id=default_model.id,
         tools=[],
         mcp_servers=[],
         max_ram="1g",
@@ -92,7 +112,9 @@ async def test_process_ready_task_spawns_when_template_picked(db_session, monkey
 
 
 @pytest.mark.asyncio
-async def test_process_ready_task_skips_decomposition_when_disabled(db_session, monkeypatch):
+async def test_process_ready_task_skips_decomposition_when_disabled(
+    db_session, default_model, monkeypatch
+):
     """When decomposition_enabled=False, multi-template root tasks must go
     straight to single-template selection (decide_decomposition never called)."""
     from app.models.setting import Setting
@@ -101,8 +123,8 @@ async def test_process_ready_task_skips_decomposition_when_disabled(db_session, 
 
     def _tpl(name: str) -> Template:
         return Template(
-            name=name, description="d", soul_md="# soul", model="m",
-            provider_url="u", provider_api_key="k", tools=[], mcp_servers=[],
+            name=name, description="d", soul_md="# soul", model_id=default_model.id,
+            tools=[], mcp_servers=[],
             max_ram="1g", max_cpu=100000, timeout_minutes=60, tags=[],
             workspace_id=DEFAULT_WORKSPACE_ID,
         )
