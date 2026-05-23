@@ -23,6 +23,13 @@ class Template(Base):
         ForeignKey("llm_models.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Quality rubric used to score this template's task results (E-02). Optional;
+    # falls back to a tag/default rubric when unset (see app.quality.rubric).
+    rubric_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("rubrics.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     tools: Mapped[dict] = mapped_column(JSONB, default=list, server_default="[]")
     mcp_servers: Mapped[dict] = mapped_column(JSONB, default=list, server_default="[]")
     max_ram: Mapped[str] = mapped_column(String(20), default="2g", server_default="2g")

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_workspace, require_role
 from app.database import get_db
 from app.models.provider import LLMModel, Provider
+from app.models.rubric import Rubric
 from app.models.template import Template
 from app.models.template_version import TemplateVersion
 from app.models.workspace import Workspace
@@ -21,6 +22,7 @@ class TemplateCreate(BaseModel):
     description: str
     soul_md: str
     model_id: Optional[str] = None
+    rubric_id: Optional[str] = None
     tools: list = []
     mcp_servers: list = []
     max_ram: str = "2g"
@@ -34,6 +36,7 @@ class TemplateUpdate(BaseModel):
     description: Optional[str] = None
     soul_md: Optional[str] = None
     model_id: Optional[str] = None
+    rubric_id: Optional[str] = None
     tools: Optional[list] = None
     mcp_servers: Optional[list] = None
     max_ram: Optional[str] = None
@@ -72,6 +75,7 @@ def template_to_dict(
         "model_display_name": model.display_name if model else None,
         "model_api_name": model.api_name if model else None,
         "provider_name": provider.name if provider else None,
+        "rubric_id": str(t.rubric_id) if t.rubric_id else None,
         "tools": t.tools,
         "mcp_servers": t.mcp_servers,
         "max_ram": t.max_ram,
@@ -112,6 +116,23 @@ async def _validate_model_id(
     return mid
 
 
+async def _validate_rubric_id(
+    rubric_id: Optional[str], workspace: Workspace, db: AsyncSession
+) -> Optional[uuid.UUID]:
+    if rubric_id is None:
+        return None
+    try:
+        rid = uuid.UUID(rubric_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid rubric_id")
+    rubric = await db.get(Rubric, rid)
+    if not rubric or rubric.workspace_id != workspace.id:
+        raise HTTPException(
+            status_code=400, detail="rubric does not belong to this workspace"
+        )
+    return rid
+
+
 @router.get("")
 async def list_templates(
     workspace: Workspace = Depends(get_current_workspace),
@@ -139,11 +160,13 @@ async def create_template(
     db: AsyncSession = Depends(get_db),
 ):
     model_uuid = await _validate_model_id(body.model_id, workspace, db)
+    rubric_uuid = await _validate_rubric_id(body.rubric_id, workspace, db)
     template = Template(
         name=body.name,
         description=body.description,
         soul_md=body.soul_md,
         model_id=model_uuid,
+        rubric_id=rubric_uuid,
         tools=body.tools,
         mcp_servers=body.mcp_servers,
         max_ram=body.max_ram,
@@ -177,6 +200,7 @@ def _full_template_snapshot(t: Template) -> dict:
         "description": t.description,
         "soul_md": t.soul_md,
         "model_id": str(t.model_id) if t.model_id else None,
+        "rubric_id": str(t.rubric_id) if t.rubric_id else None,
         "tools": t.tools,
         "mcp_servers": t.mcp_servers,
         "max_ram": t.max_ram,
@@ -218,6 +242,8 @@ async def update_template(
     payload = body.model_dump(exclude_unset=True)
     if "model_id" in payload:
         payload["model_id"] = await _validate_model_id(payload["model_id"], workspace, db)
+    if "rubric_id" in payload:
+        payload["rubric_id"] = await _validate_rubric_id(payload["rubric_id"], workspace, db)
     for field, value in payload.items():
         setattr(template, field, value)
 
@@ -283,7 +309,7 @@ async def get_version(
 # Fields we accept when rolling back. Legacy keys (`model`, `provider_url`,
 # `provider_api_key`) are silently dropped to keep old snapshots usable.
 _ROLLBACK_FIELDS = {
-    "name", "description", "soul_md", "model_id",
+    "name", "description", "soul_md", "model_id", "rubric_id",
     "tools", "mcp_servers", "max_ram", "max_cpu", "timeout_minutes", "tags",
 }
 
@@ -348,7 +374,7 @@ async def rollback_template(
     for field, value in snap.items():
         if field not in _ROLLBACK_FIELDS:
             continue
-        if field == "model_id":
+        if field in ("model_id", "rubric_id"):
             if isinstance(value, str):
                 try:
                     value = uuid.UUID(value)
