@@ -1,0 +1,11 @@
+{
+  "needed_mcp_servers": [
+    "canvas",
+    "excel",
+    "filesystem"
+  ],
+  "needed_local_tools": [
+    "claim_done"
+  ],
+  "meta": {}
+}

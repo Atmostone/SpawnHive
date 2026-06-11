@@ -1,0 +1,42 @@
+id: canvas-announcement-summary
+suite: toolathlon
+input:
+  title: Canvas Announcement Summary
+  description: |
+    I need a summary of course announcements from Canvas. Pull all announcements and aggregate by course, showing count and date range.
+
+    Create an Excel file called Canvas_Announcements.xlsx with two sheets. The "Announcement Stats" sheet should have Course_Code, Announcements count, Earliest_Date, and Latest_Date. Sort by Announcements descending.
+
+    The "Summary" should have Total_Announcements, Courses_With_Announcements, and Most_Active_Course code.
+
+    Send an email to academic-affairs@openuniversity.ac.uk with subject "Canvas Announcement Activity Report" briefly summarizing the activity levels.
+gold:
+  capability_spec:
+    required_tools:
+    - canvas
+    - excel
+    - filesystem
+    - emails
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/canvas-announcement-summary/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/canvas-announcement-summary/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/canvas-announcement-summary/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - canvas
+  - excel
+  - filesystem
+  - emails
+meta:
+  source: toolathlon_gym
+  family: canvas
+  needed_mcp_servers:
+  - canvas
+  - excel
+  - filesystem
+  - emails
+  task_path: tasks/finalpool/canvas-announcement-summary
+  license: Apache-2.0
