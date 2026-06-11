@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task, TaskStatus
@@ -43,6 +43,29 @@ class CaseInput(BaseModel):
     context: list = Field(default_factory=list)  # future: RAG doc refs / attachments
 
 
+class CaseExternalEval(BaseModel):
+    """Gold as an *executable external checker* (Toolathlon-style, pre-E-23).
+
+    Commands are templates resolved by the runner at execution time; the committed
+    YAML stays machine-independent via placeholders: ``${TOOLATHLON_GYM_PATH}``
+    (dataset clone root), ``${AGENT_WORKSPACE}``, ``${GROUNDTRUTH_WORKSPACE}``,
+    ``${LAUNCH_TIME}``, ``${RES_LOG_FILE}``. ``eval_command`` MUST receive the same
+    ``--launch_time`` value as ``preprocess_command`` (date-relative checks).
+    ``groundtruth_path`` is relative to the dataset root (absent for DB-only evals).
+    """
+
+    preprocess_command: str
+    eval_command: str
+    groundtruth_path: Optional[str] = None
+
+    @field_validator("preprocess_command", "eval_command")
+    @classmethod
+    def _command_non_empty(cls, v: str) -> str:
+        if not str(v).strip():
+            raise ValueError("external_eval command must be non-empty")
+        return v
+
+
 class CaseGold(BaseModel):
     """The pluggable gold envelope — each key feeds one eval engine."""
 
@@ -50,6 +73,19 @@ class CaseGold(BaseModel):
     reference_answer: Optional[str] = None        # E-03 / outcome correctness
     rubric: Optional[Any] = None                  # E-02 (ref or inline)
     canonical_trajectory: Optional[Any] = None    # E-09
+    external_eval: Optional[CaseExternalEval] = None  # executable checker (E-23)
+
+
+class CaseEnvironment(BaseModel):
+    """Externally provisioned context the case needs at run time.
+
+    ``required_services``: infra the runner must provide (e.g. ``toolathlon_pg`` —
+    the Toolathlon PostgreSQL; eval/preprocess and most MCP servers query it).
+    ``mcp_servers``: MCP server names the agent needs (Registry entries, SPA-41).
+    """
+
+    required_services: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
 
 
 class CaseRepro(BaseModel):
@@ -64,6 +100,7 @@ class BenchmarkCase(BaseModel):
     category: Optional[str] = None
     input: CaseInput
     gold: CaseGold = Field(default_factory=CaseGold)
+    environment: Optional[CaseEnvironment] = None
     repro: CaseRepro = Field(default_factory=CaseRepro)
     meta: dict = Field(default_factory=dict)
 
