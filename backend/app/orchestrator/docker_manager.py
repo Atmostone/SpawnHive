@@ -36,6 +36,7 @@ def spawn_agent(
     agent_token: str,
     memory_context: str = "",
     extra_env: dict | None = None,
+    image: str | None = None,
 ) -> str:
     """Spawn a Docker container for the agent. Returns container ID."""
     from app.config import get_settings
@@ -84,7 +85,7 @@ def spawn_agent(
     }
 
     container = client.containers.run(
-        image=AGENT_IMAGE,
+        image=image or AGENT_IMAGE,
         name=container_name,
         environment=env,
         volumes=volumes,

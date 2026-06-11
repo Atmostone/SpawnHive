@@ -25,6 +25,8 @@ class AgentSpec:
     extra_labels: dict = field(default_factory=dict)
     # Extra container env (e.g. AGENT_TOOL_INJECTION for the perturbation judge).
     extra_env: dict = field(default_factory=dict)
+    # Per-run agent image override (e.g. the Toolathlon derived image); None → runtime default.
+    image: str | None = None
 
 
 class AgentRuntime(ABC):
@@ -83,6 +85,7 @@ class DockerRuntime(AgentRuntime):
             agent_token=spec.agent_token,
             memory_context=spec.memory_context,
             extra_env=spec.extra_env or {},
+            image=spec.image,
         )
 
     def kill(self, container_id: str, workspace_id: str | None = None) -> bool:
