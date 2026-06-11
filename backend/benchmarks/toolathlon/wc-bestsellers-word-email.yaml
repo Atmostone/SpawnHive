@@ -1,0 +1,42 @@
+id: wc-bestsellers-word-email
+suite: toolathlon
+input:
+  title: WC Bestsellers Word Email
+  description: |
+    Hey, I run the sales department for our online store and I need a report on our best-selling products. Please look up the product catalog from our store and identify the top 10 products ranked by total units sold (the total_sales field on each product).
+
+    Create a Word document called Bestsellers_Report.docx in the workspace. The document should have a heading "Best-Selling Products Report" at the top, followed by a brief intro paragraph. Then include a table with columns Rank, Product_Name, Total_Sold, and Price (formatted to 2 decimal places). List the 10 products in order from highest to lowest total units sold, numbered 1 through 10.
+
+    After the table, add a "Summary" section with three lines: total units sold across all top 10 products, the average price of the top 10 products rounded to 2 decimal places, and the name and units sold of the number one product.
+
+    Once the document is ready, send an email to sales-leads@store.com with the subject "Top 10 Bestsellers Report". In the email body, mention the name of the top selling product and how many units it has sold, and briefly note the total units sold across the top 10 combined.
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - word
+    - emails
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-bestsellers-word-email/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-bestsellers-word-email/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/wc-bestsellers-word-email/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - word
+  - emails
+  - filesystem
+meta:
+  source: toolathlon_gym
+  family: woocommerce
+  needed_mcp_servers:
+  - woocommerce
+  - word
+  - emails
+  - filesystem
+  task_path: tasks/finalpool/wc-bestsellers-word-email
+  license: Apache-2.0
