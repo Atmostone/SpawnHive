@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 KINDS = ("builtin", "mcp")
 # Non-secret mcp config keys carried in `config`; everything credential-y is `secrets`.
-_MCP_CONFIG_KEYS = ("command", "args", "url")
+_MCP_CONFIG_KEYS = ("command", "args", "url", "cwd")
 
 
 class RegistryConflict(Exception):

@@ -17,7 +17,7 @@ class RegistryEntry(Base):
     overrides instead of being duplicated inline on every template. ``kind``
     distinguishes a ``builtin`` capability (a tool name the agent enables, e.g.
     ``bash``) from an ``mcp`` server (``config`` carries the non-secret
-    ``{command, args, url?}``; ``secrets`` carries the credential env map).
+    ``{command, args, url?, cwd?}``; ``secrets`` carries the credential env map).
 
     Secrets are stored plain text and masked in API responses (mirroring
     ``Provider.api_key``); only the spawn-time resolver reveals them into the
@@ -44,7 +44,7 @@ class RegistryEntry(Base):
     kind: Mapped[str] = mapped_column(
         String(10), nullable=False, default="builtin", server_default="builtin"
     )
-    # Non-secret config. builtin: arbitrary (e.g. {}); mcp: {command, args:[], url?}.
+    # Non-secret config. builtin: arbitrary (e.g. {}); mcp: {command, args:[], url?, cwd?}.
     config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # Credential env map {ENV_KEY: value}; plain text, masked on read.
     secrets: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
