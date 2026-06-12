@@ -100,6 +100,14 @@ def build_entry_payload(
         "command": resolve_template_vars(str(command), variables),
         "args": [resolve_template_vars(str(a), variables) for a in (params.get("args") or [])],
     }
+    # `uv run <script.py>` without --directory resolves the project from the process
+    # cwd and loses the server's own venv (seen live: yahoo-finance dying with
+    # "No module named 'pandas'"). Anchor uv to the script's directory.
+    if config["command"] == "uv" and "--directory" not in config["args"]:
+        for arg in config["args"]:
+            if arg.endswith(".py") and "/" in arg:
+                config["args"] = ["--directory", arg.rsplit("/", 1)[0], *config["args"]]
+                break
     cwd = params.get("cwd")
     if cwd:
         config["cwd"] = resolve_template_vars(str(cwd), variables)

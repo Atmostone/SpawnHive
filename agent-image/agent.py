@@ -403,7 +403,9 @@ async def run_agent() -> dict:
 
     total_input_tokens = 0
     total_output_tokens = 0
-    max_iterations = 20
+    # Default 20 suits short product tasks; benchmark harnesses (e.g. Toolathlon,
+    # designed around ~100-step budgets) raise it via run_config.max_iterations.
+    max_iterations = int(os.environ.get("AGENT_MAX_ITERATIONS", "20") or 20)
     last_progress_at = 0.0
     log_chunk_seq = [0]
     injection_done = False

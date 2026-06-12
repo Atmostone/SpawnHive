@@ -25,6 +25,15 @@ COPY feedback_server.py .
 COPY time_server.py .
 COPY web_server.py .
 
+# Toolathlon's PG-backed MCP servers (gsheet, gcal, emails, ...) read the PG
+# connection from process env, not from their yaml configs (which only declare
+# it for a few servers). agent.py merges os.environ into each MCP server env,
+# so baking the defaults here gives every server DB access. Both naming styles
+# are used across their servers (PGHOST and PG_HOST), mirror run_containerized.sh.
+ENV PGHOST=toolathlon_pg PGPORT=5432 PGUSER=eigent PGPASSWORD=camel PGDATABASE=toolathlon_gym \
+    PG_HOST=toolathlon_pg PG_PORT=5432 PG_USER=eigent PG_PASSWORD=camel PG_DATABASE=toolathlon_gym \
+    LOCAL_SERVERS_PATH=/opt/local_servers
+
 EXPOSE 8080
 
 # The base image keeps the toolathlon_gym source in /workspace; when the
