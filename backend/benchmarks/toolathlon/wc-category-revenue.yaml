@@ -1,0 +1,42 @@
+id: wc-category-revenue
+suite: toolathlon
+input:
+  title: WC Category Revenue
+  description: |
+    I need to analyze revenue by product category in our shop. There is a Category_Targets.pdf in the workspace with revenue targets per category for reference.
+
+    Pull product and category data and calculate estimated revenue for each category based on price times units sold.
+
+    Create an Excel file called WC_Category_Revenue.xlsx with two sheets. The "Category Revenue" sheet should have Category name, Products count, Avg_Price rounded to 2 decimals, Units_Sold total, and Est_Revenue rounded to 2 decimals. Sort by Est_Revenue descending.
+
+    The "Summary" should have Total_Categories, Total_Est_Revenue, and Top_Category name.
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - excel
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-category-revenue/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-category-revenue/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/wc-category-revenue/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - excel
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym
+  family: woocommerce
+  needed_mcp_servers:
+  - woocommerce
+  - excel
+  - pdf-tools
+  - filesystem
+  task_path: tasks/finalpool/wc-category-revenue
+  license: Apache-2.0

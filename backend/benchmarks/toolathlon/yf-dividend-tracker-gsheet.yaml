@@ -1,0 +1,40 @@
+id: yf-dividend-tracker-gsheet
+suite: toolathlon
+input:
+  title: YF Dividend Tracker Gsheet
+  description: |
+    I need to build a comprehensive dividend and stock action tracker for our investment portfolio. Please look up the dividend and corporate action history for the following five stocks: GOOGL, AMZN, JPM, JNJ, and XOM. For each stock, gather information about any dividends (including the annual dividend rate, dividend yield, trailing annual rate, and the ex-dividend date) as well as any stock splits (including the split factor and date).
+
+    Once you have collected all the data, create a spreadsheet called "Dividend Tracker" with a single sheet named "Stock Actions" that lists every action you found. The columns should be Date, Symbol, Action_Type (either "Dividend" or "Stock Split"), Value (the dividend rate for dividends or the split ratio for splits), Dividend_Yield (as a percentage, or 0 for splits), and Trailing_Annual_Rate (or 0 for splits). Sort the rows by Symbol and then by Date.
+
+    After creating the spreadsheet, send an email to investor@portfolio.example.com with the subject "Dividend Action Summary" summarizing which stocks currently pay dividends, their annual dividend rates, and any recent corporate actions. The email should be sent from portfolio-alerts@finance.example.com.
+gold:
+  capability_spec:
+    required_tools:
+    - yahoo-finance
+    - google_sheet
+    - emails
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-dividend-tracker-gsheet/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-dividend-tracker-gsheet/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/yf-dividend-tracker-gsheet/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - yahoo-finance
+  - google_sheet
+  - emails
+  - filesystem
+meta:
+  source: toolathlon_gym
+  family: yahoo-finance
+  needed_mcp_servers:
+  - yahoo-finance
+  - google_sheet
+  - emails
+  - filesystem
+  task_path: tasks/finalpool/yf-dividend-tracker-gsheet
+  license: Apache-2.0
