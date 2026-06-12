@@ -3,7 +3,7 @@
 Materializes a template's registry references (``templates.tool_ids``) — plus any
 task-level ``run_config.tools_override`` — into the exact shapes the agent container
 consumes: a list of builtin tool names (``AGENT_TOOLS``) and a list of MCP server
-dicts ``{name, command, args, env}`` (``MCP_SERVERS``). This is the single place that
+dicts ``{name, command, args, env, cwd?}`` (``MCP_SERVERS``). This is the single place that
 reveals secrets into the container env; every API read masks them.
 """
 
@@ -54,6 +54,8 @@ def _materialize(entry: RegistryEntry) -> Optional[object]:
     }
     if config.get("url"):
         server["url"] = config["url"]
+    if config.get("cwd"):
+        server["cwd"] = config["cwd"]
     return server
 
 
