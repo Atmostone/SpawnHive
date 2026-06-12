@@ -1,0 +1,36 @@
+# SpawnHive agent on top of the Toolathlon-GYM toolchain (SPA-42).
+#
+# Base image must be built locally first from the toolathlon_gym clone:
+#   docker build -t toolathlon-pack:latest "$TOOLATHLON_GYM_PATH"
+# It provides ubuntu 22.04 + uv + node 22 + playwright chromium + 19 pre-built
+# MCP servers in /opt/local_servers + a python venv at /opt/venv.
+#
+# Build this image (any working dir, context = agent-image/):
+#   docker build -f agent-image/Dockerfile.toolathlon -t spawnhive-agent-toolathlon:latest agent-image/
+#
+# See docs/toolathlon.md for the full runbook.
+FROM toolathlon-pack:latest
+
+WORKDIR /app
+
+# Install our agent dependencies into THEIR venv (/opt/venv). The venv was
+# created with `uv venv` and ships without pip, so use uv (on PATH in the base
+# image at /root/.local/bin) targeting the venv interpreter explicitly.
+COPY requirements.txt .
+RUN uv pip install --python /opt/venv/bin/python -r requirements.txt
+
+COPY agent.py .
+COPY entrypoint.py .
+COPY feedback_server.py .
+COPY time_server.py .
+COPY web_server.py .
+
+EXPOSE 8080
+
+# The base image keeps the toolathlon_gym source in /workspace; when the
+# orchestrator mounts a task workspace over /workspace it gets shadowed —
+# that is fine, we only use their preprocess/evaluation scripts and
+# /opt/local_servers, never their agent loop (main.py).
+WORKDIR /workspace
+
+ENTRYPOINT ["/opt/venv/bin/python", "/app/entrypoint.py"]
