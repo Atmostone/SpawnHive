@@ -292,10 +292,20 @@ async def _connect_mcp_servers(stack: AsyncExitStack, configs: list[dict]) -> tu
         if not srv_name or not cmd:
             logger.warning(f"Skipping MCP config without name/command: {cfg}")
             continue
+        # Optional working dir (e.g. Toolathlon servers run with cwd=${agent_workspace}).
+        # If template placeholders survive into runtime config, resolve them here:
+        # in this container the task dir IS the agent workspace.
+        cwd = cfg.get("cwd")
+        if isinstance(cwd, str) and cwd:
+            for placeholder in ("${task_dir}", "${agent_workspace}"):
+                cwd = cwd.replace(placeholder, "/workspace")
+        else:
+            cwd = None
         params = StdioServerParameters(
             command=cmd,
             args=cfg.get("args", []) or [],
             env={**os.environ, **(cfg.get("env") or {})},
+            cwd=cwd,
         )
         try:
             read, write = await stack.enter_async_context(stdio_client(params))
