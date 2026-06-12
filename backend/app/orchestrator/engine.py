@@ -192,6 +192,9 @@ async def _spawn_agent_for_template(db: AsyncSession, task: Task, template: Temp
             extra_env["LLM_TEMPERATURE"] = str(run_config["temperature"])
         if run_config.get("seed") is not None:
             extra_env["LLM_SEED"] = str(run_config["seed"])
+        # Per-run agent iteration budget (benchmark tasks need more than the default 20).
+        if run_config.get("max_iterations") is not None:
+            extra_env["AGENT_MAX_ITERATIONS"] = str(run_config["max_iterations"])
 
         # Per-run agent image override (run_config.agent_image) — only images from
         # our own agent family are allowed (e.g. spawnhive-agent-toolathlon:latest).
