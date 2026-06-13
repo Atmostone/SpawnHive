@@ -20,7 +20,7 @@ export const useUiMode = create<UiModeState>()(
 
 // Ordered nav paths per mode; shared pages (/templates, /activity, /settings) appear in both.
 export const NAV_BY_MODE: Record<UiMode, string[]> = {
-  experiments: ['/experiments', '/analytics', '/rubrics', '/templates', '/activity', '/settings'],
+  experiments: ['/experiments', '/analytics', '/calibration', '/rubrics', '/templates', '/activity', '/settings'],
   work: ['/', '/tasks', '/chat', '/graph', '/knowledge', '/memory', '/templates', '/activity', '/settings'],
 }
 

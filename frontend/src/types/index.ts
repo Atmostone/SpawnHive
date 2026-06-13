@@ -208,6 +208,27 @@ export interface HumanFeedback {
   submitted_at: string
 }
 
+// Calibration queue (E-17): records carrying a judge profile, awaiting human annotation.
+export interface CalibrationQueueItem {
+  task_id: string
+  title: string
+  origin: string
+  template_name?: string | null
+  model_used?: string | null
+  benchmark_suite?: string | null
+  weighted_score?: number | null
+  n_dimensions: number
+  has_feedback: boolean
+  created_at?: string | null
+}
+
+export interface CalibrationQueue {
+  total: number
+  done: number
+  pending: number
+  items: CalibrationQueueItem[]
+}
+
 // Trace Cleaner (E-06): compact, judge-ready trajectory feeding the trajectory judge (E-07).
 export type CleanedTraceStepKind = 'reasoning' | 'tool' | 'agent'
 

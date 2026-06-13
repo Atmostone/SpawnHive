@@ -739,6 +739,60 @@ async def calibration_export(
     return await collect_judge_human_pairs(db, workspace.id)
 
 
+@router.get("/calibration/queue")
+async def calibration_queue(
+    status: Literal["pending", "done", "all"] = Query("pending"),
+    limit: int = Query(300, ge=1, le=1000),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Records eligible for human annotation (E-17 calibration): those carrying a
+    judge profile. ``status=pending`` (default) returns only the ones still
+    missing human feedback. Includes ``origin='experiment'`` tasks, which the
+    task board hides — this is the only UI path to annotate them."""
+    rows = (
+        await db.execute(
+            select(QualityRecord, Task.title, Task.origin)
+            .join(Task, Task.id == QualityRecord.task_id)
+            .where(
+                QualityRecord.workspace_id == workspace.id,
+                QualityRecord.quality_profile.isnot(None),
+            )
+            .order_by(QualityRecord.created_at.desc())
+        )
+    ).all()
+
+    total = len(rows)
+    done = sum(1 for rec, _t, _o in rows if rec.human_feedback is not None)
+    items = []
+    for rec, title, origin in rows:
+        has_feedback = rec.human_feedback is not None
+        if status == "pending" and has_feedback:
+            continue
+        if status == "done" and not has_feedback:
+            continue
+        profile = rec.quality_profile or {}
+        items.append(
+            {
+                "task_id": str(rec.task_id),
+                "title": title,
+                "origin": origin,
+                "template_name": rec.template_name,
+                "model_used": rec.model_used,
+                "benchmark_suite": rec.benchmark_suite,
+                "weighted_score": profile.get("weighted_score"),
+                "n_dimensions": sum(
+                    1 for d in (profile.get("dimensions") or []) if d.get("status") == "scored"
+                ),
+                "has_feedback": has_feedback,
+                "created_at": rec.created_at.isoformat() if rec.created_at else None,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return {"total": total, "done": done, "pending": total - done, "items": items}
+
+
 # --------------------------------------------------------------------------- #
 # Judge Calibration Protocol (E-17)
 # --------------------------------------------------------------------------- #

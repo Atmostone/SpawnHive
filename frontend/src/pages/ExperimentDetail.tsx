@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -13,6 +13,7 @@ import {
   ZAxis,
 } from 'recharts'
 import { experimentsApi } from '@/api/client'
+import AnnotationPanel from '@/components/quality/AnnotationPanel'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square } from 'lucide-react'
@@ -381,6 +382,7 @@ function RunsTab({ id, detail, filter }: {
 }) {
   const [config, setConfig] = useState(filter.config || '')
   const [caseKey, setCaseKey] = useState(filter.case || '')
+  const [rateTask, setRateTask] = useState<string | null>(null)
   const { data: rows = [] } = useQuery({
     queryKey: ['experiment-results', id, config, caseKey],
     queryFn: () =>
@@ -419,30 +421,60 @@ function RunsTab({ id, detail, filter }: {
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">Result</th>
+              <th className="px-3 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.config_key}-${r.case_key}-${r.run_index}`} className="border-t">
-                <td className="px-3 py-2 whitespace-nowrap text-gray-700">
-                  {r.config_key} · {r.case_key} · #{r.run_index + 1}
-                </td>
-                <td className="px-3 py-2">
-                  <span className={
-                    r.status === 'success' ? 'text-green-600' :
-                    r.status === 'failed' ? 'text-red-600' :
-                    r.status === 'running' ? 'text-blue-600' : 'text-gray-400'
-                  }>{r.status}</span>
-                </td>
-                <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>
-                <td className="px-3 py-2">{fmt(r.trajectory_score, 1)}</td>
-                <td className="px-3 py-2">${r.cost_usd.toFixed(3)}</td>
-                <td className="px-3 py-2">{r.duration_seconds != null ? `${r.duration_seconds}s` : '—'}</td>
-                <td className="px-3 py-2 text-gray-500 max-w-md truncate" title={r.result_summary || ''}>
-                  {r.result_summary || '—'}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const canRate = !!r.task_id && !!r.quality_profile
+              const open = rateTask === r.task_id
+              return (
+                <Fragment key={`${r.config_key}-${r.case_key}-${r.run_index}`}>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                      {r.config_key} · {r.case_key} · #{r.run_index + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={
+                        r.status === 'success' ? 'text-green-600' :
+                        r.status === 'failed' ? 'text-red-600' :
+                        r.status === 'running' ? 'text-blue-600' : 'text-gray-400'
+                      }>{r.status}</span>
+                    </td>
+                    <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>
+                    <td className="px-3 py-2">{fmt(r.trajectory_score, 1)}</td>
+                    <td className="px-3 py-2">${r.cost_usd.toFixed(3)}</td>
+                    <td className="px-3 py-2">{r.duration_seconds != null ? `${r.duration_seconds}s` : '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 max-w-md truncate" title={r.result_summary || ''}>
+                      {r.result_summary || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {canRate && (
+                        <button
+                          onClick={() => setRateTask((t) => (t === r.task_id ? null : r.task_id!))}
+                          className="text-xs text-gray-400 hover:text-blue-600 whitespace-nowrap"
+                        >
+                          {open ? 'close' : 'rate'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {open && r.task_id && (
+                    <tr className="border-t bg-gray-50">
+                      <td colSpan={8} className="px-3 py-2">
+                        <div className="max-w-xl">
+                          <AnnotationPanel
+                            taskId={r.task_id}
+                            profile={r.quality_profile ?? null}
+                            onSaved={() => setRateTask(null)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>
