@@ -700,6 +700,39 @@ async def put_feedback(
     return {"task_id": task_id, "human_feedback": feedback}
 
 
+@router.get("/records/{task_id}/review")
+async def get_review_context(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everything a human annotator needs to judge a result: the task prompt
+    (the question), the reference answer if any, the result summary, and text
+    excerpts of the deliverable files — the same material the judge sees. Lets
+    the calibration UI show what is being rated, not just the rubric axes."""
+    import asyncio
+
+    from app.storage.minio_client import read_result_file_text
+
+    task = await _get_owned_task(db, task_id, workspace)
+    files = []
+    for path in [str(f) for f in (task.result_files or [])][:6]:
+        name = path.split("/", 2)[-1]  # strip the results/<task_id>/ prefix
+        try:
+            text = await asyncio.to_thread(read_result_file_text, path, 8000)
+        except Exception:
+            text = None
+        files.append({"name": name, "text": text, "binary": text is None})
+    return {
+        "task_id": task_id,
+        "title": task.title,
+        "description": task.description,
+        "reference_answer": task.reference_answer,
+        "result_summary": task.result_summary,
+        "files": files,
+    }
+
+
 @router.get("/records/{task_id}/trace")
 async def get_cleaned_trace(
     task_id: str,
@@ -737,6 +770,60 @@ async def calibration_export(
     from app.quality.judge_calibration import collect_judge_human_pairs
 
     return await collect_judge_human_pairs(db, workspace.id)
+
+
+@router.get("/calibration/queue")
+async def calibration_queue(
+    status: Literal["pending", "done", "all"] = Query("pending"),
+    limit: int = Query(300, ge=1, le=1000),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Records eligible for human annotation (E-17 calibration): those carrying a
+    judge profile. ``status=pending`` (default) returns only the ones still
+    missing human feedback. Includes ``origin='experiment'`` tasks, which the
+    task board hides — this is the only UI path to annotate them."""
+    rows = (
+        await db.execute(
+            select(QualityRecord, Task.title, Task.origin)
+            .join(Task, Task.id == QualityRecord.task_id)
+            .where(
+                QualityRecord.workspace_id == workspace.id,
+                QualityRecord.quality_profile.isnot(None),
+            )
+            .order_by(QualityRecord.created_at.desc())
+        )
+    ).all()
+
+    total = len(rows)
+    done = sum(1 for rec, _t, _o in rows if rec.human_feedback is not None)
+    items = []
+    for rec, title, origin in rows:
+        has_feedback = rec.human_feedback is not None
+        if status == "pending" and has_feedback:
+            continue
+        if status == "done" and not has_feedback:
+            continue
+        profile = rec.quality_profile or {}
+        items.append(
+            {
+                "task_id": str(rec.task_id),
+                "title": title,
+                "origin": origin,
+                "template_name": rec.template_name,
+                "model_used": rec.model_used,
+                "benchmark_suite": rec.benchmark_suite,
+                "weighted_score": profile.get("weighted_score"),
+                "n_dimensions": sum(
+                    1 for d in (profile.get("dimensions") or []) if d.get("status") == "scored"
+                ),
+                "has_feedback": has_feedback,
+                "created_at": rec.created_at.isoformat() if rec.created_at else None,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return {"total": total, "done": done, "pending": total - done, "items": items}
 
 
 # --------------------------------------------------------------------------- #
