@@ -2,6 +2,10 @@
 
 Формат: `YYYY-MM-DD — что изменилось — ссылка на блок плана / PR`.
 
+## 2026-06-13
+
+- **SPA-53 — Toolathlon: набор из 50 запускаемых кейсов (13 семейств) для полного прогона (Эксп 4).** Масштабирование пилота SPA-45. Разведка finalpool: из 503 задач 237 запускаются на текущем стенде (PG-моки + интернет), 266 заблокированы внешними стендами, которых нет в их образе (woocommerce 104, canvas 91, playwright 63, youtube 21, 12306 17) — отложены. Из 237 отобраны 50 стратифицированно (snowflake 8, yahoo-finance 7, fetch 6, terminal 6, howtocook 5, arxiv 4, scholarly 4, notion 3, research 2, academic 2, sales/ppt/gsheet по 1) и сконвертированы конвертером SPA-44 в `backend/benchmarks/toolathlon/*.yaml`. Прогон — host-side `research/scripts/toolathlon_pilot.py` по 3 моделям; цель — матрица 2×2 outcome×trajectory и r(trajectory, external) vs r(outcome, external) при n~150.
+
 ## 2026-06-11
 
 - **SPA-43 — Импорт 25 MCP-серверов Toolathlon в Registry + cwd в агенте.** Второй шаг интеграции Toolathlon-GYM (см. `docs/research-toolathlon-gym.md`): их stdio MCP-конфиги теперь заводятся в воркспейсный Registry одной командой, а агент умеет запускать MCP-серверы с рабочей директорией.

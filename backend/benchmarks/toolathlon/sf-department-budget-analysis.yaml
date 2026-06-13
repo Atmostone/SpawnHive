@@ -1,0 +1,42 @@
+id: sf-department-budget-analysis
+suite: toolathlon
+input:
+  title: SF Department Budget Analysis
+  description: |
+    I need to review how each department is performing against their allocated budget. There is a PDF file called Budget_Targets.pdf in the workspace that shows the approved annual budget for each department. Please read that first.
+
+    Then pull the actual employee data from our HR analytics data warehouse. I need to see for each department the planned headcount from the department table, the actual employee count, average salary, and total salary cost. Also calculate a Budget_Utilization_Pct showing total salary cost as a percentage of the department budget, rounded to 1 decimal.
+
+    Create an Excel file called Department_Budget_Report.xlsx with two sheets. The first sheet "Budget Analysis" should have columns Department, Budget, Planned_Headcount, Actual_Headcount, Avg_Salary rounded to 2 decimals, Total_Salary_Cost rounded to 2 decimals, and Budget_Utilization_Pct rounded to 1 decimal. Sort by Department alphabetically.
+
+    The "Summary" sheet should have Metric and Value columns with Total_Budget, Total_Salary_Cost, Avg_Budget_Utilization across all departments rounded to 1 decimal, and Over_Budget_Depts counting departments where utilization exceeds 100 percent.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - excel
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-department-budget-analysis/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-department-budget-analysis/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-department-budget-analysis/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - excel
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - excel
+  - pdf-tools
+  - filesystem
+  task_path: tasks/finalpool/sf-department-budget-analysis
+  license: Apache-2.0
