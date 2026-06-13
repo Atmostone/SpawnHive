@@ -13,7 +13,7 @@ import {
   ZAxis,
 } from 'recharts'
 import { experimentsApi } from '@/api/client'
-import AnnotationPanel from '@/components/quality/AnnotationPanel'
+import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square } from 'lucide-react'
@@ -382,7 +382,7 @@ function RunsTab({ id, detail, filter }: {
 }) {
   const [config, setConfig] = useState(filter.config || '')
   const [caseKey, setCaseKey] = useState(filter.case || '')
-  const [rateTask, setRateTask] = useState<string | null>(null)
+  const [openTask, setOpenTask] = useState<string | null>(null)
   const { data: rows = [] } = useQuery({
     queryKey: ['experiment-results', id, config, caseKey],
     queryFn: () =>
@@ -426,8 +426,8 @@ function RunsTab({ id, detail, filter }: {
           </thead>
           <tbody>
             {rows.map((r) => {
-              const canRate = !!r.task_id && !!r.quality_profile
-              const open = rateTask === r.task_id
+              const canInspect = !!r.task_id
+              const open = openTask === r.task_id
               return (
                 <Fragment key={`${r.config_key}-${r.case_key}-${r.run_index}`}>
                   <tr className="border-t">
@@ -449,26 +449,24 @@ function RunsTab({ id, detail, filter }: {
                       {r.result_summary || '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {canRate && (
+                      {canInspect && (
                         <button
-                          onClick={() => setRateTask((t) => (t === r.task_id ? null : r.task_id!))}
+                          onClick={() => setOpenTask((t) => (t === r.task_id ? null : r.task_id!))}
                           className="text-xs text-gray-400 hover:text-blue-600 whitespace-nowrap"
                         >
-                          {open ? 'close' : 'rate'}
+                          {open ? 'close' : 'inspect'}
                         </button>
                       )}
                     </td>
                   </tr>
                   {open && r.task_id && (
                     <tr className="border-t bg-gray-50">
-                      <td colSpan={8} className="px-3 py-2">
-                        <div className="max-w-xl">
-                          <AnnotationPanel
-                            taskId={r.task_id}
-                            profile={r.quality_profile ?? null}
-                            onSaved={() => setRateTask(null)}
-                          />
-                        </div>
+                      <td colSpan={8} className="px-3 py-3">
+                        <RunAnalysis
+                          taskId={r.task_id}
+                          profile={r.quality_profile ?? null}
+                          onSaved={() => setOpenTask(null)}
+                        />
                       </td>
                     </tr>
                   )}
