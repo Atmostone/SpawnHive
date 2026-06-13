@@ -251,7 +251,7 @@ export const workspaceApi = {
 }
 
 // Quality Rubric Engine (E-02)
-import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, HallucinationProfile, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
+import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, HallucinationProfile, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
 
 type RubricInput = Pick<Rubric, 'name' | 'description' | 'applies_to' | 'is_default' | 'dimensions'>
 
@@ -292,6 +292,8 @@ export const qualityApi = {
     const s = q.toString()
     return request<CalibrationQueue>(`/quality/calibration/queue${s ? `?${s}` : ''}`)
   },
+  getReview: (taskId: string) =>
+    request<ReviewContext>(`/quality/records/${taskId}/review`),
   getCleanedTrace: (
     taskId: string,
     params?: { tool_output_token_cap?: number; keep_tail_on_error?: boolean },

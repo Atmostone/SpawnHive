@@ -229,6 +229,22 @@ export interface CalibrationQueue {
   items: CalibrationQueueItem[]
 }
 
+// What an annotator sees when rating a result: the task prompt + the deliverable.
+export interface ReviewFile {
+  name: string
+  text: string | null
+  binary: boolean
+}
+
+export interface ReviewContext {
+  task_id: string
+  title: string
+  description?: string | null
+  reference_answer?: string | null
+  result_summary?: string | null
+  files: ReviewFile[]
+}
+
 // Trace Cleaner (E-06): compact, judge-ready trajectory feeding the trajectory judge (E-07).
 export type CleanedTraceStepKind = 'reasoning' | 'tool' | 'agent'
 
