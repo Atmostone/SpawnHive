@@ -27,6 +27,7 @@ from app.models.experiment import (
     Experiment,
     ExperimentRun,
 )
+from app.models.event import AgentEvent
 from app.models.quality_record import QualityRecord
 from app.models.task import Task
 from app.models.user import User
@@ -351,6 +352,21 @@ async def experiment_results(
         ):
             records[rec.task_id] = rec
 
+    # Executable verdicts (Toolathlon external_eval_verdict events): latest per task.
+    verdicts: dict = {}
+    if task_ids:
+        for tid, data in (
+            await db.execute(
+                select(AgentEvent.task_id, AgentEvent.data)
+                .where(
+                    AgentEvent.task_id.in_(task_ids),
+                    AgentEvent.event_type == "external_eval_verdict",
+                )
+                .order_by(AgentEvent.created_at)
+            )
+        ).all():
+            verdicts[tid] = bool((data or {}).get("passed"))
+
     out = []
     for r in runs:
         task = tasks.get(r.task_id)
@@ -364,6 +380,11 @@ async def experiment_results(
                 "task_id": str(r.task_id) if r.task_id else None,
                 "task_status": task.status if task else None,
                 "result_summary": task.result_summary if task else None,
+                "external_verdict": (
+                    ("pass" if verdicts[r.task_id] else "fail")
+                    if r.task_id in verdicts
+                    else None
+                ),
                 "weighted_score": r.weighted_score,
                 "trajectory_score": r.trajectory_score,
                 "cost_usd": float(r.cost_usd or 0),

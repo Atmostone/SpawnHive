@@ -1262,6 +1262,7 @@ export interface ExperimentRunResult {
   task_id?: string | null
   task_status?: string | null
   result_summary?: string | null
+  external_verdict?: 'pass' | 'fail' | null
   weighted_score?: number | null
   trajectory_score?: number | null
   cost_usd: number
