@@ -1,0 +1,43 @@
+id: sf-hr-department-budget
+suite: toolathlon
+input:
+  title: SF Hr Department Budget
+  description: |-
+    Our finance team needs to compare the actual salary expenditure for each department against their allocated budgets. Please query the HR data warehouse to get the total salary spend per department by summing all employee salaries, grouped by department. Also retrieve the department budget information which includes each department's allocated budget and headcount.
+
+    Create an Excel file called Budget_Analysis.xlsx in the workspace with two sheets. The first sheet "Department Budget" should have columns Department, Budget, Actual_Spend being the sum of salaries, Variance calculated as Budget minus Actual_Spend, Variance_Pct showing the variance as a percentage of budget rounded to 2 decimal places, Employee_Count, and Avg_Salary rounded to 2 decimals. Sort by Department alphabetically. The second sheet "Summary" should have columns Metric and Value with the following rows: Total_Budget, Total_Spend, Overall_Variance, Depts_Over_Budget showing how many departments exceeded their budget, and Depts_Under_Budget showing how many are under budget.
+
+    Also create a Google Sheet spreadsheet titled "Department Budget Overview" with a sheet called "Summary" containing the Department Budget data so leadership can review it online. Finally, send an email to cfo@company.example.com with the subject "Department Budget Analysis" including the total budget, total spend, overall variance, and listing any departments that are over budget.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - excel
+    - google_sheet
+    - emails
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-hr-department-budget/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-hr-department-budget/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-hr-department-budget/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - excel
+  - google_sheet
+  - emails
+  - filesystem
+meta:
+  source: toolathlon_gym
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - excel
+  - google_sheet
+  - emails
+  - filesystem
+  task_path: tasks/finalpool/sf-hr-department-budget
+  license: Apache-2.0
