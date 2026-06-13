@@ -2,6 +2,15 @@
 
 Формат: `YYYY-MM-DD — что изменилось — ссылка на блок плана / PR`.
 
+## 2026-06-13
+
+- **SPA-52 — UI: разметка результатов внутри Experiments (очередь калибровки + inline в ExperimentDetail).** Закрыта дыра в дизайне SPA-49: форма human feedback жила только на TaskDetail, а eval-задачи (`origin='experiment'`) скрыты с Task Board — через UI к ним нельзя было попасть вообще (все 38 разметок делались прямыми вызовами API). Теперь разметка результатов живёт в режиме Experiments.
+  - **Очередь калибровки** — новый пункт `Calibration` в Experiments-меню (`/calibration`): список quality-записей с judge-профилем но без human feedback (включая experiment-задачи), прогресс «N из M», фильтр pending/all, клик → форма осей 0–10 inline. Бэкенд `GET /api/quality/calibration/queue?status=pending|done|all`.
+  - **Run-analysis drawer в ExperimentDetail** — в Runs-таблице у строки прогона кнопка `inspect` разворачивает `RunAnalysis` (keyed `r.task_id`): табы **Trajectory & trace** (E-06 cleaned trace, E-07 6-осевой судья, E-08 evidence bank, E-09 trajectory match), **Robustness** (E-13 capability, E-11 variance, E-12 perturbation), **Failure & facts** (E-14 failure modes, E-15 hallucination, E-16 calibration), **Annotate** (E-05). Аудит UI↔backend показал, что все 11 per-task eval-панелей висели только на `TaskDetail` (доступен лишь модалкой с Task Board) → для experiment-задач были недостижимы; data уже плумбилась в results-эндпоинте (`task_id`+профили), фронт её выбрасывал. Бэкенд не трогался — панели переиспользованы как есть.
+  - Общий компонент `AnnotationPanel` (тянет profile/feedback) + `HumanFeedbackForm` получил `defaultOpen`/`onSaved` (обратносовместимо); пишут в один слот через существующий `PUT /api/quality/records/{task_id}/feedback`.
+  - **Колонка Verdict + кнопка inspect слева.** В Runs-таблицу добавлен исполняемый вердикт Toolathlon (`external_eval_verdict` → `pass`/`fail`/`—`, бэкенд `experiment_results` батч-грузит события по task_ids) — видно расхождение «status=success, но чекер fail». Кнопка `inspect` перенесена в первую колонку и стилизована как кнопка (была текстом справа, уезжала за край).
+  - **Backfill пилота Toolathlon в Experiment** — 50 host-скрипт-прогонов (18 кейсов × glm-4.7) обёрнуты в первоклассный Experiment «Toolathlon pilot (SPA-45)», чтобы трейсы/вердикты были видны в Experiments, а не только в БД/`research/exports`.
+
 ## 2026-06-11
 
 - **SPA-43 — Импорт 25 MCP-серверов Toolathlon в Registry + cwd в агенте.** Второй шаг интеграции Toolathlon-GYM (см. `docs/research-toolathlon-gym.md`): их stdio MCP-конфиги теперь заводятся в воркспейсный Registry одной командой, а агент умеет запускать MCP-серверы с рабочей директорией.
