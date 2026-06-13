@@ -208,6 +208,43 @@ export interface HumanFeedback {
   submitted_at: string
 }
 
+// Calibration queue (E-17): records carrying a judge profile, awaiting human annotation.
+export interface CalibrationQueueItem {
+  task_id: string
+  title: string
+  origin: string
+  template_name?: string | null
+  model_used?: string | null
+  benchmark_suite?: string | null
+  weighted_score?: number | null
+  n_dimensions: number
+  has_feedback: boolean
+  created_at?: string | null
+}
+
+export interface CalibrationQueue {
+  total: number
+  done: number
+  pending: number
+  items: CalibrationQueueItem[]
+}
+
+// What an annotator sees when rating a result: the task prompt + the deliverable.
+export interface ReviewFile {
+  name: string
+  text: string | null
+  binary: boolean
+}
+
+export interface ReviewContext {
+  task_id: string
+  title: string
+  description?: string | null
+  reference_answer?: string | null
+  result_summary?: string | null
+  files: ReviewFile[]
+}
+
 // Trace Cleaner (E-06): compact, judge-ready trajectory feeding the trajectory judge (E-07).
 export type CleanedTraceStepKind = 'reasoning' | 'tool' | 'agent'
 
@@ -1225,6 +1262,7 @@ export interface ExperimentRunResult {
   task_id?: string | null
   task_status?: string | null
   result_summary?: string | null
+  external_verdict?: 'pass' | 'fail' | null
   weighted_score?: number | null
   trajectory_score?: number | null
   cost_usd: number

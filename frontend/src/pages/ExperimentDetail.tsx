@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -13,6 +13,7 @@ import {
   ZAxis,
 } from 'recharts'
 import { experimentsApi } from '@/api/client'
+import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square } from 'lucide-react'
@@ -381,6 +382,7 @@ function RunsTab({ id, detail, filter }: {
 }) {
   const [config, setConfig] = useState(filter.config || '')
   const [caseKey, setCaseKey] = useState(filter.case || '')
+  const [openTask, setOpenTask] = useState<string | null>(null)
   const { data: rows = [] } = useQuery({
     queryKey: ['experiment-results', id, config, caseKey],
     queryFn: () =>
@@ -412,8 +414,10 @@ function RunsTab({ id, detail, filter }: {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
             <tr>
+              <th className="px-3 py-2"></th>
               <th className="px-3 py-2">Cell</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Verdict</th>
               <th className="px-3 py-2">Quality</th>
               <th className="px-3 py-2">Trajectory</th>
               <th className="px-3 py-2">Cost</th>
@@ -422,27 +426,67 @@ function RunsTab({ id, detail, filter }: {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.config_key}-${r.case_key}-${r.run_index}`} className="border-t">
-                <td className="px-3 py-2 whitespace-nowrap text-gray-700">
-                  {r.config_key} · {r.case_key} · #{r.run_index + 1}
-                </td>
-                <td className="px-3 py-2">
-                  <span className={
-                    r.status === 'success' ? 'text-green-600' :
-                    r.status === 'failed' ? 'text-red-600' :
-                    r.status === 'running' ? 'text-blue-600' : 'text-gray-400'
-                  }>{r.status}</span>
-                </td>
-                <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>
-                <td className="px-3 py-2">{fmt(r.trajectory_score, 1)}</td>
-                <td className="px-3 py-2">${r.cost_usd.toFixed(3)}</td>
-                <td className="px-3 py-2">{r.duration_seconds != null ? `${r.duration_seconds}s` : '—'}</td>
-                <td className="px-3 py-2 text-gray-500 max-w-md truncate" title={r.result_summary || ''}>
-                  {r.result_summary || '—'}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const canInspect = !!r.task_id
+              const open = openTask === r.task_id
+              return (
+                <Fragment key={`${r.config_key}-${r.case_key}-${r.run_index}`}>
+                  <tr className="border-t">
+                    <td className="px-3 py-2">
+                      {canInspect && (
+                        <button
+                          onClick={() => setOpenTask((t) => (t === r.task_id ? null : r.task_id!))}
+                          className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap transition-colors ${
+                            open
+                              ? 'border-blue-400 bg-blue-50 text-blue-700'
+                              : 'border-gray-300 bg-white text-gray-600 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-700'
+                          }`}
+                        >
+                          {open ? 'close' : 'inspect'}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                      {r.config_key} · {r.case_key} · #{r.run_index + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={
+                        r.status === 'success' ? 'text-green-600' :
+                        r.status === 'failed' ? 'text-red-600' :
+                        r.status === 'running' ? 'text-blue-600' : 'text-gray-400'
+                      }>{r.status}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.external_verdict === 'pass' ? (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">pass</span>
+                      ) : r.external_verdict === 'fail' ? (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">fail</span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>
+                    <td className="px-3 py-2">{fmt(r.trajectory_score, 1)}</td>
+                    <td className="px-3 py-2">${r.cost_usd.toFixed(3)}</td>
+                    <td className="px-3 py-2">{r.duration_seconds != null ? `${r.duration_seconds}s` : '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 max-w-md truncate" title={r.result_summary || ''}>
+                      {r.result_summary || '—'}
+                    </td>
+                  </tr>
+                  {open && r.task_id && (
+                    <tr className="border-t bg-gray-50">
+                      <td colSpan={9} className="px-3 py-3">
+                        <RunAnalysis
+                          taskId={r.task_id}
+                          profile={r.quality_profile ?? null}
+                          onSaved={() => setOpenTask(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>

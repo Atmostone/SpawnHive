@@ -37,11 +37,15 @@ interface Props {
   taskId: string
   profile: QualityProfile | null
   existing: HumanFeedback | null
+  /** Start expanded (e.g. the calibration queue, where the form is the whole point). */
+  defaultOpen?: boolean
+  /** Called after a successful submit, for callers that track annotation progress. */
+  onSaved?: () => void
 }
 
-export default function HumanFeedbackForm({ taskId, profile, existing }: Props) {
+export default function HumanFeedbackForm({ taskId, profile, existing, defaultOpen = false, onSaved }: Props) {
   const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
 
   // Dimensions to rate: the rubric axes the judge evaluated. Seed from existing
   // human feedback, else default to the judge's score (one-click agreement).
@@ -75,6 +79,7 @@ export default function HumanFeedbackForm({ taskId, profile, existing }: Props) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['human-feedback', taskId] })
       setOpen(false)
+      onSaved?.()
     },
   })
 
