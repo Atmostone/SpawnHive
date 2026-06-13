@@ -13,6 +13,7 @@ import {
   BookOpen,
   Brain,
   Settings2,
+  ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -24,6 +25,7 @@ const ITEMS: Record<string, { icon: LucideIcon; label: string }> = {
   '/chat': { icon: MessageSquare, label: 'Chat' },
   '/activity': { icon: Activity, label: 'Activity Log' },
   '/analytics': { icon: BarChart3, label: 'Analytics' },
+  '/calibration': { icon: ClipboardCheck, label: 'Calibration' },
   '/experiments': { icon: FlaskConical, label: 'Experiments' },
   '/graph': { icon: Network, label: 'Graph' },
   '/templates': { icon: Boxes, label: 'Templates' },
