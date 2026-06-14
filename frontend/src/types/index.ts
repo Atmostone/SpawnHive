@@ -33,6 +33,7 @@ export interface Task {
   cost_usd?: number | null
   depends_on?: string[] | null
   log_archive_s3_path?: string | null
+  origin?: string | null
   created_at: string
   updated_at: string
   started_at?: string | null

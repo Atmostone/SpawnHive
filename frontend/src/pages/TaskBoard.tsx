@@ -15,14 +15,15 @@ export default function TaskBoard() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [includeExperiments, setIncludeExperiments] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
 
   const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => tasksApi.list(),
+    queryKey: ['tasks', { includeExperiments }],
+    queryFn: () => tasksApi.list({ include_experiments: includeExperiments }),
     refetchInterval: 5000,
   })
 
@@ -68,12 +69,18 @@ export default function TaskBoard() {
     <div className="p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">Task Board</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-        >
-          <Plus className="h-4 w-4" /> New Task
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer" title="Experiment-cell runs are hidden by default">
+            <input type="checkbox" checked={includeExperiments} onChange={(e) => setIncludeExperiments(e.target.checked)} />
+            show experiment tasks
+          </label>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" /> New Task
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-x-auto">

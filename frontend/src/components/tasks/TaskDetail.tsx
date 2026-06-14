@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { tasksApi, eventsApi, qualityApi } from '@/api/client'
-import { X, Check, RotateCcw, Clock, Play, Download, Gauge } from 'lucide-react'
+import { X, Check, RotateCcw, Clock, Play, Download, Gauge, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import type { Task } from '@/types'
 import { PRIORITY_COLORS, TASK_STATUS_LABELS, SOURCE_COLORS } from '@/types'
@@ -65,6 +65,11 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
     onSuccess: () => { setShowReject(false); setRejectFeedback(''); invalidate() },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: () => tasksApi.delete(task.id),
+    onSuccess: () => { invalidate(); onClose() },
+  })
+
   const t = detail || task
   const isTerminal = ['done', 'failed', 'awaiting_approval'].includes(t.status)
 
@@ -93,9 +98,19 @@ export default function TaskDetail({ task, onClose }: TaskDetailProps) {
     <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-xl border-l z-50 flex flex-col">
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="font-semibold text-lg truncate">{t.title}</h2>
-        <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-          <X className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {t.status !== 'in_progress' && (
+            <button
+              onClick={() => { if (confirm(`Delete task "${t.title}"? This cannot be undone.`)) deleteMutation.mutate() }}
+              title="Delete task"
+              className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   CartesianGrid,
   Legend,
@@ -12,7 +12,7 @@ import {
   YAxis,
   ZAxis,
 } from 'recharts'
-import { experimentsApi } from '@/api/client'
+import { experimentsApi, qualityApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
@@ -111,6 +111,32 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
   )
 }
 
+// E-17 judge-trust badge: connects the calibration pillar (judge↔human agreement)
+// to the experiment's A/B conclusions. Workspace-global, surfaced here on the report.
+function JudgeTrustBadge() {
+  const { data: badge } = useQuery({
+    queryKey: ['judge-calibration-badge'],
+    queryFn: () => qualityApi.getJudgeCalibrationBadge(),
+  })
+  if (!badge) return null
+  if (!badge.calibrated) {
+    return (
+      <Link to="/calibration" title="Judge not yet calibrated against human annotation (E-17)"
+        className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 text-gray-400 hover:text-gray-600">
+        judge: not calibrated
+      </Link>
+    )
+  }
+  const k = badge.overall_kappa
+  const tone = badge.passed ? 'border-green-300 bg-green-50 text-green-700' : 'border-amber-300 bg-amber-50 text-amber-700'
+  return (
+    <Link to="/calibration" className={`text-xs px-2 py-1 rounded border ${tone}`}
+      title={`Judge↔human agreement (E-17): Cohen's κ over ${badge.sample_size ?? '—'} ratings from ${badge.n_humans ?? '—'} annotator(s)`}>
+      judge κ {k == null ? '—' : k.toFixed(2)}{badge.passed ? ' ✓' : ' ⚠'}
+    </Link>
+  )
+}
+
 function ReportTab({ id, isTerminal }: { id: string; isTerminal: boolean }) {
   const queryClient = useQueryClient()
   const [method, setMethod] = useState<'bt' | 'elo'>('bt')
@@ -156,6 +182,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
     <div className="space-y-6">
       <div className="flex items-center justify-end gap-2">
         <span className="text-xs text-gray-400 mr-auto">assembled {new Date(report.generated_at).toLocaleString()}</span>
+        <JudgeTrustBadge />
         <button onClick={onRefresh} disabled={refreshing} title="Re-assemble report (bypass cache)"
           className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg hover:bg-gray-50 text-xs disabled:opacity-50">
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Re-assembling…' : 'Re-assemble'}
