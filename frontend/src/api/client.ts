@@ -81,9 +81,13 @@ export const authApi = {
 
 // Tasks
 export const tasksApi = {
-  list: (params?: { status?: string; parent_id?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString()
-    return request<Task[]>(`/tasks${qs ? `?${qs}` : ''}`)
+  list: (params?: { status?: string; parent_id?: string; include_experiments?: boolean }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.parent_id) qs.set('parent_id', params.parent_id)
+    if (params?.include_experiments) qs.set('include_experiments', 'true')
+    const s = qs.toString()
+    return request<Task[]>(`/tasks${s ? `?${s}` : ''}`)
   },
   get: (id: string) => request<Task & { subtasks: Task[] }>(`/tasks/${id}`),
   create: (data: { title: string; description?: string; priority?: string; reference_answer?: string }) =>
