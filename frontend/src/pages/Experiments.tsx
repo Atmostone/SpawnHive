@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { experimentsApi, providersApi, templatesApi } from '@/api/client'
+import { experimentsApi, providersApi, registryApi, templatesApi } from '@/api/client'
 import type { ExperimentCreateBody } from '@/api/client'
-import type { Experiment, ExperimentStatus, LLMModel } from '@/types'
-import { FlaskConical, Plus, X } from 'lucide-react'
+import type { Experiment, ExperimentStatus, LLMModel, RegistryEntry } from '@/types'
+import { FlaskConical, Plus, Trash2, X } from 'lucide-react'
 
 export const STATUS_COLORS: Record<ExperimentStatus, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -35,10 +35,12 @@ interface ConfigDraft {
   seed: string
   soul_md: string
   memory_mode: string
+  tools_enable: string[]
+  tools_disable: string[]
 }
 
 function emptyConfig(): ConfigDraft {
-  return { label: '', orchestrator: false, template_id: '', model_id: '', temperature: '', seed: '', soul_md: '', memory_mode: '' }
+  return { label: '', orchestrator: false, template_id: '', model_id: '', temperature: '', seed: '', soul_md: '', memory_mode: '', tools_enable: [], tools_disable: [] }
 }
 
 function configToPayload(c: ConfigDraft): Record<string, unknown> {
@@ -50,6 +52,12 @@ function configToPayload(c: ConfigDraft): Record<string, unknown> {
   if (c.seed !== '') out.seed = Number(c.seed)
   if (c.soul_md.trim()) out.soul_md = c.soul_md
   if (c.memory_mode) out.memory_mode = c.memory_mode
+  if (!c.orchestrator && (c.tools_enable.length || c.tools_disable.length)) {
+    const ov: Record<string, string[]> = {}
+    if (c.tools_enable.length) ov.enable = c.tools_enable
+    if (c.tools_disable.length) ov.disable = c.tools_disable
+    out.tools_override = ov
+  }
   return out
 }
 
@@ -98,6 +106,7 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
       return lists.flat() as LLMModel[]
     },
   })
+  const { data: tools = [] } = useQuery({ queryKey: ['registry-tools'], queryFn: () => registryApi.list() })
 
   const { cases: uploadCases, errors: uploadErrors } = useMemo(() => parseJsonl(jsonl), [jsonl])
 
@@ -262,6 +271,52 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
                 <textarea placeholder="soul_md override (system prompt) — leave empty to use the template's" value={c.soul_md}
                   onChange={(e) => setConfig(idx, { soul_md: e.target.value })}
                   className="w-full px-2 py-1.5 border rounded text-xs font-mono bg-white h-14" />
+                {!c.orchestrator && tools.length > 0 && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer select-none text-gray-600">
+                      Tools override{' '}
+                      {c.tools_enable.length + c.tools_disable.length > 0 ? (
+                        <span className="text-gray-700 font-medium">
+                          ({c.tools_enable.length}+ / {c.tools_disable.length}−)
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">— template default</span>
+                      )}
+                    </summary>
+                    <div className="mt-2 space-y-1 max-h-44 overflow-y-auto pr-1">
+                      {tools.map((t: RegistryEntry) => {
+                        const on = c.tools_enable.includes(t.id)
+                        const off = c.tools_disable.includes(t.id)
+                        const set = (mode: 'default' | 'enable' | 'disable') =>
+                          setConfig(idx, {
+                            tools_enable:
+                              mode === 'enable'
+                                ? [...c.tools_enable.filter((x) => x !== t.id), t.id]
+                                : c.tools_enable.filter((x) => x !== t.id),
+                            tools_disable:
+                              mode === 'disable'
+                                ? [...c.tools_disable.filter((x) => x !== t.id), t.id]
+                                : c.tools_disable.filter((x) => x !== t.id),
+                          })
+                        return (
+                          <div key={t.id} className="flex items-center justify-between gap-2 bg-white rounded border px-2 py-1">
+                            <span className="truncate text-gray-700" title={t.name}>
+                              {t.name} <span className="text-gray-400">{t.kind}</span>
+                            </span>
+                            <div className="flex gap-1 shrink-0">
+                              <button type="button" onClick={() => set('default')}
+                                className={`px-1.5 py-0.5 rounded ${!on && !off ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:bg-gray-100'}`}>default</button>
+                              <button type="button" onClick={() => set('enable')}
+                                className={`px-1.5 py-0.5 rounded ${on ? 'bg-green-100 text-green-700' : 'text-gray-400 hover:bg-gray-100'}`}>+ enable</button>
+                              <button type="button" onClick={() => set('disable')}
+                                className={`px-1.5 py-0.5 rounded ${off ? 'bg-red-100 text-red-700' : 'text-gray-400 hover:bg-gray-100'}`}>− disable</button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                )}
               </div>
             ))}
           </div>
@@ -315,12 +370,18 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
 
 export default function Experiments() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
 
   const { data: experiments = [] } = useQuery({
     queryKey: ['experiments'],
     queryFn: () => experimentsApi.list(),
     refetchInterval: 5000,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => experimentsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['experiments'] }),
   })
 
   return (
@@ -353,6 +414,7 @@ export default function Experiments() {
                 <th className="px-4 py-2">Matrix</th>
                 <th className="px-4 py-2">Cost</th>
                 <th className="px-4 py-2">Created</th>
+                <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -369,6 +431,19 @@ export default function Experiments() {
                     {e.budget_limit_usd != null && <span className="text-gray-400"> / ${e.budget_limit_usd.toFixed(2)}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {e.status !== 'running' && (
+                      <button
+                        onClick={(ev) => {
+                          ev.stopPropagation()
+                          if (confirm(`Delete experiment "${e.name}"? This cannot be undone.`)) deleteMutation.mutate(e.id)
+                        }}
+                        title="Delete experiment"
+                        className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
