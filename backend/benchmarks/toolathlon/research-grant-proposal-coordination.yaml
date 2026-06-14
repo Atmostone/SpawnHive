@@ -1,0 +1,50 @@
+id: research-grant-proposal-coordination
+suite: toolathlon
+input:
+  title: Research Grant Proposal Coordination
+  description: |
+    Your research institution is preparing a competitive grant proposal that requires coordinating contributions from multiple research teams. The first phase involves collecting detailed information from all participating researchers using an online research database. Identify key publications from each researcher, compile their academic credentials, and extract their research focus areas and expertise domains.
+
+    In the second phase, you will gather CVs and publication lists from researcher email submissions. Consolidate all materials into a structured format, noting the most significant contributions from each team member. Create a comprehensive researcher database that includes contact information, current projects, available time commitments, and research interests aligned with the grant objectives.
+
+    The third phase requires organizing the proposal structure using a knowledge management system. Create sections for the project overview, research methodology, team composition, timeline, and budget justification. Establish a collaborative workspace where all team members can contribute their sections and provide feedback on other sections. Document all major milestones and decision points for the proposal development.
+
+    In the fourth phase, create the main proposal document by synthesizing all team contributions into a cohesive narrative. The document should clearly articulate the research questions, explain the proposed methodology, demonstrate the team's qualifications, and justify the requested budget. Ensure the writing is clear, compelling, and directly aligned with the funding agency's priorities and evaluation criteria.
+
+    The fifth phase involves verifying compliance with all funder requirements. Review the proposal against the detailed requirements checklist provided by the funding agency, including page limits, formatting specifications, citation styles, and submission formats. Conduct a thorough quality review and make necessary revisions. The sixth phase requires scheduling coordination meetings with all team members to review final drafts. Send calendar invitations, establish submission deadlines, and prepare all supporting documents. Finally, compile the complete submission package including the main proposal, supporting documents, budgets, and compliance verification checklist.
+gold:
+  capability_spec:
+    required_tools:
+    - arxiv_local
+    - notion
+    - word
+    - google_calendar
+    - emails
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/research-grant-proposal-coordination/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/research-grant-proposal-coordination/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/research-grant-proposal-coordination/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - arxiv_local
+  - notion
+  - word
+  - google_calendar
+  - emails
+  - terminal
+meta:
+  source: toolathlon_gym
+  family: research
+  needed_mcp_servers:
+  - arxiv_local
+  - notion
+  - word
+  - google_calendar
+  - emails
+  - terminal
+  task_path: tasks/finalpool/research-grant-proposal-coordination
+  license: Apache-2.0
