@@ -251,7 +251,7 @@ export const workspaceApi = {
 }
 
 // Quality Rubric Engine (E-02)
-import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, HallucinationProfile, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
+import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, FailureAggregate, HallucinationProfile, HallucinationAggregate, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
 
 type RubricInput = Pick<Rubric, 'name' | 'description' | 'applies_to' | 'is_default' | 'dimensions'>
 
@@ -359,6 +359,15 @@ export const qualityApi = {
       `/quality/records/${taskId}/evaluate-failure-modes`,
       { method: 'POST' },
     ),
+  getFailureModesAggregate: (params?: { model_used?: string; template_id?: string; failure_class?: string; suite?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.model_used) q.set('model_used', params.model_used)
+    if (params?.template_id) q.set('template_id', params.template_id)
+    if (params?.failure_class) q.set('failure_class', params.failure_class)
+    if (params?.suite) q.set('suite', params.suite)
+    const qs = q.toString()
+    return request<FailureAggregate>(`/quality/failure-modes/aggregate${qs ? `?${qs}` : ''}`)
+  },
   getHallucinations: (taskId: string) =>
     request<{ task_id: string; hallucination_profile: HallucinationProfile | null }>(
       `/quality/records/${taskId}/hallucinations`,
@@ -368,6 +377,15 @@ export const qualityApi = {
       `/quality/records/${taskId}/evaluate-hallucinations`,
       { method: 'POST' },
     ),
+  getHallucinationsAggregate: (params?: { model_used?: string; template_id?: string; category?: string; suite?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.model_used) q.set('model_used', params.model_used)
+    if (params?.template_id) q.set('template_id', params.template_id)
+    if (params?.category) q.set('category', params.category)
+    if (params?.suite) q.set('suite', params.suite)
+    const qs = q.toString()
+    return request<HallucinationAggregate>(`/quality/hallucinations/aggregate${qs ? `?${qs}` : ''}`)
+  },
   getCalibration: (taskId: string) =>
     request<{ task_id: string; calibration_profile: CalibrationProfile | null }>(
       `/quality/records/${taskId}/calibration`,
