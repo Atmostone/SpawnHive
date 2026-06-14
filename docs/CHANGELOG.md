@@ -2,6 +2,14 @@
 
 Формат: `YYYY-MM-DD — что изменилось — ссылка на блок плана / PR`.
 
+## 2026-06-14
+
+- **SPA-54 — UI↔backend convergence: закрытие пробелов аудита покрытия (Tier 1, batch A).** По итогам систематического аудита UI↔backend (124 эндпоинта × 17 маршрутов × 17 панелей, 22 подтверждённых пробела «бэк есть — UI нет»). Корень — фичи строились endpoint-first; усугублено mode-split SPA-49.
+  - **`tools_override` в config builder** (`Experiments.tsx`) — A/B по toolset'ам наконец настраивается из UI. Бэк это умел давно (`tools_override={enable,disable}` поверх toolset'а шаблона, валидация и применение в `quality/experiments.py`), но форма поля не имела → этот вид эксперимента (заявленный столп «сравнить toolsets») был доступен только через raw API/CLI. Добавлен collapsible tri-state picker per config: каждый registry-инструмент (`registryApi.list()`) — `default` / `+ enable` / `− disable`; выключен при `orchestrator:on` (бэк запрещает override при оркестрации); сводка показывает счётчик `(N+ / M−)`. Payload собирается в `configToPayload` только при непустом override.
+  - **Удаление эксперимента из UI** — бэк `DELETE /api/experiments/{id}` и `experimentsApi.remove` существовали без единой кнопки. Добавлены: корзина в строке списка (`Experiments.tsx`, скрыта для `running`, с confirm) и кнопка `Delete` в шапке `ExperimentDetail` (тоже скрыта для `running`). Драфты/неудачные прогоны больше не копятся без управления.
+  - **flex-wrap на экшн-баре `ExperimentDetail`** — ряд из 7 кнопок (Run/Pause/Cancel/Clone/Re-run/CSV/JSON/Delete) переносится (`flex flex-wrap justify-end`), а не уезжает за край.
+  - Проверено вживую (chrome, `spa40-tester@x.dev`): picker рендерит 28 инструментов (3 builtin + 25 toolathlon mcp) с tri-state и обновляет сводку при клике; кнопки удаления в каждой строке списка; экшн-бар `flex flex-wrap`. `tsc --noEmit` чисто.
+
 ## 2026-06-13
 
 - **SPA-53 — Toolathlon: набор из 50 запускаемых кейсов (13 семейств) для полного прогона (Эксп 4).** Масштабирование пилота SPA-45. Разведка finalpool: из 503 задач 237 запускаются на текущем стенде (PG-моки + интернет), 266 заблокированы внешними стендами, которых нет в их образе (woocommerce 104, canvas 91, playwright 63, youtube 21, 12306 17) — отложены. Из 237 отобраны 50 стратифицированно (snowflake 8, yahoo-finance 7, fetch 6, terminal 6, howtocook 5, arxiv 4, scholarly 4, notion 3, research 2, academic 2, sales/ppt/gsheet по 1) и сконвертированы конвертером SPA-44 в `backend/benchmarks/toolathlon/*.yaml`. Прогон — host-side `research/scripts/toolathlon_pilot.py` по 3 моделям; цель — матрица 2×2 outcome×trajectory и r(trajectory, external) vs r(outcome, external) при n~150.

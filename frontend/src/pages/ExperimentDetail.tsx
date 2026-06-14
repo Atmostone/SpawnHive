@@ -16,7 +16,7 @@ import { experimentsApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
-import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square } from 'lucide-react'
+import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square, Trash2 } from 'lucide-react'
 
 const CONFIG_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777']
 
@@ -515,6 +515,13 @@ export default function ExperimentDetail() {
   const pauseMutation = useMutation({ mutationFn: () => experimentsApi.pause(id), onSuccess: invalidate })
   const resumeMutation = useMutation({ mutationFn: () => experimentsApi.resume(id), onSuccess: invalidate })
   const cancelMutation = useMutation({ mutationFn: () => experimentsApi.cancel(id), onSuccess: invalidate })
+  const deleteMutation = useMutation({
+    mutationFn: () => experimentsApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['experiments'] })
+      navigate('/experiments')
+    },
+  })
 
   const cloneMutation = useMutation({
     mutationFn: async (alsoRun: boolean) => {
@@ -561,7 +568,7 @@ export default function ExperimentDetail() {
             {detail.description ? ` · ${detail.description}` : ''}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           {detail.status === 'draft' && (
             <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}
               className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
@@ -604,6 +611,13 @@ export default function ExperimentDetail() {
             className="flex items-center gap-1.5 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm">
             <Download className="h-4 w-4" /> JSON
           </button>
+          {detail.status !== 'running' && (
+            <button onClick={() => { if (confirm('Delete this experiment? This cannot be undone.')) deleteMutation.mutate() }}
+              title="Delete experiment"
+              className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm">
+              <Trash2 className="h-4 w-4" /> Delete
+            </button>
+          )}
         </div>
       </div>
       {detail.error && <div className="text-xs text-red-600 mb-2">{detail.error}</div>}
