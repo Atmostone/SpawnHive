@@ -30,14 +30,36 @@ function fmt(v: number | null | undefined, digits = 2): string {
   return v == null ? '—' : v.toFixed(digits)
 }
 
+type HeatMode = 'quality' | 'trajectory' | 'off'
+
+// Subtle red→green cell tint (0 → red, 10 → green) so it never overpowers the
+// status glyphs printed on top of it.
+function cellHeat(mean: number | null | undefined): React.CSSProperties {
+  if (mean == null) return {}
+  const hue = Math.max(0, Math.min(120, mean * 12))
+  return { backgroundColor: `hsl(${hue}, 70%, 92%)` }
+}
+
 function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell: (config: string, caseKey: string) => void }) {
+  const [heat, setHeat] = useState<HeatMode>('quality')
   const cases = detail.dataset_cases
-  const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c.counts]))
+  const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c]))
   if (detail.matrix.length === 0) {
     return <div className="text-sm text-gray-500 p-4">No runs yet — the matrix materializes when the experiment starts.</div>
   }
   return (
     <div className="overflow-x-auto">
+      <div className="flex items-center gap-2 mb-3 text-xs">
+        <span className="text-gray-500">Heat:</span>
+        <div className="flex border rounded-lg overflow-hidden">
+          {(['quality', 'trajectory', 'off'] as HeatMode[]).map((m) => (
+            <button key={m} onClick={() => setHeat(m)}
+              className={`px-2.5 py-1 ${heat === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {m === 'off' ? 'off' : m === 'quality' ? 'quality (E-02)' : 'trajectory (E-07)'}
+            </button>
+          ))}
+        </div>
+      </div>
       <table className="text-sm border-separate" style={{ borderSpacing: 4 }}>
         <thead>
           <tr>
@@ -56,10 +78,13 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                 {cfg.config_key} <span className="text-gray-400">{cfg.label}</span>
               </td>
               {cases.map((c) => {
-                const counts = cells.get(`${cfg.config_key}|${c.case_key}`) || {}
+                const cell = cells.get(`${cfg.config_key}|${c.case_key}`)
+                const counts = cell?.counts || {}
+                const heatVal = heat === 'quality' ? cell?.quality_mean : heat === 'trajectory' ? cell?.trajectory_mean : null
                 return (
                   <td key={c.case_key} onClick={() => onCell(cfg.config_key, c.case_key)}
-                    className="border rounded-lg px-2 py-1.5 bg-white hover:bg-gray-50 cursor-pointer text-center">
+                    style={heat === 'off' ? undefined : cellHeat(heatVal)}
+                    className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
                     <div className="flex items-center justify-center gap-1 text-xs">
                       {counts.success ? <span className="text-green-600 font-medium">{counts.success}✓</span> : null}
                       {counts.failed ? <span className="text-red-600 font-medium">{counts.failed}✗</span> : null}
@@ -68,6 +93,12 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                       {counts.skipped ? <span className="text-amber-600">{counts.skipped}s</span> : null}
                       {Object.keys(counts).length === 0 && <span className="text-gray-300">—</span>}
                     </div>
+                    {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
+                      <div className="text-[10px] mt-0.5 text-gray-500 tabular-nums">
+                        {cell?.quality_mean != null && <span title="quality mean (E-02)">q{cell.quality_mean}</span>}
+                        {cell?.trajectory_mean != null && <span className="ml-1" title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
+                      </div>
+                    )}
                   </td>
                 )
               })}
@@ -75,7 +106,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · … running · · pending · s skipped — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · … running · · pending · s skipped · q=quality mean · t=trajectory mean — click a cell for run details</div>
     </div>
   )
 }
