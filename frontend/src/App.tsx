@@ -9,6 +9,7 @@ import Analytics from './pages/Analytics'
 import Calibration from './pages/Calibration'
 import Experiments from './pages/Experiments'
 import ExperimentDetail from './pages/ExperimentDetail'
+import DataLake from './pages/DataLake'
 import Graph from './pages/Graph'
 import Templates from './pages/Templates'
 import Rubrics from './pages/Rubrics'
@@ -56,6 +57,7 @@ export default function App() {
                     <Route path="/calibration" element={<Calibration />} />
                     <Route path="/experiments" element={<Experiments />} />
                     <Route path="/experiments/:id" element={<ExperimentDetail />} />
+                    <Route path="/data-lake" element={<DataLake />} />
                     <Route path="/graph" element={<Graph />} />
                     <Route path="/templates" element={<Templates />} />
                     <Route path="/rubrics" element={<Rubrics />} />

@@ -221,7 +221,7 @@ export const modelsApi = {
 }
 
 import type { RegistryEntry, RegistryKind } from '../types'
-import type { BenchmarkSuiteSummary, BenchmarkSuiteDetail } from '../types'
+import type { BenchmarkSuiteSummary, BenchmarkSuiteDetail, DataLakeRecordSummary, DataLakeGroupRow } from '../types'
 
 export interface RegistryEntryInput {
   name: string
@@ -785,6 +785,36 @@ export const experimentsApi = {
   export: async (id: string, format: 'csv' | 'json'): Promise<Blob> => {
     const headers = { ...(authHeaders() as Record<string, string>) }
     const res = await fetch(`${BASE}/experiments/${id}/export?format=${format}`, { headers })
+    if (!res.ok) throw new ApiError(res.status, await res.text())
+    return res.blob()
+  },
+}
+
+// E-01 Data Lake — immutable execution-record corpus
+export interface DataLakeFilters {
+  model_used?: string
+  final_status?: string
+  template_id?: string
+  title_contains?: string
+}
+function dataLakeQs(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') q.set(k, String(v))
+  })
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+export const dataLakeApi = {
+  list: (params?: DataLakeFilters & { limit?: number; offset?: number }) =>
+    request<DataLakeRecordSummary[]>(`/data-lake/records${dataLakeQs({ ...params })}`),
+  query: (group_by: string, params?: DataLakeFilters) =>
+    request<DataLakeGroupRow[]>(`/data-lake/query${dataLakeQs({ group_by, ...params })}`),
+  getRecord: (taskId: string) =>
+    request<{ summary: DataLakeRecordSummary; record: unknown }>(`/data-lake/records/${taskId}`),
+  export: async (format: 'json' | 'parquet', params?: DataLakeFilters): Promise<Blob> => {
+    const headers = { ...(authHeaders() as Record<string, string>) }
+    const res = await fetch(`${BASE}/data-lake/export${dataLakeQs({ format, ...params })}`, { headers })
     if (!res.ok) throw new ApiError(res.status, await res.text())
     return res.blob()
   },
