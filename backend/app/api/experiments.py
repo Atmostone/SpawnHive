@@ -197,13 +197,24 @@ async def get_experiment(
     for r in runs:
         cell = cells.setdefault(
             (r.config_key, r.case_key),
-            {"config_key": r.config_key, "case_key": r.case_key, "counts": {}},
+            {"config_key": r.config_key, "case_key": r.case_key, "counts": {}, "_q": [], "_t": []},
         )
         cell["counts"][r.status] = cell["counts"].get(r.status, 0) + 1
         totals[r.status] = totals.get(r.status, 0) + 1
+        if r.weighted_score is not None:
+            cell["_q"].append(float(r.weighted_score))
+        if r.trajectory_score is not None:
+            cell["_t"].append(float(r.trajectory_score))
+    matrix = []
+    for cell in cells.values():
+        q = cell.pop("_q")
+        t = cell.pop("_t")
+        cell["quality_mean"] = round(sum(q) / len(q), 2) if q else None
+        cell["trajectory_mean"] = round(sum(t) / len(t), 2) if t else None
+        matrix.append(cell)
     return {
         **serialize(exp),
-        "matrix": list(cells.values()),
+        "matrix": matrix,
         "run_totals": totals,
     }
 

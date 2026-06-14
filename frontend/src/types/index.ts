@@ -1313,6 +1313,8 @@ export interface ExperimentMatrixCell {
   config_key: string
   case_key: string
   counts: Record<string, number>
+  quality_mean?: number | null
+  trajectory_mean?: number | null
 }
 
 export interface ExperimentDetail extends Experiment {
