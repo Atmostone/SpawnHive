@@ -16,7 +16,7 @@ import { experimentsApi, qualityApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
-import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2, X } from 'lucide-react'
 
 const CONFIG_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777']
 
@@ -38,6 +38,59 @@ function cellHeat(mean: number | null | undefined): React.CSSProperties {
   if (mean == null) return {}
   const hue = Math.max(0, Math.min(120, mean * 12))
   return { backgroundColor: `hsl(${hue}, 70%, 92%)` }
+}
+
+function CloneModal({ detail, pending, onClose, onClone }: {
+  detail: ExperimentDetailType
+  pending: boolean
+  onClose: () => void
+  onClone: (opts: { name?: string; changes?: Record<string, unknown> }) => void
+}) {
+  const [name, setName] = useState(`${detail.name} (copy)`)
+  const [nRuns, setNRuns] = useState(String(detail.n_runs_per_cell))
+  const [budget, setBudget] = useState(detail.budget_limit_usd != null ? String(detail.budget_limit_usd) : '')
+  const submit = () => {
+    const changes: Record<string, unknown> = {}
+    if (Number(nRuns) !== detail.n_runs_per_cell) changes.n_runs_per_cell = Number(nRuns)
+    const b = budget === '' ? null : Number(budget)
+    if (b !== (detail.budget_limit_usd ?? null)) changes.budget_limit_usd = b
+    onClone({ name: name.trim() || undefined, changes })
+  }
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold">Clone experiment</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          New draft with the same frozen dataset &amp; configuration matrix. Tweak name / runs / budget; everything else is copied.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Runs per cell (N)</label>
+              <input type="number" min={1} max={20} value={nRuns} onChange={(e) => setNRuns(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Budget (USD)</label>
+              <input type="number" step="0.01" min={0} value={budget} placeholder="no limit" onChange={(e) => setBudget(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm" />
+            </div>
+          </div>
+          <button onClick={submit} disabled={pending}
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+            {pending ? 'Cloning…' : 'Create clone (draft)'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell: (config: string, caseKey: string) => void }) {
@@ -665,6 +718,7 @@ export default function ExperimentDetail() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'progress' | 'report' | 'runs'>('progress')
   const [runsFilter, setRunsFilter] = useState<{ config?: string; case?: string }>({})
+  const [showClone, setShowClone] = useState(false)
 
   const { data: detail } = useQuery({
     queryKey: ['experiment', id],
@@ -689,12 +743,16 @@ export default function ExperimentDetail() {
   })
 
   const cloneMutation = useMutation({
-    mutationFn: async (alsoRun: boolean) => {
-      const clone = await experimentsApi.clone(id, {})
-      if (alsoRun) await experimentsApi.run(clone.id)
+    mutationFn: async (opts: { alsoRun?: boolean; name?: string; changes?: Record<string, unknown> }) => {
+      const payload: { name?: string; changes?: Record<string, unknown> } = {}
+      if (opts.name) payload.name = opts.name
+      if (opts.changes && Object.keys(opts.changes).length) payload.changes = opts.changes
+      const clone = await experimentsApi.clone(id, payload)
+      if (opts.alsoRun) await experimentsApi.run(clone.id)
       return clone
     },
     onSuccess: (clone) => {
+      setShowClone(false)
       queryClient.invalidateQueries({ queryKey: ['experiments'] })
       navigate(`/experiments/${clone.id}`)
     },
@@ -758,12 +816,12 @@ export default function ExperimentDetail() {
               <Square className="h-4 w-4" /> Cancel
             </button>
           )}
-          <button onClick={() => cloneMutation.mutate(false)} title="Clone as a new draft (edit before running)"
+          <button onClick={() => setShowClone(true)} title="Clone as a new draft, optionally tweaking name / runs / budget"
             className="flex items-center gap-1.5 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm">
-            <Copy className="h-4 w-4" /> Clone
+            <Copy className="h-4 w-4" /> Clone…
           </button>
           {isTerminal && (
-            <button onClick={() => cloneMutation.mutate(true)} title="Full reproduction: clone + run"
+            <button onClick={() => cloneMutation.mutate({ alsoRun: true })} title="Full reproduction: clone + run"
               className="flex items-center gap-1.5 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm">
               <RotateCcw className="h-4 w-4" /> Re-run
             </button>
@@ -803,6 +861,11 @@ export default function ExperimentDetail() {
       )}
       {tab === 'report' && <ReportTab id={id} isTerminal={isTerminal} />}
       {tab === 'runs' && <RunsTab id={id} detail={detail} filter={runsFilter} />}
+
+      {showClone && (
+        <CloneModal detail={detail} pending={cloneMutation.isPending}
+          onClose={() => setShowClone(false)} onClone={(o) => cloneMutation.mutate(o)} />
+      )}
     </div>
   )
 }
