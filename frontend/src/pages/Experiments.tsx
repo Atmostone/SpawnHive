@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { experimentsApi, providersApi, registryApi, templatesApi } from '@/api/client'
+import { benchmarksApi, experimentsApi, providersApi, registryApi, templatesApi } from '@/api/client'
 import type { ExperimentCreateBody } from '@/api/client'
 import type { Experiment, ExperimentStatus, LLMModel, RegistryEntry } from '@/types'
 import { FlaskConical, Plus, Trash2, X } from 'lucide-react'
@@ -107,6 +107,12 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
     },
   })
   const { data: tools = [] } = useQuery({ queryKey: ['registry-tools'], queryFn: () => registryApi.list() })
+  const { data: suites = [] } = useQuery({ queryKey: ['benchmark-suites'], queryFn: () => benchmarksApi.listSuites() })
+  const { data: suiteDetail } = useQuery({
+    queryKey: ['benchmark-suite', suite],
+    queryFn: () => benchmarksApi.getSuite(suite),
+    enabled: source === 'benchmark_suite' && suite.trim() !== '',
+  })
 
   const { cases: uploadCases, errors: uploadErrors } = useMemo(() => parseJsonl(jsonl), [jsonl])
 
@@ -206,8 +212,38 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
               </div>
             )}
             {source === 'benchmark_suite' && (
-              <input value={suite} onChange={(e) => setSuite(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="suite name, e.g. capability-isolation" />
+              <div className="space-y-2">
+                <select value={suite} onChange={(e) => setSuite(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm bg-white">
+                  <option value="">select a suite…</option>
+                  {suites.map((s) => (
+                    <option key={s.name} value={s.name}>{s.name} ({s.n_cases} cases)</option>
+                  ))}
+                </select>
+                {suiteDetail && suiteDetail.cases.length > 0 && (
+                  <details className="text-xs border rounded-lg bg-gray-50">
+                    <summary className="cursor-pointer select-none px-3 py-2 text-gray-600">
+                      {suiteDetail.n_cases} cases — inspect gold signals
+                    </summary>
+                    <div className="max-h-48 overflow-y-auto px-3 pb-2 space-y-1">
+                      {suiteDetail.cases.map((c) => (
+                        <div key={c.id} className="flex items-center justify-between gap-2 bg-white rounded border px-2 py-1">
+                          <span className="truncate text-gray-700" title={c.title}>
+                            {c.id} <span className="text-gray-400">{c.family || c.category}</span>
+                          </span>
+                          <span className="flex gap-1 shrink-0 text-[10px]">
+                            {c.gold.reference_answer && <span className="px-1 rounded bg-blue-100 text-blue-700" title="reference_answer (E-03)">ref</span>}
+                            {c.gold.rubric && <span className="px-1 rounded bg-purple-100 text-purple-700" title="rubric (E-02)">rub</span>}
+                            {c.gold.canonical_trajectory && <span className="px-1 rounded bg-green-100 text-green-700" title="canonical_trajectory (E-09)">traj</span>}
+                            {c.gold.capability_spec && <span className="px-1 rounded bg-amber-100 text-amber-700" title="capability_spec (E-13)">cap</span>}
+                            {c.gold.external_eval && <span className="px-1 rounded bg-rose-100 text-rose-700" title="external_eval (executable checker)">exec</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
             )}
             {source === 'tasks' && (
               <textarea value={taskIds} onChange={(e) => setTaskIds(e.target.value)}

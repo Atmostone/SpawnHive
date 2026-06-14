@@ -484,6 +484,34 @@ export interface HallucinationAggregate {
   by_template: Record<string, HallucinationBucket>
 }
 
+// Benchmark Case Store catalogue (read-only) — GET /api/benchmarks/suites[/{suite}].
+export interface BenchmarkSuiteSummary {
+  name: string
+  n_cases: number
+}
+
+export interface BenchmarkCaseInfo {
+  id: string
+  title: string
+  category: string | null
+  family: string | null
+  required_services: string[]
+  mcp_servers: string[]
+  gold: {
+    reference_answer: boolean
+    rubric: boolean
+    canonical_trajectory: boolean
+    capability_spec: boolean
+    external_eval: boolean
+  }
+}
+
+export interface BenchmarkSuiteDetail {
+  suite: string
+  n_cases: number
+  cases: BenchmarkCaseInfo[]
+}
+
 // Failure Mode Classifier (E-14): a multi-label set of failure classes (with
 // confidence + reason) over the trajectory, written to `failure_profile`.
 export type FailureClass =
