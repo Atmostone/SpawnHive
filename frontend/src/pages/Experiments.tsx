@@ -92,6 +92,11 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
   const [suite, setSuite] = useState('')
   const [taskIds, setTaskIds] = useState('')
   const [configs, setConfigs] = useState<ConfigDraft[]>([emptyConfig(), emptyConfig()])
+  const [configMode, setConfigMode] = useState<'manual' | 'axes'>('manual')
+  const [axTemplates, setAxTemplates] = useState<string[]>([])
+  const [axModels, setAxModels] = useState<string[]>([])
+  const [axTemps, setAxTemps] = useState('')
+  const [axMemory, setAxMemory] = useState<string[]>([])
   const [nRuns, setNRuns] = useState(3)
   const [budget, setBudget] = useState('')
   const [maxParallel, setMaxParallel] = useState('')
@@ -125,24 +130,38 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
     }
   }, [source, uploadCases, suite, taskIds])
 
+  const axes = useMemo(() => {
+    const a: Record<string, unknown[]> = {}
+    if (axTemplates.length) a.template_id = axTemplates
+    if (axModels.length) a.model_id = axModels
+    const temps = axTemps.split(',').map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !Number.isNaN(n))
+    if (temps.length) a.temperature = temps
+    if (axMemory.length) a.memory_mode = axMemory
+    return a
+  }, [axTemplates, axModels, axTemps, axMemory])
+
   const body: ExperimentCreateBody = useMemo(
     () => ({
       name: name.trim(),
       description: description.trim() || null,
       dataset,
-      configurations: configs.map(configToPayload),
+      configurations: configMode === 'axes' ? [] : configs.map(configToPayload),
+      axes: configMode === 'axes' ? axes : undefined,
       n_runs_per_cell: nRuns,
       budget_limit_usd: budget !== '' ? Number(budget) : null,
       max_parallel: maxParallel !== '' ? Number(maxParallel) : null,
     }),
-    [name, description, dataset, configs, nRuns, budget, maxParallel],
+    [name, description, dataset, configMode, configs, axes, nRuns, budget, maxParallel],
   )
 
   const datasetReady =
     (source === 'upload' && uploadCases.length > 0 && uploadErrors.length === 0) ||
     (source === 'benchmark_suite' && suite.trim() !== '') ||
     (source === 'tasks' && (dataset as { task_ids?: string[] }).task_ids!.length > 0)
-  const configsReady = configs.every((c) => c.orchestrator || c.template_id)
+  const configsReady =
+    configMode === 'axes'
+      ? axTemplates.length > 0 // template axis is required (combos run orchestrator-off)
+      : configs.every((c) => c.orchestrator || c.template_id)
   const ready = name.trim() !== '' && datasetReady && configsReady && nRuns >= 1
 
   const { data: preview, error: previewError } = useQuery({
@@ -255,10 +274,82 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-gray-700">Configurations (A/B matrix)</label>
-              <button type="button" onClick={() => setConfigs((p) => [...p, emptyConfig()])}
-                className="text-xs px-2 py-1 border rounded hover:bg-gray-50">+ Add configuration</button>
+              <div className="flex items-center gap-2">
+                <div className="flex border rounded-lg overflow-hidden text-xs">
+                  {(['manual', 'axes'] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setConfigMode(m)}
+                      className={`px-2.5 py-1 ${configMode === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                      {m === 'manual' ? 'Manual cards' : 'Axes grid'}
+                    </button>
+                  ))}
+                </div>
+                {configMode === 'manual' && (
+                  <button type="button" onClick={() => setConfigs((p) => [...p, emptyConfig()])}
+                    className="text-xs px-2 py-1 border rounded hover:bg-gray-50">+ Add configuration</button>
+                )}
+              </div>
             </div>
-            {configs.map((c, idx) => (
+            {configMode === 'axes' && (
+              <div className="border rounded-lg p-3 mb-2 bg-gray-50 space-y-3 text-sm">
+                <p className="text-xs text-gray-500">
+                  Auto cross-product over axis value-lists (orchestrator off). The matrix = templates × models × temperatures × memory.
+                  <span className="text-gray-400"> Template is required.</span>
+                </p>
+                <div>
+                  <div className="text-xs font-medium text-gray-600 mb-1">Templates <span className="text-gray-400">(required)</span></div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {templates.map((t) => {
+                      const on = axTemplates.includes(t.id)
+                      return (
+                        <button key={t.id} type="button"
+                          onClick={() => setAxTemplates((p) => on ? p.filter((x) => x !== t.id) : [...p, t.id])}
+                          className={`px-2 py-1 rounded border text-xs ${on ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+                          {t.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-600 mb-1">Models</div>
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                    {models.map((m) => {
+                      const on = axModels.includes(m.id)
+                      return (
+                        <button key={m.id} type="button"
+                          onClick={() => setAxModels((p) => on ? p.filter((x) => x !== m.id) : [...p, m.id])}
+                          className={`px-2 py-1 rounded border text-xs ${on ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+                          {m.display_name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">Temperatures <span className="text-gray-400">(comma-sep)</span></div>
+                    <input value={axTemps} onChange={(e) => setAxTemps(e.target.value)} placeholder="e.g. 0, 0.7, 1"
+                      className="w-full px-2 py-1.5 border rounded text-sm bg-white" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">Memory modes</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['off', 'flat', 'structured'] as const).map((mm) => {
+                        const on = axMemory.includes(mm)
+                        return (
+                          <button key={mm} type="button"
+                            onClick={() => setAxMemory((p) => on ? p.filter((x) => x !== mm) : [...p, mm])}
+                            className={`px-2 py-1 rounded border text-xs ${on ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+                            {mm}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {configMode === 'manual' && configs.map((c, idx) => (
               <div key={idx} className="border rounded-lg p-3 mb-2 bg-gray-50 space-y-2">
                 <div className="flex items-center justify-between">
                   <input placeholder={`label (e.g. baseline)`} value={c.label}
