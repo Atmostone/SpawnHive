@@ -513,6 +513,33 @@ export interface BenchmarkSuiteDetail {
   cases: BenchmarkCaseInfo[]
 }
 
+// E-01 Data Lake — immutable execution-record corpus (GET /api/data-lake/*).
+export interface DataLakeRecordSummary {
+  task_id: string
+  template_id: string | null
+  template_name: string | null
+  model_used: string | null
+  final_status: string | null
+  is_decomposition_root: boolean
+  cost_usd: number
+  input_tokens: number | null
+  output_tokens: number | null
+  duration_seconds: number | null
+  tool_call_count: number | null
+  public_dataset_opt_in: boolean
+  record_s3_path: string | null
+  created_at: string | null
+}
+
+export interface DataLakeGroupRow {
+  group: string | null
+  count: number
+  avg_cost_usd: number
+  avg_tokens: number
+  avg_duration_s: number
+  approval_rate: number
+}
+
 // Failure Mode Classifier (E-14): a multi-label set of failure classes (with
 // confidence + reason) over the trajectory, written to `failure_profile`.
 export type FailureClass =
