@@ -217,6 +217,7 @@ export const modelsApi = {
 }
 
 import type { RegistryEntry, RegistryKind } from '../types'
+import type { BenchmarkSuiteSummary, BenchmarkSuiteDetail } from '../types'
 
 export interface RegistryEntryInput {
   name: string
@@ -783,6 +784,13 @@ export const experimentsApi = {
     if (!res.ok) throw new ApiError(res.status, await res.text())
     return res.blob()
   },
+}
+
+// Benchmark Case Store catalogue (read-only)
+export const benchmarksApi = {
+  listSuites: () => request<BenchmarkSuiteSummary[]>('/benchmarks/suites'),
+  getSuite: (suite: string) =>
+    request<BenchmarkSuiteDetail>(`/benchmarks/suites/${encodeURIComponent(suite)}`),
 }
 
 // Health
