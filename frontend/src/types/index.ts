@@ -1398,6 +1398,26 @@ export interface ExperimentReport {
       weighted_score: { mean?: number | null; n: number }
     }[]
   }
+  trajectory_heatmap: {
+    axes: string[]
+    axis_labels: Record<string, string>
+    rows: {
+      config_key: string
+      label: string
+      cells: Record<string, { mean?: number | null; std?: number | null; n: number }>
+      overall_score: { mean?: number | null; n: number }
+    }[]
+  }
+  trajectory_match: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n_scored: number
+      match_rate?: number | null
+      score_mean?: number | null
+    }[]
+  }
   pareto: {
     points: {
       config_key: string

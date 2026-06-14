@@ -90,10 +90,12 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
     )
 
 
-def _record(dimensions=None, failures=None):
+def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None):
     return SimpleNamespace(
         quality_profile={"dimensions": dimensions or []} if dimensions else None,
         failure_profile={"failures": failures} if failures else None,
+        trajectory_profile={"status": "scored", "axes": trajectory_axes} if trajectory_axes else None,
+        trajectory_match_profile=trajectory_match,
     )
 
 
@@ -114,7 +116,11 @@ def test_build_report_full_shape():
                 dimensions=[
                     {"key": "correctness", "score": 8.0 + idx * 0.1},
                     {"key": "completeness", "score": 7.0},
-                ]
+                ],
+                trajectory_axes=[
+                    {"key": "efficiency", "name": "Efficiency", "score": 7.0},
+                    {"key": "tool_selection", "name": "Tool selection", "score": 8.0},
+                ],
             )
             r2 = _run("cfg-02", case, idx, score=5.0 + idx * 0.1, traj=5.5,
                       cost="0.05", duration=240)
@@ -128,9 +134,13 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
+    # v2: trajectory heatmap (E-07 axes) + trajectory match (E-09) blocks present
+    assert "axes" in report["trajectory_heatmap"]
+    assert "per_config" in report["trajectory_match"]
+    assert report["trajectory_match"]["available"] is False  # no canonical trajectories here
 
     summary = report["summary"]
     assert summary["total_runs"] == 13
@@ -147,6 +157,13 @@ def test_build_report_full_shape():
     assert row1["cells"]["correctness"]["mean"] == 8.1
     row2 = next(r for r in heatmap["rows"] if r["config_key"] == "cfg-02")
     assert row2["cells"]["completeness"]["n"] == 0
+
+    traj_hm = report["trajectory_heatmap"]
+    assert "efficiency" in traj_hm["axes"] and "tool_selection" in traj_hm["axes"]
+    row1t = next(r for r in traj_hm["rows"] if r["config_key"] == "cfg-01")
+    assert row1t["cells"]["efficiency"]["n"] == 6
+    assert row1t["cells"]["efficiency"]["mean"] == 7.0
+    assert row1t["overall_score"]["mean"] is not None
 
     pareto = report["pareto"]
     assert pareto["frontier"] == ["cfg-01"]  # better quality AND cheaper AND faster

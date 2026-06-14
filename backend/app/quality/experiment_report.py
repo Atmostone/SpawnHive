@@ -29,7 +29,7 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: trajectory_heatmap (E-07 axes) + trajectory_match (E-09)
 SIGNIFICANCE_ALPHA = 0.05
 
 _SETTLED = {
@@ -209,6 +209,78 @@ def build_report(
         )
     heatmap = {"dimensions": dim_order, "rows": heatmap_rows}
 
+    # --- trajectory heatmap: configs × E-07 axes ------------------------------
+    # The process-judging analogue of the quality heatmap: per-config mean of each
+    # of the six trajectory axes (efficiency / tool_selection / parameter_quality /
+    # error_recovery / goal_alignment / loop_detection), privileging trajectory as
+    # a first-class A/B comparison rather than a single scatter axis.
+    axis_order: list[str] = []
+    axis_labels: dict[str, str] = {}
+    axis_samples: dict[str, dict[str, list[float]]] = {}
+    for r in success_runs:
+        rec = records_by_task.get(r.task_id)
+        tprof = (rec.trajectory_profile or {}) if rec is not None else {}
+        for ax in tprof.get("axes") or []:
+            key, score = ax.get("key"), ax.get("score")
+            if key is None or score is None:
+                continue
+            if key not in axis_order:
+                axis_order.append(key)
+                axis_labels[key] = ax.get("name") or key
+            axis_samples.setdefault(r.config_key, {}).setdefault(key, []).append(float(score))
+    trajectory_heatmap_rows = []
+    for key in sorted(configs):
+        cells = {}
+        for ax_key in axis_order:
+            vals = axis_samples.get(key, {}).get(ax_key) or []
+            cells[ax_key] = {"mean": _mean(vals), "std": _std(vals), "n": len(vals)}
+        overall = [r.trajectory_score for r in by_config[key] if r.trajectory_score is not None]
+        trajectory_heatmap_rows.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "cells": cells,
+                "overall_score": {"mean": _mean(overall), "n": len(overall)},
+            }
+        )
+    trajectory_heatmap = {
+        "axes": axis_order,
+        "axis_labels": axis_labels,
+        "rows": trajectory_heatmap_rows,
+    }
+
+    # --- E-09 trajectory-match per config -------------------------------------
+    # Match against the canonical (gold) trajectory — the strongest "judge the
+    # process" signal — aggregated per config (only cases that carry a canonical
+    # trajectory produce a scored match).
+    trajectory_match_rows = []
+    any_match = False
+    for key in sorted(configs):
+        scores: list[float] = []
+        matched = 0
+        scored = 0
+        for r in by_config[key]:
+            rec = records_by_task.get(r.task_id)
+            tm = (rec.trajectory_match_profile or {}) if rec is not None else {}
+            if tm.get("status") != "scored":
+                continue
+            scored += 1
+            any_match = True
+            if tm.get("score") is not None:
+                scores.append(float(tm["score"]))
+            if tm.get("matched"):
+                matched += 1
+        trajectory_match_rows.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "n_scored": scored,
+                "match_rate": round(matched / scored, 4) if scored else None,
+                "score_mean": _mean(scores),
+            }
+        )
+    trajectory_match = {"available": any_match, "per_config": trajectory_match_rows}
+
     # --- pareto ----------------------------------------------------------------
     points = []
     for entry in per_config:
@@ -338,6 +410,8 @@ def build_report(
         "n_terminal_runs": n_terminal,
         "summary": summary,
         "heatmap": heatmap,
+        "trajectory_heatmap": trajectory_heatmap,
+        "trajectory_match": trajectory_match,
         "pareto": pareto,
         "scatter": scatter,
         "leaderboard": leaderboard,

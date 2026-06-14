@@ -272,6 +272,80 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         )}
       </section>
 
+      <section>
+        <h3 className="font-semibold text-gray-900 mb-2">
+          Trajectory profile heatmap <span className="text-xs text-gray-400 font-normal">6-axis process judge (E-07) per config</span>
+        </h3>
+        {report.trajectory_heatmap.axes.length === 0 ? (
+          <p className="text-sm text-gray-500">No trajectory scores yet (the 6-axis process judge runs on settled runs with a trace).</p>
+        ) : (
+          <div className="bg-white border rounded-lg overflow-x-auto p-3">
+            <table className="text-sm border-separate" style={{ borderSpacing: 3 }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-xs text-gray-500 px-2">config</th>
+                  {report.trajectory_heatmap.axes.map((a) => (
+                    <th key={a} className="text-xs text-gray-500 font-normal px-2" title={report.trajectory_heatmap.axis_labels[a]}>
+                      {(report.trajectory_heatmap.axis_labels[a] || a).replace(/_/g, ' ')}
+                    </th>
+                  ))}
+                  <th className="text-xs text-gray-700 font-medium px-2">overall</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.trajectory_heatmap.rows.map((row) => (
+                  <tr key={row.config_key}>
+                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
+                    {report.trajectory_heatmap.axes.map((a) => {
+                      const cell = row.cells[a]
+                      return (
+                        <td key={a} className="rounded px-3 py-2 text-center text-sm font-medium" style={heatStyle(cell?.mean)}
+                          title={cell ? `n=${cell.n}${cell.std != null ? ` · std=${cell.std}` : ''}` : ''}>
+                          {fmt(cell?.mean, 1)}
+                        </td>
+                      )
+                    })}
+                    <td className="rounded px-3 py-2 text-center text-sm font-bold" style={heatStyle(row.overall_score.mean)}>
+                      {fmt(row.overall_score.mean, 1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {report.trajectory_match.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Trajectory match <span className="text-xs text-gray-400 font-normal">vs canonical gold trajectory (E-09)</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2">Match rate</th>
+                  <th className="px-3 py-2">Score mean</th>
+                  <th className="px-3 py-2">Scored</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.trajectory_match.per_config.map((c) => (
+                  <tr key={c.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className="px-3 py-2">{c.match_rate != null ? `${(c.match_rate * 100).toFixed(0)}%` : '—'}</td>
+                    <td className="px-3 py-2">{fmt(c.score_mean, 2)}</td>
+                    <td className="px-3 py-2 text-gray-500">{c.n_scored}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost (size = time)</span></h3>

@@ -33,7 +33,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.quality import experiments as service
-from app.quality.experiment_report import compute_report
+from app.quality.experiment_report import SCHEMA_VERSION as REPORT_SCHEMA_VERSION, compute_report
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
@@ -315,6 +315,7 @@ async def experiment_report(
         terminal
         and cached
         and not refresh
+        and cached.get("schema_version") == REPORT_SCHEMA_VERSION
         and (cached.get("leaderboard") or {}).get("method") == method
     ):
         return cached
