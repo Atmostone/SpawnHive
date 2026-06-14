@@ -434,6 +434,56 @@ export interface CapabilityAggregate extends CapabilityCounts {
   by_template: Record<string, CapabilityCounts>
 }
 
+// Failure Mode aggregate (E-14): per-class distributions across the workspace
+// with breakdowns by class / model / template (the "compare models by failure
+// distribution" view). Returned by GET /quality/failure-modes/aggregate.
+export interface FailureBucket {
+  runs_total: number
+  failure_runs: number
+  by_class: Record<string, number>
+  failure_rate: number | null
+  rate: Record<string, number> | null
+}
+
+export interface FailureAggregate {
+  workspace_id: string
+  filters: { model_used: string | null; template_id: string | null; failure_class: string | null; suite: string | null }
+  runs_total: number
+  failure_runs: number
+  failure_rate: number | null
+  rate: Record<string, number> | null
+  by_class: Record<string, FailureBucket>
+  by_model: Record<string, FailureBucket>
+  by_template: Record<string, FailureBucket>
+}
+
+// Hallucination aggregate (E-15): per-category checked/hallucinated rates across
+// the workspace with breakdowns by category / model / template. Returned by
+// GET /quality/hallucinations/aggregate.
+export interface HallucinationCatCount {
+  checked: number
+  hallucinated: number
+  rate: number | null
+}
+
+export interface HallucinationBucket {
+  runs_total: number
+  hallucinated_runs: number
+  hallucinated_run_rate: number | null
+  by_category: Record<string, HallucinationCatCount>
+}
+
+export interface HallucinationAggregate {
+  workspace_id: string
+  filters: { model_used: string | null; template_id: string | null; category: string | null; suite: string | null }
+  runs_total: number
+  hallucinated_runs: number
+  hallucinated_run_rate: number | null
+  by_category: Record<string, HallucinationBucket>
+  by_model: Record<string, HallucinationBucket>
+  by_template: Record<string, HallucinationBucket>
+}
+
 // Failure Mode Classifier (E-14): a multi-label set of failure classes (with
 // confidence + reason) over the trajectory, written to `failure_profile`.
 export type FailureClass =

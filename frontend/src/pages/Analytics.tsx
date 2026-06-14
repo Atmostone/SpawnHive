@@ -12,12 +12,13 @@ import BiasReportPanel from '@/components/quality/BiasReportPanel'
 import RankingPanel from '@/components/quality/RankingPanel'
 import ReproducibilityPanel from '@/components/quality/ReproducibilityPanel'
 import PairwisePanel from '@/components/quality/PairwisePanel'
+import ModelCapabilityMatrix from '@/components/quality/ModelCapabilityMatrix'
 
 type Period = 'day' | 'week' | 'month' | 'all'
-type Tab = 'overview' | 'compare' | 'judge' | 'bias' | 'ranking' | 'repro' | 'pairwise'
+type Tab = 'overview' | 'compare' | 'capability' | 'judge' | 'bias' | 'ranking' | 'repro' | 'pairwise'
 
 // Tabs that render a self-contained panel with its own data (no analytics fetch).
-const PANEL_TABS: Tab[] = ['judge', 'bias', 'ranking', 'repro', 'pairwise']
+const PANEL_TABS: Tab[] = ['capability', 'judge', 'bias', 'ranking', 'repro', 'pairwise']
 
 const PERIODS: { value: Period; label: string; days: number }[] = [
   { value: 'day', label: 'Day', days: 1 },
@@ -110,6 +111,17 @@ export default function Analytics() {
             A/B Compare
           </button>
           <button
+            onClick={() => setTab('capability')}
+            className={cn(
+              'px-1 py-2 -mb-px text-sm font-medium border-b-2 transition-colors',
+              tab === 'capability'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700',
+            )}
+          >
+            Capability Matrix
+          </button>
+          <button
             onClick={() => setTab('judge')}
             className={cn(
               'px-1 py-2 -mb-px text-sm font-medium border-b-2 transition-colors',
@@ -167,6 +179,7 @@ export default function Analytics() {
         </div>
       </div>
 
+      {tab === 'capability' && <ModelCapabilityMatrix />}
       {tab === 'judge' && <JudgeCalibrationPanel />}
       {tab === 'bias' && <BiasReportPanel />}
       {tab === 'ranking' && <RankingPanel />}
