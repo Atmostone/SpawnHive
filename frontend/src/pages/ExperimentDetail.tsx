@@ -16,7 +16,7 @@ import { experimentsApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
-import { ArrowLeft, Copy, Download, Pause, Play, RotateCcw, Square, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2 } from 'lucide-react'
 
 const CONFIG_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777']
 
@@ -81,26 +81,59 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
 }
 
 function ReportTab({ id, isTerminal }: { id: string; isTerminal: boolean }) {
+  const queryClient = useQueryClient()
   const [method, setMethod] = useState<'bt' | 'elo'>('bt')
+  const [refreshing, setRefreshing] = useState(false)
   const { data: report, isLoading } = useQuery({
     queryKey: ['experiment-report', id, method],
     queryFn: () => experimentsApi.report(id, { method }),
     refetchInterval: isTerminal ? false : 10000,
   })
+  const onRefresh = async () => {
+    setRefreshing(true)
+    try {
+      const fresh = await experimentsApi.report(id, { method, refresh: true })
+      queryClient.setQueryData(['experiment-report', id, method], fresh)
+    } finally {
+      setRefreshing(false)
+    }
+  }
   if (isLoading || !report) return <div className="text-sm text-gray-500 p-4">Assembling report…</div>
-  return <ReportView report={report} method={method} setMethod={setMethod} />
+  return <ReportView report={report} method={method} setMethod={setMethod} onRefresh={onRefresh} refreshing={refreshing} />
 }
 
-function ReportView({ report, method, setMethod }: {
+function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
   report: ExperimentReport
   method: 'bt' | 'elo'
   setMethod: (m: 'bt' | 'elo') => void
+  onRefresh: () => void
+  refreshing: boolean
 }) {
   const colorByConfig = new Map(
     report.summary.per_config.map((c, i) => [c.config_key, CONFIG_COLORS[i % CONFIG_COLORS.length]]),
   )
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `experiment-report-${report.generated_at}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-gray-400 mr-auto">assembled {new Date(report.generated_at).toLocaleString()}</span>
+        <button onClick={onRefresh} disabled={refreshing} title="Re-assemble report (bypass cache)"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg hover:bg-gray-50 text-xs disabled:opacity-50">
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Re-assembling…' : 'Re-assemble'}
+        </button>
+        <button onClick={downloadJson} title="Download assembled report as JSON"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg hover:bg-gray-50 text-xs">
+          <Download className="h-3.5 w-3.5" /> JSON
+        </button>
+      </div>
       {report.partial && (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Partial report — the experiment is still running ({report.n_terminal_runs} runs settled).
