@@ -29,8 +29,10 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 2  # v2: trajectory_heatmap (E-07 axes) + trajectory_match (E-09)
+SCHEMA_VERSION = 3  # v3: external (executable pass-rate) + rq2 (verdict × judge 2×2)
 SIGNIFICANCE_ALPHA = 0.05
+# Outcome-judge threshold splitting "high" vs "low" in the RQ2 verdict×judge 2×2.
+RQ2_JUDGE_THRESHOLD = 5.0
 
 _SETTLED = {
     ExperimentRunStatus.SUCCESS.value,
@@ -281,6 +283,61 @@ def build_report(
         )
     trajectory_match = {"available": any_match, "per_config": trajectory_match_rows}
 
+    # --- external executable verdict (Toolathlon gold.external_eval) -----------
+    # The executable checker's pass-rate per config — the ground-truth outcome
+    # signal RQ2 compares the judges against (independent of E-02/E-07).
+    external_per_config = []
+    any_external = False
+    for key in sorted(configs):
+        evaluated = [r for r in by_config[key] if r.external_verdict is not None]
+        passed = [r for r in evaluated if r.external_verdict]
+        if evaluated:
+            any_external = True
+        external_per_config.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "n_evaluated": len(evaluated),
+                "n_pass": len(passed),
+                "pass_rate": round(len(passed) / len(evaluated), 4) if evaluated else None,
+            }
+        )
+    external = {"available": any_external, "per_config": external_per_config}
+
+    # --- RQ2: executable verdict × outcome judge (2×2) ------------------------
+    # Does the outcome judge agree with the executable checker? Every run with
+    # both an external verdict and a weighted score lands in one quadrant;
+    # agreement = (pass∧high + fail∧low) / n. The crux of "judge the process".
+    def _rq2_for(subset: list[ExperimentRun]) -> dict:
+        cells = {"pass_high": 0, "pass_low": 0, "fail_high": 0, "fail_low": 0}
+        n = 0
+        for r in subset:
+            if r.external_verdict is None or r.weighted_score is None:
+                continue
+            n += 1
+            high = float(r.weighted_score) >= RQ2_JUDGE_THRESHOLD
+            if r.external_verdict and high:
+                cells["pass_high"] += 1
+            elif r.external_verdict:
+                cells["pass_low"] += 1
+            elif high:
+                cells["fail_high"] += 1
+            else:
+                cells["fail_low"] += 1
+        agree = cells["pass_high"] + cells["fail_low"]
+        return {"n": n, "cells": cells, "agreement": round(agree / n, 4) if n else None}
+
+    rq2_overall = _rq2_for(runs)
+    rq2 = {
+        "available": rq2_overall["n"] > 0,
+        "judge_threshold": RQ2_JUDGE_THRESHOLD,
+        "overall": rq2_overall,
+        "per_config": [
+            {"config_key": key, "label": labels.get(key, key), **_rq2_for(by_config[key])}
+            for key in sorted(configs)
+        ],
+    }
+
     # --- pareto ----------------------------------------------------------------
     points = []
     for entry in per_config:
@@ -412,6 +469,8 @@ def build_report(
         "heatmap": heatmap,
         "trajectory_heatmap": trajectory_heatmap,
         "trajectory_match": trajectory_match,
+        "external": external,
+        "rq2": rq2,
         "pareto": pareto,
         "scatter": scatter,
         "leaderboard": leaderboard,

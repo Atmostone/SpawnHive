@@ -1343,6 +1343,9 @@ export interface ExperimentMatrixCell {
   counts: Record<string, number>
   quality_mean?: number | null
   trajectory_mean?: number | null
+  // Toolathlon executable verdict tally for the cell (gold.external_eval).
+  external_pass?: number
+  external_total?: number
 }
 
 export interface ExperimentDetail extends Experiment {
@@ -1402,6 +1405,12 @@ export interface OrchestratorSide {
   duration_mean?: number | null
 }
 
+export interface ExperimentRq2Cell {
+  n: number
+  cells: { pass_high: number; pass_low: number; fail_high: number; fail_low: number }
+  agreement?: number | null
+}
+
 export interface ExperimentReport {
   schema_version: number
   generated_at: string
@@ -1444,6 +1453,22 @@ export interface ExperimentReport {
       match_rate?: number | null
       score_mean?: number | null
     }[]
+  }
+  external?: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n_evaluated: number
+      n_pass: number
+      pass_rate?: number | null
+    }[]
+  }
+  rq2?: {
+    available: boolean
+    judge_threshold: number
+    overall: ExperimentRq2Cell
+    per_config: (ExperimentRq2Cell & { config_key: string; label: string })[]
   }
   pareto: {
     points: {
