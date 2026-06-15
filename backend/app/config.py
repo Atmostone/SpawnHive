@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Paths
     data_dir: str = "/data"  # inside api container
     host_data_dir: str = "./data"  # host path for agent container volume mounts
+    # Absolute HOST path of the toolathlon_gym clone, used by the Experiment
+    # Runner to bind-mount the gym into preprocess/eval containers (docker-py
+    # talks to the host daemon). Empty unless running Toolathlon experiments.
+    toolathlon_gym_path: str = ""
 
     # Auth
     jwt_secret: str = ""  # MUST be set in .env for production
