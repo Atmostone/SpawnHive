@@ -407,6 +407,12 @@ async def evaluate_task_quality(
         else:
             entry["error"] = res.get("error")
             errors.append({"key": d.get("key"), "error": res.get("error")})
+            # SPA-51: fail-CLOSED. A critical dimension we could not score (the
+            # evaluator errored) must NOT silently pass the gate — we cannot
+            # certify the critical requirement, so the gate fails.
+            if entry["critical"]:
+                entry["passed"] = False
+                failed_critical.append(d.get("key"))
         out_dims.append(entry)
 
     weighted_score = round(weighted_num / weighted_den, 2) if weighted_den else None

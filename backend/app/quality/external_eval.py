@@ -136,14 +136,35 @@ def _run_pack(name: str, task_id, task_path: str, command: str) -> str:
     return container.id
 
 
-def start_preprocess(task_id, task_path: str, preprocess_command: str, launch_time: str) -> str:
+def preprocess_container_name(task_id) -> str:
+    """Deterministic name of a case's preprocess container — also the netns target
+    a portal-case agent attaches to (``--network container:<name>``)."""
+    return f"tlpre-{str(task_id)[:8]}"
+
+
+def start_preprocess(
+    task_id,
+    task_path: str,
+    preprocess_command: str,
+    launch_time: str,
+    *,
+    keep_alive: bool = False,
+) -> str:
     """Seed the workspace + run the case's preprocess, detached. Returns the
-    container id (poll it with :func:`poll_exit`)."""
+    container id (poll it with :func:`poll_exit`).
+
+    ``keep_alive`` (portal cases): after a SUCCESSFUL preprocess the container is
+    held open (``&& tail -f /dev/null``) so the mock ``localhost:PORT`` server it
+    started keeps running and its network namespace persists for the agent to
+    join. A failed preprocess still exits non-zero (the ``&&`` short-circuits),
+    so failure detection is preserved. Removed at the eval settle."""
     cmd = substitute(
         preprocess_command, gt=None, launch_time=launch_time, res_log=PRE_RES_LOG
     )
+    if keep_alive:
+        cmd = f"{cmd} && tail -f /dev/null"
     cmd = _seed_prefix(task_path) + cmd
-    return _run_pack(f"tlpre-{str(task_id)[:8]}", task_id, task_path, cmd)
+    return _run_pack(preprocess_container_name(task_id), task_id, task_path, cmd)
 
 
 def start_eval(

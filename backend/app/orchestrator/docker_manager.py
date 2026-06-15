@@ -37,8 +37,15 @@ def spawn_agent(
     memory_context: str = "",
     extra_env: dict | None = None,
     image: str | None = None,
+    network_mode: str | None = None,
 ) -> str:
-    """Spawn a Docker container for the agent. Returns container ID."""
+    """Spawn a Docker container for the agent. Returns container ID.
+
+    ``network_mode`` (e.g. ``container:tlpre-1234abcd``) shares another
+    container's network namespace instead of joining ``DOCKER_NETWORK`` — used
+    so a Toolathlon portal-case agent can reach the mock server the preprocess
+    container serves on ``localhost:PORT``. When None, the normal bridge network
+    is used (unchanged for every non-portal agent)."""
     from app.config import get_settings
     settings = get_settings()
 
@@ -84,12 +91,14 @@ def spawn_agent(
         host_workspace_path: {"bind": "/workspace", "mode": "rw"},
     }
 
+    # network_mode (share a container's netns) and network (join a bridge) are
+    # mutually exclusive in the Docker API — pass exactly one.
+    net_kwargs = {"network_mode": network_mode} if network_mode else {"network": DOCKER_NETWORK}
     container = client.containers.run(
         image=image or AGENT_IMAGE,
         name=container_name,
         environment=env,
         volumes=volumes,
-        network=DOCKER_NETWORK,
         mem_limit=template.max_ram or "2g",
         cpu_period=100000,
         cpu_quota=template.max_cpu or 100000,
@@ -100,6 +109,7 @@ def spawn_agent(
             f"{LABEL_PREFIX}.template_name": template.name,
             f"{LABEL_PREFIX}.workspace_id": str(workspace_id),
         },
+        **net_kwargs,
     )
 
     logger.info(f"Spawned agent container {container.id[:12]} for task {task_id}")
