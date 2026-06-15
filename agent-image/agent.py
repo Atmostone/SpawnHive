@@ -96,7 +96,10 @@ def execute_builtin_tool(name: str, arguments: dict) -> str:
     if name == "file_write":
         path = arguments["path"]
         if not path.startswith("/"):
-            path = os.path.join("/workspace/output", path)
+            # Benchmark deliverables live in the workspace root (the checker reads
+            # there); product runs collect outputs from /workspace/output.
+            base = "/workspace" if os.environ.get("AGENT_BENCHMARK_MODE") else "/workspace/output"
+            path = os.path.join(base, path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(arguments["content"])
@@ -141,12 +144,34 @@ def execute_builtin_tool(name: str, arguments: dict) -> str:
 
 
 def build_system_prompt(soul: str) -> str:
+    # Benchmark mode (Toolathlon etc.): an executable checker reads the real
+    # external systems and the /workspace ROOT — never a /workspace/output dir.
+    # The legacy product rule ("save to /workspace/output/") would hide every
+    # deliverable from that checker, so it is replaced with the contract the
+    # benchmark actually grades against.
+    if os.environ.get("AGENT_BENCHMARK_MODE"):
+        rules = (
+            "You are executing a specific task. Follow its instructions exactly:\n"
+            "1. Save every deliverable file DIRECTLY in /workspace with the EXACT "
+            "filename the task specifies — never under a /workspace/output or other subdirectory\n"
+            "2. Perform ALL required side effects (emails, calendar events, spreadsheets, "
+            "documents, database records, pages) THROUGH the provided MCP tools — do not "
+            "merely describe them, and do not substitute local files for a tool action\n"
+            "3. Inspect the actual state of the systems with the tools (read the FULL data, "
+            "not a sample) rather than guessing\n"
+            "4. Do NOT interact with the user directly — report through the system\n"
+            "5. If the task is genuinely impossible or missing inputs — explain why\n"
+        )
+    else:
+        rules = (
+            "You are executing a specific task. When the task is complete:\n"
+            "1. Save all output files to /workspace/output/\n"
+            "2. Do NOT interact with the user directly — report through the system\n"
+            "3. If the task is impossible or needs info — explain why\n"
+        )
     parts = [
         "# Mandatory rules (injected by system)\n",
-        "You are executing a specific task. When the task is complete:\n"
-        "1. Save all output files to /workspace/output/\n"
-        "2. Do NOT interact with the user directly — report through the system\n"
-        "3. If the task is impossible or needs info — explain why\n",
+        rules,
     ]
     try:
         with open("/data/rules.md") as f:

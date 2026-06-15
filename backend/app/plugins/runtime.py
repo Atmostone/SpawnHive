@@ -27,6 +27,9 @@ class AgentSpec:
     extra_env: dict = field(default_factory=dict)
     # Per-run agent image override (e.g. the Toolathlon derived image); None → runtime default.
     image: str | None = None
+    # Share another container's network namespace (e.g. "container:tlpre-1234abcd")
+    # so a Toolathlon portal-case agent reaches the mock server on localhost:PORT.
+    network_mode: str | None = None
 
 
 class AgentRuntime(ABC):
@@ -86,6 +89,7 @@ class DockerRuntime(AgentRuntime):
             memory_context=spec.memory_context,
             extra_env=spec.extra_env or {},
             image=spec.image,
+            network_mode=spec.network_mode,
         )
 
     def kill(self, container_id: str, workspace_id: str | None = None) -> bool:

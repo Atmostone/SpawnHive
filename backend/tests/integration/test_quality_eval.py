@@ -38,6 +38,13 @@ class _FakeProvider:
         return _resp(self.score)
 
 
+class _RaisingProvider:
+    """Judge LLM that always errors — to exercise the fail-closed gate (SPA-51)."""
+
+    async def acompletion(self, **kwargs):
+        raise RuntimeError("judge LLM down")
+
+
 async def _seed_judge_model(s, workspace_id, *, kind="quality_judge_model_id"):
     prov = Provider(workspace_id=workspace_id, name="p", api_key="k", endpoint="http://x/v1")
     s.add(prov)
@@ -132,6 +139,41 @@ async def test_on_demand_evaluate(auth_client: AsyncClient, monkeypatch):
     r = await auth_client.get(f"/api/quality/records/{tid}/profile")
     assert r.status_code == 200
     assert r.json()["quality_profile"]["weighted_score"] == 8.0
+
+
+@pytest.mark.asyncio
+async def test_gate_fail_closed_on_critical_dimension_error(
+    auth_client: AsyncClient, monkeypatch
+):
+    """SPA-51: a CRITICAL dimension whose evaluator errors must FAIL the gate
+    (fail-closed), not silently pass it (the old fail-open bug)."""
+    ws = uuid.UUID(auth_client.headers["X-Workspace-Id"])
+    body = {
+        "name": "Critical Only", "description": "d", "applies_to": "general",
+        "is_default": True,
+        "dimensions": [{"key": "correctness", "name": "Correctness", "evaluator": "judge",
+                        "weight": 1.0, "threshold": 6, "critical": True}],
+    }
+    r = await auth_client.post("/api/quality/rubrics", json=body)
+    assert r.status_code in (200, 201), r.text
+
+    async with database.async_session() as s:
+        await _seed_judge_model(s, ws)
+        t = Task(title="x", status=TaskStatus.DONE.value, workspace_id=ws,
+                 result_summary="r", model_used="m")
+        s.add(t)
+        await s.commit()
+        tid = str(t.id)
+
+    monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: _RaisingProvider())
+    r = await auth_client.post(f"/api/quality/records/{tid}/evaluate")
+    assert r.status_code == 200, r.text
+    profile = r.json()["quality_profile"]
+    crit = next(d for d in profile["dimensions"] if d["key"] == "correctness")
+    assert crit["status"] == "error"
+    assert crit["passed"] is False                       # fail-closed
+    assert profile["gate"]["passed"] is False
+    assert "correctness" in profile["gate"]["failed_dimensions"]
 
 
 @pytest.mark.asyncio

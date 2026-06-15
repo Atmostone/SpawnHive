@@ -195,6 +195,11 @@ async def _spawn_agent_for_template(db: AsyncSession, task: Task, template: Temp
         # Per-run agent iteration budget (benchmark tasks need more than the default 20).
         if run_config.get("max_iterations") is not None:
             extra_env["AGENT_MAX_ITERATIONS"] = str(run_config["max_iterations"])
+        # Benchmark mode: deliverables go to /workspace root (exact filenames) and
+        # side effects must go through MCP tools — the executable checker reads the
+        # real systems / workspace root, not the product /workspace/output dir.
+        if run_config.get("benchmark_mode"):
+            extra_env["AGENT_BENCHMARK_MODE"] = "1"
 
         # Per-run agent image override (run_config.agent_image) — only images from
         # our own agent family are allowed (e.g. spawnhive-agent-toolathlon:latest).
@@ -202,6 +207,13 @@ async def _spawn_agent_for_template(db: AsyncSession, task: Task, template: Temp
         if agent_image is not None and not str(agent_image).startswith("spawnhive-agent"):
             logger.warning(f"task {task.id}: ignoring non-allowlisted agent_image {agent_image!r}")
             agent_image = None
+
+        # Per-run network namespace share (Toolathlon portal cases) — only the
+        # "container:<name>" form for our own preprocess containers is allowed.
+        network_mode = run_config.get("network_mode")
+        if network_mode is not None and not str(network_mode).startswith("container:tlpre-"):
+            logger.warning(f"task {task.id}: ignoring non-allowlisted network_mode {network_mode!r}")
+            network_mode = None
 
         runtime = get_agent_runtime()
         spec = AgentSpec(
@@ -226,6 +238,7 @@ async def _spawn_agent_for_template(db: AsyncSession, task: Task, template: Temp
             memory_context=memory_context,
             extra_env=extra_env,
             image=agent_image,
+            network_mode=network_mode,
         )
         container_id = runtime.spawn(spec)
         task.agent_container_id = container_id

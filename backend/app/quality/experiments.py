@@ -20,6 +20,7 @@ import hashlib
 import itertools
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -652,6 +653,16 @@ def _requires_toolathlon_pg(case: dict | None) -> bool:
     return "toolathlon_pg" in (env.get("required_services") or [])
 
 
+_PORTAL_RE = re.compile(r"localhost:\d+|127\.0\.0\.1:\d+")
+
+
+def _requires_portal(case: dict | None) -> bool:
+    """A case whose task references a mock service at ``localhost:PORT`` — the
+    preprocess container serves it, so the agent must share that container's
+    network namespace to reach it."""
+    return bool(case and _PORTAL_RE.search(case.get("description") or ""))
+
+
 def _case_task_path(case: dict) -> str:
     path = (case.get("meta") or {}).get("task_path")
     if not path:
@@ -857,6 +868,7 @@ async def _start_toolathlon_run(
             db, exp, run, cfg, case, initial_status=TaskStatus.BACKLOG.value
         )
         run.task_id = child.id
+        portal = _requires_portal(case)
         long_lt, _short = ext_eval.launch_time_pair()
         run.launch_time = long_lt
         run.preprocess_started_at = datetime.utcnow()
@@ -866,7 +878,14 @@ async def _start_toolathlon_run(
             _case_task_path(case),
             case["external_eval"]["preprocess_command"],
             long_lt,
+            keep_alive=portal,
         )
+        # Portal case: the agent shares the (kept-alive) preprocess container's
+        # netns so it can reach the mock localhost:PORT server.
+        if portal:
+            rc = dict(child.run_config or {})
+            rc["network_mode"] = f"container:{ext_eval.preprocess_container_name(child.id)}"
+            child.run_config = rc
         run.status = ExperimentRunStatus.PREPROCESSING.value
     except Exception as e:
         logger.warning(f"experiment: preprocess start failed for {run.case_key}: {e}")
@@ -950,6 +969,7 @@ async def _advance_preprocessing(
                 _case_task_path(case),
                 case["external_eval"]["preprocess_command"],
                 short_lt,
+                keep_alive=_requires_portal(case),
             )
         except Exception as e:
             run.preprocess_log = f"preprocess retry failed: {e}"[:4000]
