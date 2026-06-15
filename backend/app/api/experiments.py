@@ -33,7 +33,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.quality import experiments as service
-from app.quality.experiment_report import compute_report
+from app.quality.experiment_report import SCHEMA_VERSION as REPORT_SCHEMA_VERSION, compute_report
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
@@ -197,13 +197,36 @@ async def get_experiment(
     for r in runs:
         cell = cells.setdefault(
             (r.config_key, r.case_key),
-            {"config_key": r.config_key, "case_key": r.case_key, "counts": {}},
+            {
+                "config_key": r.config_key,
+                "case_key": r.case_key,
+                "counts": {},
+                "_q": [],
+                "_t": [],
+                "external_pass": 0,
+                "external_total": 0,
+            },
         )
         cell["counts"][r.status] = cell["counts"].get(r.status, 0) + 1
         totals[r.status] = totals.get(r.status, 0) + 1
+        if r.weighted_score is not None:
+            cell["_q"].append(float(r.weighted_score))
+        if r.trajectory_score is not None:
+            cell["_t"].append(float(r.trajectory_score))
+        if r.external_verdict is not None:  # Toolathlon executable verdict
+            cell["external_total"] += 1
+            if r.external_verdict:
+                cell["external_pass"] += 1
+    matrix = []
+    for cell in cells.values():
+        q = cell.pop("_q")
+        t = cell.pop("_t")
+        cell["quality_mean"] = round(sum(q) / len(q), 2) if q else None
+        cell["trajectory_mean"] = round(sum(t) / len(t), 2) if t else None
+        matrix.append(cell)
     return {
         **serialize(exp),
-        "matrix": list(cells.values()),
+        "matrix": matrix,
         "run_totals": totals,
     }
 
@@ -304,6 +327,7 @@ async def experiment_report(
         terminal
         and cached
         and not refresh
+        and cached.get("schema_version") == REPORT_SCHEMA_VERSION
         and (cached.get("leaderboard") or {}).get("method") == method
     ):
         return cached

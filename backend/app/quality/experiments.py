@@ -40,14 +40,24 @@ from app.models.quality_record import QualityRecord
 from app.models.registry_entry import RegistryEntry
 from app.models.task import Task, TaskStatus
 from app.models.template import Template
+from app.quality import external_eval as ext_eval
 from app.quality.benchmark import _capability_spec_for, load_cases
 from app.quality.runs_common import (
     SUCCESS_TASK as _SUCCESS_TASK,
     TERMINAL_TASK as _TERMINAL_TASK,
     inflight_target,
 )
+from app.utils.events import log_event
 
 logger = logging.getLogger(__name__)
+
+# Toolathlon executable-eval cases (gold.external_eval) run on a dedicated image
+# with the case's MCP servers force-enabled, and a higher iteration ceiling.
+TOOLATHLON_AGENT_IMAGE = "spawnhive-agent-toolathlon:latest"
+TOOLATHLON_MAX_ITERATIONS = 100
+# A preprocess still running after this many seconds is a kept-alive mock server
+# (the agent runs against it); we proceed and remove it at the eval settle.
+PREPROCESS_MOCK_GRACE_S = 180
 
 TERMINAL_EXPERIMENT = {
     ExperimentStatus.COMPLETED.value,
@@ -299,6 +309,13 @@ def cases_from_suite(suite: str, case_ids: list[str] | None = None) -> list[dict
             canonical_trajectory=c.gold.canonical_trajectory,
             capability_spec=_capability_spec_for(c),
             rubric=c.gold.rubric,
+            # Toolathlon executable eval: the runner needs the commands, the
+            # required services (drives sequential execution + the eval image)
+            # and meta.task_path (the gym dir for preprocess/eval). Plain suites
+            # leave these None, so _frozen_case drops them.
+            external_eval=c.gold.external_eval.model_dump() if c.gold.external_eval else None,
+            environment=c.environment.model_dump() if c.environment else None,
+            meta=dict(c.meta) if c.meta else None,
         )
         for c in cases
     ]
@@ -558,13 +575,24 @@ async def cancel_experiment(db: AsyncSession, exp: Experiment) -> None:
     inflight_ids = [
         r.task_id
         for r in rows
-        if r.status == ExperimentRunStatus.RUNNING.value and r.task_id
+        if r.status in (
+            ExperimentRunStatus.RUNNING.value,
+            ExperimentRunStatus.EVALUATING.value,
+        )
+        and r.task_id
     ]
     for r in rows:
         if r.status in (
             ExperimentRunStatus.PENDING.value,
+            ExperimentRunStatus.PREPROCESSING.value,
             ExperimentRunStatus.RUNNING.value,
+            ExperimentRunStatus.EVALUATING.value,
         ):
+            # Best-effort cleanup of any Toolathlon preprocess/eval containers.
+            ext_eval.remove(r.preprocess_container_id)
+            ext_eval.remove(r.eval_container_id)
+            r.preprocess_container_id = None
+            r.eval_container_id = None
             r.status = ExperimentRunStatus.SKIPPED.value
             r.completed_at = now
     exp.status = ExperimentStatus.CANCELLED.value
@@ -609,30 +637,104 @@ def child_run_config(
     return rc
 
 
+def _external_eval(case: dict | None) -> dict | None:
+    """The case's executable-eval block (Toolathlon), when present + complete."""
+    if not case:
+        return None
+    ext = case.get("external_eval")
+    if isinstance(ext, dict) and ext.get("preprocess_command") and ext.get("eval_command"):
+        return ext
+    return None
+
+
+def _requires_toolathlon_pg(case: dict | None) -> bool:
+    env = (case or {}).get("environment") or {}
+    return "toolathlon_pg" in (env.get("required_services") or [])
+
+
+def _case_task_path(case: dict) -> str:
+    path = (case.get("meta") or {}).get("task_path")
+    if not path:
+        raise ValueError(f"toolathlon case {case.get('case_key')!r} is missing meta.task_path")
+    return path
+
+
+async def _resolve_toolathlon_tools(
+    db: AsyncSession, workspace_id, case: dict
+) -> list[str]:
+    """Registry ids of the ``toolathlon-<server>`` MCP entries the case needs
+    (force-enabled on the agent via tools_override). Raises if any are missing —
+    the import (``app.cli.toolathlon_import``) must run first."""
+    servers = list(((case.get("environment") or {}).get("mcp_servers")) or [])
+    if not servers:
+        return []
+    names = [f"toolathlon-{s}" for s in servers]
+    rows = (
+        await db.execute(
+            select(RegistryEntry).where(
+                RegistryEntry.workspace_id == workspace_id,
+                RegistryEntry.name.in_(names),
+            )
+        )
+    ).scalars().all()
+    found = {r.name: r for r in rows}
+    missing = [n for n in names if n not in found]
+    if missing:
+        raise ValueError(
+            f"toolathlon registry entries missing (run toolathlon_import first): {missing}"
+        )
+    return [str(found[n].id) for n in names]
+
+
+async def _apply_toolathlon_run_config(
+    db: AsyncSession, exp: Experiment, case: dict, rc: dict
+) -> None:
+    """Patch a child run_config for a Toolathlon case: the dedicated agent image,
+    the case's MCP servers force-enabled, and the higher iteration ceiling
+    (mirrors app.cli.toolathlon_pilot.create)."""
+    tool_ids = await _resolve_toolathlon_tools(db, exp.workspace_id, case)
+    rc["agent_image"] = TOOLATHLON_AGENT_IMAGE
+    rc["max_iterations"] = TOOLATHLON_MAX_ITERATIONS
+    override = rc.get("tools_override") or {}
+    enable = list(dict.fromkeys(list(override.get("enable") or []) + tool_ids))
+    rc["tools_override"] = {"enable": enable, "disable": list(override.get("disable") or [])}
+
+
 async def _make_child(
-    db: AsyncSession, exp: Experiment, run_row: ExperimentRun, cfg: dict, case: dict
+    db: AsyncSession,
+    exp: Experiment,
+    run_row: ExperimentRun,
+    cfg: dict,
+    case: dict,
+    *,
+    initial_status: str = TaskStatus.READY.value,
 ) -> Task:
-    """Create the READY child task for one matrix cell run.
+    """Create the child task for one matrix cell run.
 
     The task input is EXACTLY the frozen case (no suffixes — a per-config
     marker in the prompt would confound the A/B); identification lives in
-    run_config.experiment and the benchmark_* tags.
+    run_config.experiment and the benchmark_* tags. Toolathlon cases are created
+    in BACKLOG (``initial_status``) so the orchestrator cannot spawn the agent
+    before preprocess seeds the workspace — the runner flips them READY itself.
     """
     pinned = (
         uuid.UUID(str(cfg["template_id"]))
         if (not cfg.get("orchestrator") and cfg.get("template_id"))
         else None
     )
+    rc = child_run_config(
+        exp, cfg, case_key=run_row.case_key, run_index=run_row.run_index
+    )
+    if _external_eval(case):
+        await _apply_toolathlon_run_config(db, exp, case, rc)
     child = Task(
         title=case["title"][:500],
         description=case.get("description"),
-        status=TaskStatus.READY.value,
+        status=initial_status,
         workspace_id=exp.workspace_id,
         origin="experiment",
         template_id=pinned,
-        run_config=child_run_config(
-            exp, cfg, case_key=run_row.case_key, run_index=run_row.run_index
-        ),
+        run_config=rc,
         max_retries=0,
         reference_answer=case.get("reference_answer"),
         canonical_trajectory=case.get("canonical_trajectory"),
@@ -729,9 +831,249 @@ def _run_duration(task: Task, rec: QualityRecord | None) -> Optional[int]:
     return None
 
 
+# --- Toolathlon executable-eval lifecycle (gold.external_eval) --------------
+# A Toolathlon run threads through two states the plain path never enters:
+#   PENDING → (claim: BACKLOG task + seed/preprocess) → PREPROCESSING
+#   PREPROCESSING → (preprocess done: flip task READY) → RUNNING
+#   RUNNING → (agent terminal: start eval)             → EVALUATING
+#   EVALUATING → (eval done: verdict + E-02/E-07)      → SUCCESS/FAILED
+# Each transition is at most one step per tick; preprocess/eval containers are
+# detached and polled, so the tick never blocks.
+
+_INFLIGHT_RUN = {
+    ExperimentRunStatus.PREPROCESSING.value,
+    ExperimentRunStatus.RUNNING.value,
+    ExperimentRunStatus.EVALUATING.value,
+}
+
+
+async def _start_toolathlon_run(
+    db: AsyncSession, exp: Experiment, run: ExperimentRun, cfg: dict, case: dict
+) -> None:
+    """Claim a Toolathlon cell: create the BACKLOG task, capture launch_time,
+    seed + start preprocess detached. Any setup error fails the run."""
+    try:
+        child = await _make_child(
+            db, exp, run, cfg, case, initial_status=TaskStatus.BACKLOG.value
+        )
+        run.task_id = child.id
+        long_lt, _short = ext_eval.launch_time_pair()
+        run.launch_time = long_lt
+        run.preprocess_started_at = datetime.utcnow()
+        run.preprocess_retried = False
+        run.preprocess_container_id = ext_eval.start_preprocess(
+            child.id,
+            _case_task_path(case),
+            case["external_eval"]["preprocess_command"],
+            long_lt,
+        )
+        run.status = ExperimentRunStatus.PREPROCESSING.value
+    except Exception as e:
+        logger.warning(f"experiment: preprocess start failed for {run.case_key}: {e}")
+        run.preprocess_log = f"preprocess start failed: {e}"[:4000]
+        run.status = ExperimentRunStatus.FAILED.value
+        run.completed_at = datetime.utcnow()
+        await _fail_orphan_task(db, run)
+
+
+async def _flip_preprocessed_ready(db: AsyncSession, run: ExperimentRun) -> None:
+    """Preprocess done → flip the BACKLOG task READY (the orchestrator then
+    spawns the agent); the run becomes RUNNING."""
+    task = (
+        await db.execute(select(Task).where(Task.id == run.task_id))
+    ).scalar_one_or_none()
+    if task is None:
+        run.status = ExperimentRunStatus.FAILED.value
+        run.completed_at = datetime.utcnow()
+        return
+    if task.status == TaskStatus.BACKLOG.value:
+        task.status = TaskStatus.READY.value
+    run.status = ExperimentRunStatus.RUNNING.value
+
+
+async def _fail_orphan_task(db: AsyncSession, run: ExperimentRun) -> None:
+    """Mark a still-BACKLOG task FAILED when its preprocess failed, so it does
+    not linger un-spawnable."""
+    if not run.task_id:
+        return
+    task = (
+        await db.execute(select(Task).where(Task.id == run.task_id))
+    ).scalar_one_or_none()
+    if task is not None and task.status == TaskStatus.BACKLOG.value:
+        task.status = TaskStatus.FAILED.value
+        task.completed_at = datetime.utcnow()
+
+
+async def _advance_preprocessing(
+    db: AsyncSession, exp: Experiment, run: ExperimentRun, case: dict | None
+) -> None:
+    """Poll a PREPROCESSING run: flip its task READY on success, retry once on
+    the gym ``%A`` quirk, fail on a terminal non-zero exit, proceed on a
+    long-running mock server."""
+    if case is None:
+        run.status = ExperimentRunStatus.FAILED.value
+        run.completed_at = datetime.utcnow()
+        return
+    try:
+        code, logs = ext_eval.poll_exit(run.preprocess_container_id)
+    except Exception as e:
+        logger.warning(f"experiment: preprocess lost for {run.case_key}: {e}")
+        run.preprocess_log = f"preprocess container lost: {e}"[:4000]
+        run.status = ExperimentRunStatus.FAILED.value
+        run.completed_at = datetime.utcnow()
+        await _fail_orphan_task(db, run)
+        return
+
+    if code is None:  # still running
+        started = run.preprocess_started_at or datetime.utcnow()
+        if (datetime.utcnow() - started).total_seconds() >= PREPROCESS_MOCK_GRACE_S:
+            # kept-alive mock server: proceed, leave it running (removed at settle)
+            await _flip_preprocessed_ready(db, run)
+        return
+
+    if code == 0:
+        ext_eval.remove(run.preprocess_container_id)
+        run.preprocess_container_id = None
+        await _flip_preprocessed_ready(db, run)
+        return
+
+    # non-zero exit: one retry with the short launch_time on the gym date quirk
+    if ext_eval.has_unconverted_data_error(logs) and not run.preprocess_retried:
+        ext_eval.remove(run.preprocess_container_id)
+        _long, short_lt = ext_eval.launch_time_pair()
+        run.launch_time = short_lt
+        run.preprocess_retried = True
+        run.preprocess_started_at = datetime.utcnow()
+        try:
+            run.preprocess_container_id = ext_eval.start_preprocess(
+                run.task_id,
+                _case_task_path(case),
+                case["external_eval"]["preprocess_command"],
+                short_lt,
+            )
+        except Exception as e:
+            run.preprocess_log = f"preprocess retry failed: {e}"[:4000]
+            run.status = ExperimentRunStatus.FAILED.value
+            run.completed_at = datetime.utcnow()
+            await _fail_orphan_task(db, run)
+        return
+
+    ext_eval.remove(run.preprocess_container_id)
+    run.preprocess_container_id = None
+    run.preprocess_log = (logs or "")[-4000:]
+    run.status = ExperimentRunStatus.FAILED.value
+    run.completed_at = datetime.utcnow()
+    await _fail_orphan_task(db, run)
+
+
+async def _start_eval(
+    db: AsyncSession, exp: Experiment, run: ExperimentRun, case: dict
+) -> None:
+    """Agent settled → start the eval container detached (run → EVALUATING). If
+    the eval cannot even launch, settle now with verdict=None."""
+    try:
+        run.eval_container_id = ext_eval.start_eval(
+            run.task_id,
+            _case_task_path(case),
+            case["external_eval"]["eval_command"],
+            case["external_eval"].get("groundtruth_path"),
+            run.launch_time,
+        )
+        run.status = ExperimentRunStatus.EVALUATING.value
+    except Exception as e:
+        logger.warning(f"experiment: eval start failed for {run.case_key}: {e}")
+        await _settle_toolathlon(
+            db, exp, run, case, verdict=None, eval_log=f"eval start failed: {e}"
+        )
+
+
+async def _advance_evaluating(
+    db: AsyncSession, exp: Experiment, run: ExperimentRun, case: dict | None
+) -> None:
+    """Poll an EVALUATING run: on exit, verdict = (exit==0); on infra error,
+    verdict=None. Either way settle (E-02/E-07 still run)."""
+    try:
+        code, logs = ext_eval.poll_exit(run.eval_container_id)
+    except Exception as e:
+        await _settle_toolathlon(
+            db, exp, run, case, verdict=None, eval_log=f"eval container lost: {e}"
+        )
+        return
+    if code is None:
+        return  # still running
+    await _settle_toolathlon(db, exp, run, case, verdict=(code == 0), eval_log=logs)
+
+
+async def _settle_toolathlon(
+    db: AsyncSession,
+    exp: Experiment,
+    run: ExperimentRun,
+    case: dict | None,
+    *,
+    verdict: bool | None,
+    eval_log: str,
+) -> None:
+    """Terminal settle for a Toolathlon run: record the verdict (column + event),
+    clean up containers, run E-02/E-07 + denormalize. ``status`` reflects the
+    AGENT task (SUCCESS/FAILED); ``external_verdict`` is the checker's pass/fail
+    (None = could not evaluate) — kept separate (RQ2)."""
+    task = (
+        await db.execute(select(Task).where(Task.id == run.task_id))
+    ).scalar_one_or_none()
+    # Container cleanup first (no DB state); the verdict + event are set AFTER
+    # _evaluate_child, which commits/rolls back internally — so a failing E-02
+    # can never discard the verdict (mirrors the plain settle order).
+    ext_eval.remove(run.preprocess_container_id)
+    ext_eval.remove(run.eval_container_id)
+    run.preprocess_container_id = None
+    run.eval_container_id = None
+    if task is None:
+        run.external_verdict = verdict
+        run.eval_log = (eval_log or "")[-4000:]
+        run.status = ExperimentRunStatus.FAILED.value
+        run.completed_at = datetime.utcnow()
+        return
+    await _evaluate_child(db, task, exp.eval_config or {}, case=case)
+    rec = (
+        await db.execute(select(QualityRecord).where(QualityRecord.task_id == task.id))
+    ).scalar_one_or_none()
+    run.external_verdict = verdict
+    run.eval_log = (eval_log or "")[-4000:]
+    run.status = (
+        ExperimentRunStatus.SUCCESS.value
+        if task.status in _SUCCESS_TASK
+        else ExperimentRunStatus.FAILED.value
+    )
+    run.cost_usd = _run_cost(task, rec)
+    run.duration_seconds = _run_duration(task, rec)
+    if rec is not None:
+        run.weighted_score = (rec.quality_profile or {}).get("weighted_score")
+        run.trajectory_score = (rec.trajectory_profile or {}).get("overall_score")
+    run.completed_at = datetime.utcnow()
+    # Durable verdict event (host-script parity + /results), only when the
+    # checker actually produced one.
+    if verdict is not None:
+        await log_event(
+            db,
+            "external_eval_verdict",
+            "system",
+            {
+                "passed": bool(verdict),
+                "benchmark_case_id": run.case_key,
+                "benchmark_suite": f"exp:{exp.id}",
+                "launch_time": run.launch_time,
+                "log_tail": (eval_log or "")[-2000:],
+            },
+            task_id=task.id,
+            workspace_id=exp.workspace_id,
+            commit=False,
+        )
+
+
 async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
-    """One idempotent tick step: settle finished runs, claim pending cells
-    under the parallelism/budget limits, finalize when everything settled."""
+    """One idempotent tick step: advance Toolathlon preprocess/eval phases,
+    settle finished runs, claim pending cells under the parallelism/budget
+    limits, finalize when everything settled."""
     if exp.status != ExperimentStatus.RUNNING.value:
         return
 
@@ -748,9 +1090,21 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
     ).scalars().all()
     configs = {c["config_key"]: c for c in exp.configurations}
     cases = {c["case_key"]: c for c in exp.dataset_cases}
+    # Toolathlon shares one Postgres → at most one cell in flight at a time.
+    serial = any(_requires_toolathlon_pg(c) for c in exp.dataset_cases)
 
-    running = [r for r in rows if r.status == ExperimentRunStatus.RUNNING.value]
-    task_ids = [r.task_id for r in running if r.task_id]
+    # Snapshot the states at tick start so a transition this tick (e.g.
+    # PREPROCESSING → RUNNING) is not also processed by a later phase.
+    preprocessing_ids = {
+        r.id for r in rows if r.status == ExperimentRunStatus.PREPROCESSING.value
+    }
+    running_ids = {r.id for r in rows if r.status == ExperimentRunStatus.RUNNING.value}
+    evaluating_ids = {
+        r.id for r in rows if r.status == ExperimentRunStatus.EVALUATING.value
+    }
+    task_ids = [
+        r.task_id for r in rows if r.id in (running_ids | evaluating_ids) and r.task_id
+    ]
     tasks: dict[uuid.UUID, Task] = {}
     if task_ids:
         loaded = (
@@ -758,9 +1112,18 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
         ).scalars().all()
         tasks = {t.id: t for t in loaded}
 
-    # 1) Settle runs whose task reached a terminal state (evaluate + denormalize).
     now = datetime.utcnow()
-    for r in running:
+
+    # 1a) Advance PREPROCESSING runs (Toolathlon).
+    for r in rows:
+        if r.id in preprocessing_ids:
+            await _advance_preprocessing(db, exp, r, cases.get(r.case_key))
+
+    # 1b) Settle RUNNING runs whose agent task is terminal. A Toolathlon run
+    # starts its eval here (→ EVALUATING) instead of settling.
+    for r in rows:
+        if r.id not in running_ids:
+            continue
         task = tasks.get(r.task_id)
         if task is None:
             r.status = ExperimentRunStatus.FAILED.value
@@ -768,7 +1131,11 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
             continue
         if task.status not in _TERMINAL_TASK:
             continue
-        await _evaluate_child(db, task, exp.eval_config or {}, case=cases.get(r.case_key))
+        case = cases.get(r.case_key)
+        if _external_eval(case):
+            await _start_eval(db, exp, r, case)
+            continue
+        await _evaluate_child(db, task, exp.eval_config or {}, case=case)
         rec = (
             await db.execute(
                 select(QualityRecord).where(QualityRecord.task_id == task.id)
@@ -786,30 +1153,37 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
             r.trajectory_score = (rec.trajectory_profile or {}).get("overall_score")
         r.completed_at = datetime.utcnow()
 
+    # 1c) Advance EVALUATING runs (Toolathlon).
+    for r in rows:
+        if r.id in evaluating_ids:
+            await _advance_evaluating(db, exp, r, cases.get(r.case_key))
+
     # 2) Accumulated cost: settled rows (denormalized) + in-flight agent spend.
     total = Decimal("0")
     for r in rows:
         total += Decimal(r.cost_usd or 0)
-    for r in running:
-        task = tasks.get(r.task_id)
-        if task is not None and r.status == ExperimentRunStatus.RUNNING.value:
-            total += Decimal(task.cost_usd or 0)
+    for r in rows:
+        if r.status in (
+            ExperimentRunStatus.RUNNING.value,
+            ExperimentRunStatus.EVALUATING.value,
+        ):
+            task = tasks.get(r.task_id)
+            if task is not None:
+                total += Decimal(task.cost_usd or 0)
     exp.accumulated_cost_usd = total
-    budget_hit = (
-        exp.budget_limit_usd is not None and total >= exp.budget_limit_usd
-    )
+    budget_hit = exp.budget_limit_usd is not None and total >= exp.budget_limit_usd
 
     pending = [r for r in rows if r.status == ExperimentRunStatus.PENDING.value]
-    still_running = [
-        r for r in rows if r.status == ExperimentRunStatus.RUNNING.value
-    ]
+    in_flight = [r for r in rows if r.status in _INFLIGHT_RUN]
 
     # 3) Claim the next pending cells while under the limits.
     if pending and not budget_hit:
         target = await inflight_target(db, parallel=True)
         if exp.max_parallel:
             target = min(target, exp.max_parallel)
-        slots = max(0, target - len(still_running))
+        if serial:
+            target = 1
+        slots = max(0, target - len(in_flight))
         claimed = 0
         for r in pending[:slots]:
             cfg = configs.get(r.config_key)
@@ -818,9 +1192,12 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
                 r.status = ExperimentRunStatus.SKIPPED.value
                 r.completed_at = datetime.utcnow()
                 continue
-            child = await _make_child(db, exp, r, cfg, case)
-            r.task_id = child.id
-            r.status = ExperimentRunStatus.RUNNING.value
+            if _external_eval(case):
+                await _start_toolathlon_run(db, exp, r, cfg, case)
+            else:
+                child = await _make_child(db, exp, r, cfg, case)
+                r.task_id = child.id
+                r.status = ExperimentRunStatus.RUNNING.value
             claimed += 1
         await db.commit()
         if claimed:
@@ -834,15 +1211,11 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
             r.completed_at = now
 
     # 5) Finalize once nothing is pending or in flight.
-    if not still_running and all(
+    if not in_flight and all(
         r.status != ExperimentRunStatus.PENDING.value for r in rows
     ):
-        skipped = any(
-            r.status == ExperimentRunStatus.SKIPPED.value for r in rows
-        )
-        succeeded = any(
-            r.status == ExperimentRunStatus.SUCCESS.value for r in rows
-        )
+        skipped = any(r.status == ExperimentRunStatus.SKIPPED.value for r in rows)
+        succeeded = any(r.status == ExperimentRunStatus.SUCCESS.value for r in rows)
         if skipped:
             exp.status = ExperimentStatus.CAPPED.value
         elif succeeded:

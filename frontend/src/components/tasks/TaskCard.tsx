@@ -40,9 +40,16 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <h4 className="text-sm font-medium text-gray-900 line-clamp-2">{task.title}</h4>
-        <span className={cn('text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap', PRIORITY_COLORS[task.priority])}>
-          {task.priority}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {task.origin === 'experiment' && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap bg-purple-100 text-purple-700" title="Experiment cell run">
+              exp
+            </span>
+          )}
+          <span className={cn('text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap', PRIORITY_COLORS[task.priority])}>
+            {task.priority}
+          </span>
+        </div>
       </div>
 
       {task.description && (

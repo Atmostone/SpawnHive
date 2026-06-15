@@ -14,6 +14,7 @@ import {
   Brain,
   Settings2,
   ClipboardCheck,
+  Database,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,6 +28,7 @@ const ITEMS: Record<string, { icon: LucideIcon; label: string }> = {
   '/analytics': { icon: BarChart3, label: 'Analytics' },
   '/calibration': { icon: ClipboardCheck, label: 'Calibration' },
   '/experiments': { icon: FlaskConical, label: 'Experiments' },
+  '/data-lake': { icon: Database, label: 'Data Lake' },
   '/graph': { icon: Network, label: 'Graph' },
   '/templates': { icon: Boxes, label: 'Templates' },
   '/rubrics': { icon: Gauge, label: 'Quality Rubrics' },

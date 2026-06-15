@@ -76,7 +76,7 @@ def _exp(configs):
 
 
 def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
-         cost="0.01", duration=60, task_id=None):
+         cost="0.01", duration=60, task_id=None, external_verdict=None):
     return ExperimentRun(
         config_key=config_key,
         case_key=case_key,
@@ -87,13 +87,16 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
         cost_usd=Decimal(cost),
         duration_seconds=duration,
         task_id=task_id or uuid.uuid4(),
+        external_verdict=external_verdict,
     )
 
 
-def _record(dimensions=None, failures=None):
+def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None):
     return SimpleNamespace(
         quality_profile={"dimensions": dimensions or []} if dimensions else None,
         failure_profile={"failures": failures} if failures else None,
+        trajectory_profile={"status": "scored", "axes": trajectory_axes} if trajectory_axes else None,
+        trajectory_match_profile=trajectory_match,
     )
 
 
@@ -114,7 +117,11 @@ def test_build_report_full_shape():
                 dimensions=[
                     {"key": "correctness", "score": 8.0 + idx * 0.1},
                     {"key": "completeness", "score": 7.0},
-                ]
+                ],
+                trajectory_axes=[
+                    {"key": "efficiency", "name": "Efficiency", "score": 7.0},
+                    {"key": "tool_selection", "name": "Tool selection", "score": 8.0},
+                ],
             )
             r2 = _run("cfg-02", case, idx, score=5.0 + idx * 0.1, traj=5.5,
                       cost="0.05", duration=240)
@@ -128,9 +135,16 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 3
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
+    # No executable verdicts here → external/rq2 present but unavailable.
+    assert report["external"]["available"] is False
+    assert report["rq2"]["available"] is False
+    # v2: trajectory heatmap (E-07 axes) + trajectory match (E-09) blocks present
+    assert "axes" in report["trajectory_heatmap"]
+    assert "per_config" in report["trajectory_match"]
+    assert report["trajectory_match"]["available"] is False  # no canonical trajectories here
 
     summary = report["summary"]
     assert summary["total_runs"] == 13
@@ -147,6 +161,13 @@ def test_build_report_full_shape():
     assert row1["cells"]["correctness"]["mean"] == 8.1
     row2 = next(r for r in heatmap["rows"] if r["config_key"] == "cfg-02")
     assert row2["cells"]["completeness"]["n"] == 0
+
+    traj_hm = report["trajectory_heatmap"]
+    assert "efficiency" in traj_hm["axes"] and "tool_selection" in traj_hm["axes"]
+    row1t = next(r for r in traj_hm["rows"] if r["config_key"] == "cfg-01")
+    assert row1t["cells"]["efficiency"]["n"] == 6
+    assert row1t["cells"]["efficiency"]["mean"] == 7.0
+    assert row1t["overall_score"]["mean"] is not None
 
     pareto = report["pareto"]
     assert pareto["frontier"] == ["cfg-01"]  # better quality AND cheaper AND faster
@@ -187,3 +208,35 @@ def test_build_report_empty_runs():
     assert report["leaderboard"]["status"] == "empty"
     assert report["significance"] == []
     assert report["orchestrator"]["delta"] is None
+
+
+def test_build_report_external_pass_rate_and_rq2():
+    # cfg-01: checker passes all 3; judge high on 2, low on 1 (pass_high=2, pass_low=1).
+    # cfg-02: checker fails both; judge high on 1 (over-credit), low on 1.
+    runs = [
+        _run("cfg-01", "case-a", 0, score=8.0, external_verdict=True),
+        _run("cfg-01", "case-a", 1, score=7.0, external_verdict=True),
+        _run("cfg-01", "case-b", 0, score=3.0, external_verdict=True),
+        _run("cfg-02", "case-a", 0, score=8.0, external_verdict=False),
+        _run("cfg-02", "case-b", 0, score=2.0, external_verdict=False),
+        # No verdict / no score → excluded from both views.
+        _run("cfg-01", "case-c", 0, score=9.0, external_verdict=None),
+        _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
+    ]
+    report = build_report(_exp(CONFIGS), runs, {}, partial=False)
+    assert report["schema_version"] == 3
+
+    ext = report["external"]
+    assert ext["available"] is True
+    by = {c["config_key"]: c for c in ext["per_config"]}
+    assert (by["cfg-01"]["n_evaluated"], by["cfg-01"]["n_pass"], by["cfg-01"]["pass_rate"]) == (3, 3, 1.0)
+    # cfg-02 has 2 fails + 1 pass-without-score → 3 evaluated, 1 passed.
+    assert (by["cfg-02"]["n_evaluated"], by["cfg-02"]["n_pass"]) == (3, 1)
+
+    rq2 = report["rq2"]
+    assert rq2["available"] is True
+    assert rq2["judge_threshold"] == 5.0
+    # Only runs with BOTH verdict and score count (5 of them).
+    assert rq2["overall"]["cells"] == {"pass_high": 2, "pass_low": 1, "fail_high": 1, "fail_low": 1}
+    assert rq2["overall"]["n"] == 5
+    assert rq2["overall"]["agreement"] == 0.6  # (pass_high + fail_low) / n = 3/5
