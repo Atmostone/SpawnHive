@@ -40,9 +40,12 @@ class FakeExt:
     def launch_time_pair(self):
         return ("2026-06-14 10:00:00 Saturday", "2026-06-14 10:00:00")
 
-    def start_preprocess(self, task_id, task_path, cmd, launch_time):
-        self.preprocess_calls.append((str(task_id), launch_time))
+    def start_preprocess(self, task_id, task_path, cmd, launch_time, keep_alive=False):
+        self.preprocess_calls.append((str(task_id), launch_time, keep_alive))
         return f"pre-{str(task_id)[:8]}"
+
+    def preprocess_container_name(self, task_id):
+        return f"tlpre-{str(task_id)[:8]}"
 
     def start_eval(self, task_id, task_path, cmd, gt, launch_time):
         self.eval_calls.append((str(task_id), launch_time))
@@ -304,6 +307,51 @@ async def test_toolathlon_unconverted_data_retries_with_short_launch_time(
     await advance_experiment(db_session, exp)  # retry exit 0 → RUNNING
     (run,) = await _runs(db_session, exp)
     assert run.status == ExperimentRunStatus.RUNNING.value
+
+
+@pytest.mark.asyncio
+async def test_toolathlon_portal_case_shares_preprocess_netns(
+    auth_client, db_session, monkeypatch
+):
+    ws = uuid.UUID(auth_client.headers["X-Workspace-Id"])
+    tpl = await _template(db_session, ws)
+    await _registry(db_session, ws)
+    fake = FakeExt()  # preprocess kept alive → never "exits" in this stub
+    monkeypatch.setattr(exp_mod, "ext_eval", fake)
+
+    case = _case()
+    case["description"] = "Read the methodology at http://localhost:30215 then proceed."
+    exp = await _make_exp(db_session, ws, tpl, [case])
+    await start_experiment(db_session, exp)
+    await advance_experiment(db_session, exp)  # claim → seed + preprocess (kept alive)
+
+    (run,) = await _runs(db_session, exp)
+    assert run.status == ExperimentRunStatus.PREPROCESSING.value
+    # preprocess started with keep_alive=True (3rd tuple element)
+    assert fake.preprocess_calls and fake.preprocess_calls[-1][2] is True
+    # the BACKLOG task carries the netns share so the agent reaches localhost:PORT
+    task = await db_session.get(Task, run.task_id)
+    assert task.run_config["network_mode"] == f"container:tlpre-{str(task.id)[:8]}"
+
+
+@pytest.mark.asyncio
+async def test_toolathlon_non_portal_case_uses_default_network(
+    auth_client, db_session, monkeypatch
+):
+    ws = uuid.UUID(auth_client.headers["X-Workspace-Id"])
+    tpl = await _template(db_session, ws)
+    await _registry(db_session, ws)
+    fake = FakeExt(pre=[(0, "ok")])
+    monkeypatch.setattr(exp_mod, "ext_eval", fake)
+
+    exp = await _make_exp(db_session, ws, tpl, [_case()])  # no localhost portal
+    await start_experiment(db_session, exp)
+    await advance_experiment(db_session, exp)
+
+    (run,) = await _runs(db_session, exp)
+    assert fake.preprocess_calls[-1][2] is False  # keep_alive off
+    task = await db_session.get(Task, run.task_id)
+    assert "network_mode" not in (task.run_config or {})  # default bridge network
 
 
 @pytest.mark.asyncio
