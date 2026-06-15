@@ -141,7 +141,9 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     <div className="flex items-center justify-center gap-1 text-xs">
                       {counts.success ? <span className="text-green-600 font-medium">{counts.success}✓</span> : null}
                       {counts.failed ? <span className="text-red-600 font-medium">{counts.failed}✗</span> : null}
+                      {counts.preprocessing ? <span className="text-purple-600 font-medium" title="preprocessing (Toolathlon seed)">{counts.preprocessing}⚙</span> : null}
                       {counts.running ? <span className="text-blue-600 font-medium">{counts.running}…</span> : null}
+                      {counts.evaluating ? <span className="text-indigo-600 font-medium" title="evaluating (executable checker)">{counts.evaluating}⚖</span> : null}
                       {counts.pending ? <span className="text-gray-400">{counts.pending}·</span> : null}
                       {counts.skipped ? <span className="text-amber-600">{counts.skipped}s</span> : null}
                       {Object.keys(counts).length === 0 && <span className="text-gray-300">—</span>}
@@ -152,6 +154,13 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                         {cell?.trajectory_mean != null && <span className="ml-1" title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
                       </div>
                     )}
+                    {cell?.external_total ? (
+                      <div className="text-[10px] mt-0.5 tabular-nums" title="executable verdict — passed / evaluated (Toolathlon)">
+                        <span className={cell.external_pass === cell.external_total ? 'text-green-600' : cell.external_pass ? 'text-amber-600' : 'text-red-600'}>
+                          ✔{cell.external_pass}/{cell.external_total}
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                 )
               })}
@@ -159,7 +168,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · … running · · pending · s skipped · q=quality mean · t=trajectory mean — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · ⚙ preprocessing · … running · ⚖ evaluating · · pending · s skipped · q=quality · t=trajectory · ✔pass/total=executable verdict — click a cell for run details</div>
     </div>
   )
 }
@@ -395,6 +404,62 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {report.external?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Executable pass-rate <span className="text-xs text-gray-400 font-normal">Toolathlon external checker (gold.external_eval) — ground-truth outcome</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2">Pass rate</th>
+                  <th className="px-3 py-2">Passed</th>
+                  <th className="px-3 py-2">Evaluated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.external.per_config.map((c) => (
+                  <tr key={c.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
+                    <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
+                    <td className="px-3 py-2 text-gray-500">{c.n_evaluated}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {report.rq2?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            RQ2 · verdict × judge{' '}
+            <span className="text-xs text-gray-400 font-normal">
+              executable pass/fail vs outcome judge (≥{report.rq2.judge_threshold}) — agreement{' '}
+              {report.rq2.overall.agreement != null ? `${(report.rq2.overall.agreement * 100).toFixed(0)}%` : '—'} (n={report.rq2.overall.n})
+            </span>
+          </h3>
+          <div className="bg-white border rounded-lg p-4 max-w-md">
+            <div className="grid grid-cols-[auto_1fr_1fr] gap-1 text-sm text-center">
+              <div></div>
+              <div className="text-xs text-gray-500 font-medium py-1">judge high</div>
+              <div className="text-xs text-gray-500 font-medium py-1">judge low</div>
+              <div className="text-xs text-gray-500 font-medium flex items-center justify-end pr-2">checker pass</div>
+              <div className="bg-green-50 text-green-700 font-semibold py-3 rounded" title="checker passed & judge high — agree">{report.rq2.overall.cells.pass_high}</div>
+              <div className="bg-amber-50 text-amber-700 font-semibold py-3 rounded" title="checker passed but judge scored low — judge under-credits">{report.rq2.overall.cells.pass_low}</div>
+              <div className="text-xs text-gray-500 font-medium flex items-center justify-end pr-2">checker fail</div>
+              <div className="bg-amber-50 text-amber-700 font-semibold py-3 rounded" title="judge scored high but checker failed — judge over-credits">{report.rq2.overall.cells.fail_high}</div>
+              <div className="bg-red-50 text-red-700 font-semibold py-3 rounded" title="checker failed & judge low — agree">{report.rq2.overall.cells.fail_low}</div>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2">Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.</p>
           </div>
         </section>
       )}
