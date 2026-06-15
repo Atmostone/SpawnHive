@@ -81,9 +81,13 @@ export const authApi = {
 
 // Tasks
 export const tasksApi = {
-  list: (params?: { status?: string; parent_id?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString()
-    return request<Task[]>(`/tasks${qs ? `?${qs}` : ''}`)
+  list: (params?: { status?: string; parent_id?: string; include_experiments?: boolean }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.parent_id) qs.set('parent_id', params.parent_id)
+    if (params?.include_experiments) qs.set('include_experiments', 'true')
+    const s = qs.toString()
+    return request<Task[]>(`/tasks${s ? `?${s}` : ''}`)
   },
   get: (id: string) => request<Task & { subtasks: Task[] }>(`/tasks/${id}`),
   create: (data: { title: string; description?: string; priority?: string; reference_answer?: string }) =>
@@ -217,6 +221,7 @@ export const modelsApi = {
 }
 
 import type { RegistryEntry, RegistryKind } from '../types'
+import type { BenchmarkSuiteSummary, BenchmarkSuiteDetail, DataLakeRecordSummary, DataLakeGroupRow } from '../types'
 
 export interface RegistryEntryInput {
   name: string
@@ -251,7 +256,7 @@ export const workspaceApi = {
 }
 
 // Quality Rubric Engine (E-02)
-import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, HallucinationProfile, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
+import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, FailureAggregate, HallucinationProfile, HallucinationAggregate, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
 
 type RubricInput = Pick<Rubric, 'name' | 'description' | 'applies_to' | 'is_default' | 'dimensions'>
 
@@ -359,6 +364,15 @@ export const qualityApi = {
       `/quality/records/${taskId}/evaluate-failure-modes`,
       { method: 'POST' },
     ),
+  getFailureModesAggregate: (params?: { model_used?: string; template_id?: string; failure_class?: string; suite?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.model_used) q.set('model_used', params.model_used)
+    if (params?.template_id) q.set('template_id', params.template_id)
+    if (params?.failure_class) q.set('failure_class', params.failure_class)
+    if (params?.suite) q.set('suite', params.suite)
+    const qs = q.toString()
+    return request<FailureAggregate>(`/quality/failure-modes/aggregate${qs ? `?${qs}` : ''}`)
+  },
   getHallucinations: (taskId: string) =>
     request<{ task_id: string; hallucination_profile: HallucinationProfile | null }>(
       `/quality/records/${taskId}/hallucinations`,
@@ -368,6 +382,15 @@ export const qualityApi = {
       `/quality/records/${taskId}/evaluate-hallucinations`,
       { method: 'POST' },
     ),
+  getHallucinationsAggregate: (params?: { model_used?: string; template_id?: string; category?: string; suite?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.model_used) q.set('model_used', params.model_used)
+    if (params?.template_id) q.set('template_id', params.template_id)
+    if (params?.category) q.set('category', params.category)
+    if (params?.suite) q.set('suite', params.suite)
+    const qs = q.toString()
+    return request<HallucinationAggregate>(`/quality/hallucinations/aggregate${qs ? `?${qs}` : ''}`)
+  },
   getCalibration: (taskId: string) =>
     request<{ task_id: string; calibration_profile: CalibrationProfile | null }>(
       `/quality/records/${taskId}/calibration`,
@@ -765,6 +788,43 @@ export const experimentsApi = {
     if (!res.ok) throw new ApiError(res.status, await res.text())
     return res.blob()
   },
+}
+
+// E-01 Data Lake — immutable execution-record corpus
+export interface DataLakeFilters {
+  model_used?: string
+  final_status?: string
+  template_id?: string
+  title_contains?: string
+}
+function dataLakeQs(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') q.set(k, String(v))
+  })
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+export const dataLakeApi = {
+  list: (params?: DataLakeFilters & { limit?: number; offset?: number }) =>
+    request<DataLakeRecordSummary[]>(`/data-lake/records${dataLakeQs({ ...params })}`),
+  query: (group_by: string, params?: DataLakeFilters) =>
+    request<DataLakeGroupRow[]>(`/data-lake/query${dataLakeQs({ group_by, ...params })}`),
+  getRecord: (taskId: string) =>
+    request<{ summary: DataLakeRecordSummary; record: unknown }>(`/data-lake/records/${taskId}`),
+  export: async (format: 'json' | 'parquet', params?: DataLakeFilters): Promise<Blob> => {
+    const headers = { ...(authHeaders() as Record<string, string>) }
+    const res = await fetch(`${BASE}/data-lake/export${dataLakeQs({ format, ...params })}`, { headers })
+    if (!res.ok) throw new ApiError(res.status, await res.text())
+    return res.blob()
+  },
+}
+
+// Benchmark Case Store catalogue (read-only)
+export const benchmarksApi = {
+  listSuites: () => request<BenchmarkSuiteSummary[]>('/benchmarks/suites'),
+  getSuite: (suite: string) =>
+    request<BenchmarkSuiteDetail>(`/benchmarks/suites/${encodeURIComponent(suite)}`),
 }
 
 // Health

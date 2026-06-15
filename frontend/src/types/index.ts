@@ -33,6 +33,7 @@ export interface Task {
   cost_usd?: number | null
   depends_on?: string[] | null
   log_archive_s3_path?: string | null
+  origin?: string | null
   created_at: string
   updated_at: string
   started_at?: string | null
@@ -432,6 +433,111 @@ export interface CapabilityAggregate extends CapabilityCounts {
   by_category: Record<string, CapabilityCounts>
   by_model: Record<string, CapabilityCounts>
   by_template: Record<string, CapabilityCounts>
+}
+
+// Failure Mode aggregate (E-14): per-class distributions across the workspace
+// with breakdowns by class / model / template (the "compare models by failure
+// distribution" view). Returned by GET /quality/failure-modes/aggregate.
+export interface FailureBucket {
+  runs_total: number
+  failure_runs: number
+  by_class: Record<string, number>
+  failure_rate: number | null
+  rate: Record<string, number> | null
+}
+
+export interface FailureAggregate {
+  workspace_id: string
+  filters: { model_used: string | null; template_id: string | null; failure_class: string | null; suite: string | null }
+  runs_total: number
+  failure_runs: number
+  failure_rate: number | null
+  rate: Record<string, number> | null
+  by_class: Record<string, FailureBucket>
+  by_model: Record<string, FailureBucket>
+  by_template: Record<string, FailureBucket>
+}
+
+// Hallucination aggregate (E-15): per-category checked/hallucinated rates across
+// the workspace with breakdowns by category / model / template. Returned by
+// GET /quality/hallucinations/aggregate.
+export interface HallucinationCatCount {
+  checked: number
+  hallucinated: number
+  rate: number | null
+}
+
+export interface HallucinationBucket {
+  runs_total: number
+  hallucinated_runs: number
+  hallucinated_run_rate: number | null
+  by_category: Record<string, HallucinationCatCount>
+}
+
+export interface HallucinationAggregate {
+  workspace_id: string
+  filters: { model_used: string | null; template_id: string | null; category: string | null; suite: string | null }
+  runs_total: number
+  hallucinated_runs: number
+  hallucinated_run_rate: number | null
+  by_category: Record<string, HallucinationBucket>
+  by_model: Record<string, HallucinationBucket>
+  by_template: Record<string, HallucinationBucket>
+}
+
+// Benchmark Case Store catalogue (read-only) — GET /api/benchmarks/suites[/{suite}].
+export interface BenchmarkSuiteSummary {
+  name: string
+  n_cases: number
+}
+
+export interface BenchmarkCaseInfo {
+  id: string
+  title: string
+  category: string | null
+  family: string | null
+  required_services: string[]
+  mcp_servers: string[]
+  gold: {
+    reference_answer: boolean
+    rubric: boolean
+    canonical_trajectory: boolean
+    capability_spec: boolean
+    external_eval: boolean
+  }
+}
+
+export interface BenchmarkSuiteDetail {
+  suite: string
+  n_cases: number
+  cases: BenchmarkCaseInfo[]
+}
+
+// E-01 Data Lake — immutable execution-record corpus (GET /api/data-lake/*).
+export interface DataLakeRecordSummary {
+  task_id: string
+  template_id: string | null
+  template_name: string | null
+  model_used: string | null
+  final_status: string | null
+  is_decomposition_root: boolean
+  cost_usd: number
+  input_tokens: number | null
+  output_tokens: number | null
+  duration_seconds: number | null
+  tool_call_count: number | null
+  public_dataset_opt_in: boolean
+  record_s3_path: string | null
+  created_at: string | null
+}
+
+export interface DataLakeGroupRow {
+  group: string | null
+  count: number
+  avg_cost_usd: number
+  avg_tokens: number
+  avg_duration_s: number
+  approval_rate: number
 }
 
 // Failure Mode Classifier (E-14): a multi-label set of failure classes (with
@@ -1235,6 +1341,11 @@ export interface ExperimentMatrixCell {
   config_key: string
   case_key: string
   counts: Record<string, number>
+  quality_mean?: number | null
+  trajectory_mean?: number | null
+  // Toolathlon executable verdict tally for the cell (gold.external_eval).
+  external_pass?: number
+  external_total?: number
 }
 
 export interface ExperimentDetail extends Experiment {
@@ -1294,6 +1405,12 @@ export interface OrchestratorSide {
   duration_mean?: number | null
 }
 
+export interface ExperimentRq2Cell {
+  n: number
+  cells: { pass_high: number; pass_low: number; fail_high: number; fail_low: number }
+  agreement?: number | null
+}
+
 export interface ExperimentReport {
   schema_version: number
   generated_at: string
@@ -1316,6 +1433,42 @@ export interface ExperimentReport {
       cells: Record<string, { mean?: number | null; std?: number | null; n: number }>
       weighted_score: { mean?: number | null; n: number }
     }[]
+  }
+  trajectory_heatmap: {
+    axes: string[]
+    axis_labels: Record<string, string>
+    rows: {
+      config_key: string
+      label: string
+      cells: Record<string, { mean?: number | null; std?: number | null; n: number }>
+      overall_score: { mean?: number | null; n: number }
+    }[]
+  }
+  trajectory_match: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n_scored: number
+      match_rate?: number | null
+      score_mean?: number | null
+    }[]
+  }
+  external?: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n_evaluated: number
+      n_pass: number
+      pass_rate?: number | null
+    }[]
+  }
+  rq2?: {
+    available: boolean
+    judge_threshold: number
+    overall: ExperimentRq2Cell
+    per_config: (ExperimentRq2Cell & { config_key: string; label: string })[]
   }
   pareto: {
     points: {

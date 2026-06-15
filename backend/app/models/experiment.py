@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     Float,
     ForeignKey,
     Index,
@@ -34,7 +35,12 @@ class ExperimentStatus(str, enum.Enum):
 
 class ExperimentRunStatus(str, enum.Enum):
     PENDING = "pending"
+    # Toolathlon-style executable cases (gold.external_eval) pass through two
+    # extra states the container lifecycle needs; plain cases never enter them
+    # (PENDING → RUNNING → SUCCESS/FAILED is unchanged).
+    PREPROCESSING = "preprocessing"  # seeding + preprocess container before the agent
     RUNNING = "running"
+    EVALUATING = "evaluating"  # external eval container after the agent settles
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
@@ -171,6 +177,24 @@ class ExperimentRun(Base):
     weighted_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     trajectory_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # --- Toolathlon executable evaluation (gold.external_eval) ------------------
+    # ``external_verdict`` is the executable checker's pass/fail, kept SEPARATE
+    # from ``status``: a run can be status=success (the agent finished, eval ran)
+    # with external_verdict=False (the checker failed it) — the crux of RQ2.
+    # None = no executable verdict (plain case, or eval infra error). The same
+    # ``launch_time`` is reused for preprocess + eval (date-relative checks);
+    # the *_container_id columns let a later tick re-inspect a detached container.
+    external_verdict: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    launch_time: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    preprocess_container_id: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True
+    )
+    eval_container_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    preprocess_retried: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    preprocess_started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    preprocess_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    eval_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
