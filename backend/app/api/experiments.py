@@ -197,7 +197,15 @@ async def get_experiment(
     for r in runs:
         cell = cells.setdefault(
             (r.config_key, r.case_key),
-            {"config_key": r.config_key, "case_key": r.case_key, "counts": {}, "_q": [], "_t": []},
+            {
+                "config_key": r.config_key,
+                "case_key": r.case_key,
+                "counts": {},
+                "_q": [],
+                "_t": [],
+                "external_pass": 0,
+                "external_total": 0,
+            },
         )
         cell["counts"][r.status] = cell["counts"].get(r.status, 0) + 1
         totals[r.status] = totals.get(r.status, 0) + 1
@@ -205,6 +213,10 @@ async def get_experiment(
             cell["_q"].append(float(r.weighted_score))
         if r.trajectory_score is not None:
             cell["_t"].append(float(r.trajectory_score))
+        if r.external_verdict is not None:  # Toolathlon executable verdict
+            cell["external_total"] += 1
+            if r.external_verdict:
+                cell["external_pass"] += 1
     matrix = []
     for cell in cells.values():
         q = cell.pop("_q")
