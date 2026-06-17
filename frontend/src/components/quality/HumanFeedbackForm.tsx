@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { qualityApi } from '@/api/client'
 import { MessageSquarePlus, Check } from 'lucide-react'
-import type { QualityProfile, HumanFeedback, FeedbackBand } from '@/types'
+import type { QualityProfile, TrajectoryProfile, HumanFeedback, FeedbackBand } from '@/types'
 import { cn } from '@/lib/utils'
 
 /** Human feedback collection (E-05): rate the E-02 axes 1-10, comment, submit.
@@ -36,6 +36,7 @@ const ACCENT: Record<FeedbackBand, string> = {
 interface Props {
   taskId: string
   profile: QualityProfile | null
+  trajectoryProfile?: TrajectoryProfile | null
   existing: HumanFeedback | null
   /** Start expanded (e.g. the calibration queue, where the form is the whole point). */
   defaultOpen?: boolean
@@ -43,13 +44,20 @@ interface Props {
   onSaved?: () => void
 }
 
-export default function HumanFeedbackForm({ taskId, profile, existing, defaultOpen = false, onSaved }: Props) {
+export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, existing, defaultOpen = false, onSaved }: Props) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(defaultOpen)
 
-  // Dimensions to rate: the rubric axes the judge evaluated. Seed from existing
-  // human feedback, else default to the judge's score (one-click agreement).
-  const dims = profile?.dimensions ?? []
+  // Dimensions to rate: the quality (E-02) axes + the process/trajectory (E-07)
+  // axes the judges evaluated. Seed from existing human feedback, else default to
+  // the judge's score (one-click agreement). Keys never collide across the two.
+  const qDims = (profile?.dimensions ?? []).map((d) => ({ key: d.key, name: d.name, score: d.score ?? null }))
+  const tDims = (trajectoryProfile?.axes ?? []).map((a) => ({ key: a.key, name: a.name, score: a.score ?? null }))
+  const groups = [
+    { label: 'Quality · outcome (E-02)', dims: qDims },
+    { label: 'Process · trajectory (E-07)', dims: tDims },
+  ].filter((g) => g.dims.length > 0)
+  const dims = [...qDims, ...tDims]
   const seedScore = (key: string, judge: number | null) => {
     const prev = existing?.dimensions.find((d) => d.key === key)
     if (prev) return prev.score
@@ -105,10 +113,13 @@ export default function HumanFeedbackForm({ taskId, profile, existing, defaultOp
       </div>
 
       {dims.length === 0 ? (
-        <p className="text-xs text-gray-400">Evaluate quality first to rate dimensions.</p>
+        <p className="text-xs text-gray-400">Evaluate quality or trajectory first to rate dimensions.</p>
       ) : (
-        <div className="space-y-3">
-          {dims.map((d) => {
+        <div className="space-y-4">
+          {groups.map((g) => (
+            <div key={g.label} className="space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{g.label}</div>
+              {g.dims.map((d) => {
             const score = scores[d.key]
             const b = band(score)
             return (
@@ -149,7 +160,9 @@ export default function HumanFeedbackForm({ taskId, profile, existing, defaultOp
                 />
               </div>
             )
-          })}
+              })}
+            </div>
+          ))}
         </div>
       )}
 
