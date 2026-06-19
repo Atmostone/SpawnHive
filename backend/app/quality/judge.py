@@ -129,10 +129,14 @@ def _result_context(task: Task) -> str:
 # Caps for deliverable excerpts appended to the judge context (SPA-47): agents
 # often save the actual deliverable to a file and only describe it in
 # result_summary — without the file contents the judge scores the description,
-# not the work.
-_FILE_CHAR_CAP = 4000
-_FILES_TOTAL_CHAR_CAP = 12000
-_FILES_MAX = 5
+# not the work. Raised in SPA-71 (binary deliverables now arrive as converted
+# Markdown, so a full short report/spreadsheet should fit). Cost note: this
+# context is built once and reused for EVERY judge dimension, so each +char goes
+# into N dimension calls — 24k chars (~6k tokens) is a deliberate ceiling. If
+# this proves costly, promote these to a settings-backed override.
+_FILE_CHAR_CAP = 8000
+_FILES_TOTAL_CHAR_CAP = 24000
+_FILES_MAX = 8
 
 
 async def _deliverable_context(task: Task) -> str:
@@ -143,6 +147,7 @@ async def _deliverable_context(task: Task) -> str:
     files = [str(f) for f in (task.result_files or [])]
     if not files:
         return ""
+    from app.storage.artifact_markdown import is_convertible, result_file_markdown
     from app.storage.minio_client import read_result_file_text
 
     parts: list[str] = []
@@ -152,19 +157,31 @@ async def _deliverable_context(task: Task) -> str:
         if total >= _FILES_TOTAL_CHAR_CAP:
             skipped += 1
             continue
+        name = path.split("/", 2)[-1]  # strip the results/<task_id>/ prefix
         try:
             text = await asyncio.to_thread(read_result_file_text, path)
         except Exception as e:  # noqa: BLE001 — judge must run without storage
             logger.warning(f"judge: could not read result file {path}: {e}")
             skipped += 1
             continue
-        name = path.split("/", 2)[-1]  # strip the results/<task_id>/ prefix
-        if text is None:
+        # Binary (text is None) OR a known document type whose 16 KB partial text
+        # read is truncated/garbled (.csv/.json/.docx/…): convert to Markdown for
+        # a clean, full-file excerpt (SPA-71). Falls back to the note on failure.
+        body = text
+        if text is None or is_convertible(name):
+            try:
+                md = await asyncio.to_thread(result_file_markdown, path)
+            except Exception as e:  # noqa: BLE001 — conversion must not break eval
+                logger.warning(f"judge: could not convert result file {path}: {e}")
+                md = None
+            if md and md.strip():
+                body = md
+        if body is None:
             parts.append(f"--- {name} ---\n(binary file, content not shown)")
             continue
-        excerpt = text[: min(_FILE_CHAR_CAP, _FILES_TOTAL_CHAR_CAP - total)]
+        excerpt = body[: min(_FILE_CHAR_CAP, _FILES_TOTAL_CHAR_CAP - total)]
         total += len(excerpt)
-        suffix = "\n…[truncated]" if len(text) > len(excerpt) else ""
+        suffix = "\n…[truncated]" if len(body) > len(excerpt) else ""
         parts.append(f"--- {name} ---\n{excerpt}{suffix}")
     skipped += max(0, len(files) - _FILES_MAX)
     if skipped:

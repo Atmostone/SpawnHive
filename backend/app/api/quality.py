@@ -712,17 +712,34 @@ async def get_review_context(
     the calibration UI show what is being rated, not just the rubric axes."""
     import asyncio
 
+    from app.storage.artifact_markdown import result_file_markdown
     from app.storage.minio_client import read_result_file_text
 
     task = await _get_owned_task(db, task_id, workspace)
-    files = []
-    for path in [str(f) for f in (task.result_files or [])][:6]:
+
+    async def _one(path: str) -> dict:
+        """Text excerpt + converted Markdown for one deliverable. ``binary`` keeps
+        its meaning (no text excerpt); ``markdown`` (SPA-71) is purely additive so
+        the human sees converted docx/pdf/xlsx/etc. content, not just a note."""
         name = path.split("/", 2)[-1]  # strip the results/<task_id>/ prefix
-        try:
-            text = await asyncio.to_thread(read_result_file_text, path, 8000)
-        except Exception:
-            text = None
-        files.append({"name": name, "text": text, "binary": text is None})
+
+        async def _text():
+            try:
+                return await asyncio.to_thread(read_result_file_text, path, 8000)
+            except Exception:
+                return None
+
+        async def _md():
+            try:
+                return await asyncio.to_thread(result_file_markdown, path)
+            except Exception:
+                return None
+
+        text, markdown = await asyncio.gather(_text(), _md())
+        return {"name": name, "text": text, "binary": text is None, "markdown": markdown}
+
+    paths = [str(f) for f in (task.result_files or [])][:6]
+    files = list(await asyncio.gather(*[_one(p) for p in paths])) if paths else []
     return {
         "task_id": task_id,
         "title": task.title,

@@ -239,6 +239,69 @@ async def test_deliverable_file_contents_reach_judge(db_session, default_model, 
     assert "(binary file, content not shown)" in seen["context"]
 
 
+async def test_binary_deliverable_reaches_judge_as_markdown(
+    db_session, default_model, monkeypatch
+):
+    # SPA-71: a binary deliverable (docx/pdf/xlsx) used to show "(binary file,
+    # content not shown)"; now it is converted to Markdown and reaches the judge.
+    await _flush(db_session, _rubric("R", is_default=True, dimensions=[_dim("a")]))
+    task = Task(
+        title="write report", status=TaskStatus.DONE.value, workspace_id=WS,
+        result_summary="Report saved.",
+        result_files=["results/tid/report.docx", "results/tid/logo.png"],
+    )
+    await _flush(db_session, task)
+
+    import app.storage.minio_client as minio_mod
+    monkeypatch.setattr(minio_mod, "read_result_file_text", lambda path, max_bytes=16_384: None)
+
+    import app.storage.artifact_markdown as md_mod
+
+    def fake_md(path, max_bytes=md_mod._MAX_CONVERT_BYTES):
+        if path.endswith("report.docx"):
+            return "# Quarterly Report\nThe Q3 launch moves to Friday."
+        return None  # logo.png is genuinely unconvertible
+
+    monkeypatch.setattr(md_mod, "result_file_markdown", fake_md)
+
+    seen = {}
+
+    class _Capture(_FakeProvider):
+        async def acompletion(self, **kwargs):
+            seen["context"] = kwargs["messages"][1]["content"]
+            return await super().acompletion(**kwargs)
+
+    monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: _Capture(score=8))
+    profile = await judge_mod.evaluate_task_quality(db_session, task, commit=False)
+    assert profile is not None
+    assert "The Q3 launch moves to Friday." in seen["context"]
+    assert "report.docx" in seen["context"]
+    assert "(binary file, content not shown)" in seen["context"]  # logo.png
+
+
+async def test_conversion_failure_does_not_break_eval(db_session, default_model, monkeypatch):
+    # SPA-71: the converter raising must degrade to the note, not break the eval.
+    await _flush(db_session, _rubric("R", is_default=True, dimensions=[_dim("a")]))
+    task = Task(
+        title="x", status=TaskStatus.DONE.value, workspace_id=WS,
+        result_summary="done", result_files=["results/tid/report.docx"],
+    )
+    await _flush(db_session, task)
+
+    import app.storage.minio_client as minio_mod
+    monkeypatch.setattr(minio_mod, "read_result_file_text", lambda path, max_bytes=16_384: None)
+
+    import app.storage.artifact_markdown as md_mod
+
+    def boom(path, max_bytes=md_mod._MAX_CONVERT_BYTES):
+        raise RuntimeError("converter exploded")
+
+    monkeypatch.setattr(md_mod, "result_file_markdown", boom)
+    monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: _FakeProvider(score=7))
+    profile = await judge_mod.evaluate_task_quality(db_session, task, commit=False)
+    assert profile is not None and profile["weighted_score"] == 7.0
+
+
 async def test_storage_failure_does_not_break_eval(db_session, default_model, monkeypatch):
     await _flush(db_session, _rubric("R", is_default=True, dimensions=[_dim("a")]))
     task = Task(
