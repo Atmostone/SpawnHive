@@ -130,7 +130,25 @@ class LiteLLMProvider(LLMProvider):
     ) -> Any:
         import litellm
 
-        prefixed = model if "/" in model else f"openai/{model}"
+        # Some trusted custom endpoints serve certs from a CA not in the container
+        # trust store (e.g. GigaChat behind the Russian Минцифры root CA) — skip
+        # cert verification by default on this stand. Re-enable with LLM_SSL_VERIFY=1.
+        if os.environ.get("LLM_SSL_VERIFY", "0").lower() not in ("1", "true", "yes"):
+            litellm.ssl_verify = False
+
+        # Our providers are custom OpenAI-compatible endpoints configured with an
+        # explicit api_base. Route those through the openai adapter and send the
+        # model name VERBATIM — model names may contain '/' (e.g. server-prefixed
+        # "giga-osa/qwen3.5-..." or "evo-msk02//models/..."), which the bare
+        # "provider/model" heuristic would misread as a litellm provider and fail
+        # with "LLM Provider NOT provided". Without an api_base, fall back to the
+        # litellm provider/model convention.
+        call_kwargs = dict(kwargs)
+        if call_kwargs.get("api_base") and not call_kwargs.get("custom_llm_provider"):
+            call_kwargs["custom_llm_provider"] = "openai"
+            prefixed = model
+        else:
+            prefixed = model if "/" in model else f"openai/{model}"
 
         async def _call():
             return await litellm.acompletion(
@@ -139,7 +157,7 @@ class LiteLLMProvider(LLMProvider):
                 tools=tools,
                 tool_choice=tool_choice,
                 stream=stream,
-                **kwargs,
+                **call_kwargs,
             )
 
         sem = _get_semaphore(kwargs.get("api_base"), kwargs.get("api_key"))
