@@ -16,6 +16,9 @@ tiktoken
 python-frontmatter
 pypdf
 python-docx
+python-pptx
+openpyxl
+icalendar
 apscheduler
 bcrypt
 pyjwt

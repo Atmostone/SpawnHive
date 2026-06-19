@@ -235,6 +235,9 @@ export interface ReviewFile {
   name: string
   text: string | null
   binary: boolean
+  // Converted Markdown of the deliverable (SPA-71): docx/pdf/pptx/xlsx/csv/ics/
+  // json rendered readably. null when unconvertible/failed — UI falls back to text.
+  markdown?: string | null
 }
 
 export interface ReviewContext {

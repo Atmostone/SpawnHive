@@ -75,6 +75,37 @@ def read_result_file_text(s3_path: str, max_bytes: int = 16_384) -> str | None:
     return data.decode("utf-8", errors="replace")
 
 
+# Hard ceiling on full-file reads handed to the artifact→Markdown converter
+# (SPA-71): guards against OOM / zip-bomb artifacts (docx/pptx/xlsx are zip
+# containers that can decompress huge). 25 MiB.
+_MAX_CONVERT_BYTES = 25 * 1024 * 1024
+
+
+def read_result_file_bytes(s3_path: str, max_bytes: int = _MAX_CONVERT_BYTES) -> bytes | None:
+    """Read a result file as raw bytes for conversion (SPA-71).
+
+    Returns ``None`` when the object is larger than ``max_bytes`` (refuse to
+    buffer huge/zip-bomb artifacts) — the caller degrades to a note. Unlike
+    ``read_result_file_text`` this is a full read with **no** NUL-byte check:
+    binary container formats (docx/pptx/xlsx) must arrive intact.
+    """
+    client = get_minio_client()
+    try:
+        stat = client.stat_object(BUCKET, s3_path)
+        if stat.size is not None and stat.size > max_bytes:
+            return None
+    except Exception:
+        # stat failed — fall through and let get_object surface the real error,
+        # but bound the read with ``length`` so a missing stat can't OOM us.
+        pass
+    obj = client.get_object(BUCKET, s3_path, offset=0, length=max_bytes)
+    try:
+        return obj.read()
+    finally:
+        obj.close()
+        obj.release_conn()
+
+
 def upload_log_archive(task_id: str, content: bytes) -> str:
     """Upload compacted agent log to MinIO. Returns the s3 path."""
     client = get_minio_client()
