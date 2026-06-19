@@ -226,6 +226,31 @@ async def _process_webhook(
             task.token_usage = data.get("token_usage", {})
             task.cost_usd = calculate_cost(task, task.token_usage)
 
+            # A benchmark run that ends in `failed` (most often a max-iteration
+            # cap-hit) has usually already written real deliverables to the workspace
+            # root. Harvest them so they show up in the UI and the judge can grade
+            # what is there — the experiment runner judges incomplete benchmark runs
+            # when `judge_incomplete_runs` is set (SPA-70 / cap-hit fix). Best-effort.
+            if _is_benchmark(task):
+                if data.get("result_summary"):
+                    task.result_summary = data.get("result_summary")
+                try:
+                    from app.storage.minio_client import upload_task_results_root
+
+                    settings = get_settings()
+                    workspace_dir = os.path.join(
+                        settings.data_dir, "workspaces", str(task.id)
+                    )
+                    s3_paths = upload_task_results_root(str(task.id), workspace_dir)
+                    if s3_paths:
+                        task.result_files = s3_paths
+                        logger.info(
+                            f"Harvested {len(s3_paths)} deliverable(s) from failed "
+                            f"benchmark task {task.id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"MinIO harvest on failure failed: {e}")
+
             if not _is_benchmark(task) and task.retry_count < task.max_retries:
                 task.retry_count += 1
                 task.status = TaskStatus.READY.value

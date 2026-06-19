@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # Toolathlon executable-eval cases (gold.external_eval) run on a dedicated image
 # with the case's MCP servers force-enabled, and a higher iteration ceiling.
 TOOLATHLON_AGENT_IMAGE = "spawnhive-agent-toolathlon:latest"
-TOOLATHLON_MAX_ITERATIONS = 100
+TOOLATHLON_MAX_ITERATIONS = 150
 # A preprocess still running after this many seconds is a kept-alive mock server
 # (the agent runs against it); we proceed and remove it at the eval settle.
 PREPROCESS_MOCK_GRACE_S = 180
@@ -999,8 +999,20 @@ async def _evaluate_child(
     # still runs below (no ground truth for the process).
     verifiable = _run_checker(case, eval_config)
     audit_outcome = bool((eval_config or {}).get("audit_outcome_judge_on_verifiable"))
+    # Judge-mode benchmarks (no executable checker) still produce real deliverables
+    # when the agent run ends non-cleanly — most often a max-iteration cap-hit that
+    # reports ``failed``. Grading only _SUCCESS_TASK runs zeroes out that work for a
+    # harness reason, not a capability one, and biases the cross-model comparison
+    # (cap-hits land hardest on slow/verbose models). With ``judge_incomplete_runs``
+    # set, score non-verifiable cells regardless of the agent's terminal status; the
+    # run still records status=FAILED (it didn't finish cleanly) but carries an
+    # outcome/trajectory score — exactly the outcome-vs-trajectory split RQ2 studies.
+    judge_incomplete = (
+        bool((eval_config or {}).get("judge_incomplete_runs")) and not verifiable
+    )
+    should_eval = task.status in _SUCCESS_TASK or judge_incomplete
     if (
-        task.status in _SUCCESS_TASK
+        should_eval
         and rec.quality_profile is None
         and (not verifiable or audit_outcome)
     ):
@@ -1013,7 +1025,7 @@ async def _evaluate_child(
             await db.rollback()
             logger.warning(f"experiment: outcome eval failed for {task.id}: {e}")
     if (
-        task.status in _SUCCESS_TASK
+        should_eval
         and (eval_config or {}).get("trajectory", True)
         and rec.trajectory_profile is None
     ):
