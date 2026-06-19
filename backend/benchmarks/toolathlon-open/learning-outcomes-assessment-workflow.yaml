@@ -1,0 +1,72 @@
+id: learning-outcomes-assessment-workflow
+suite: toolathlon-open
+input:
+  title: Learning Outcomes Assessment Workflow
+  description: |
+    Your educational institution needs to establish a systematic workflow for assessing student learning outcomes and using data to drive curriculum improvements. The first phase involves collecting detailed information about course structure and learning objectives. Retrieve course modules, learning objectives, and assessment methods from the learning management system. Document the alignment between each assessment and its corresponding learning objective to ensure comprehensive coverage.
+
+    In the second phase, you will collect assessment data from students through multiple mechanisms. Design a structured survey to gather student self-assessments of their learning, satisfaction with instruction, and feedback on course design, and save the survey questions as a local document. Collect objective assessment scores from various assignments, quizzes, and projects documented in the learning management system. Compile both quantitative scores and qualitative feedback into a structured dataset.
+
+    The third phase requires performing detailed analysis of learning outcomes achievement. Calculate the percentage of students who achieved mastery in each learning objective based on the assessment data. Perform item analysis on assessment tools to identify which items are effectively measuring student learning and which may need revision. Segment analysis by student demographics, instructional method, and content area to identify patterns and disparities.
+
+    In the fourth phase, you will create visual dashboards and summary reports in spreadsheet and document formats. Design charts showing achievement rates by learning objective, demographic group, and assessment method. Create summary statistics and trend analyses. Prepare professional presentations showing assessment results to academic stakeholders.
+
+    The fifth phase involves synthesizing findings into actionable improvement recommendations. Analyze relationships between instructional approaches and student outcomes to identify high-impact teaching strategies. Identify curriculum gaps and areas where learning objectives may need refinement. Document evidence-based recommendations for program improvements with supporting data and rationale.
+
+    The sixth phase requires scheduling curriculum review meetings with faculty and academic leadership. Save a calendar invitation as a local .ics file for each curriculum review meeting, and save an email draft that announces the meetings and references all assessment reports and analysis documents. Facilitate discussions about implementation of recommended improvements and establish timelines for curriculum revisions and monitoring by documenting them.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Assessment_Alignment.xlsx — spreadsheet documenting course modules, learning objectives, assessment methods, and the alignment between each assessment and its corresponding learning objective.
+    - Student_Survey.md — the structured survey questions for collecting student self-assessments of learning, satisfaction with instruction, and feedback on course design.
+    - Assessment_Dataset.xlsx — the compiled structured dataset combining quantitative assessment scores (from assignments, quizzes, and projects) and qualitative feedback.
+    - Outcomes_Analysis.xlsx — analysis of learning outcomes achievement: percentage of students achieving mastery per learning objective, item analysis of assessment tools, and segmentation by demographics, instructional method, and content area.
+    - Assessment_Dashboard.xlsx — visual dashboard with charts of achievement rates by learning objective, demographic group, and assessment method, plus summary statistics and trend analyses.
+    - Assessment_Report.docx — professional summary report / presentation of assessment results for academic stakeholders, including the evidence-based improvement recommendations, identified curriculum gaps, high-impact teaching strategies, and supporting data and rationale.
+    - Curriculum_Review_Meeting.ics — calendar invitation file(s) for the curriculum review meeting(s) with faculty and academic leadership.
+    - Meeting_Invitation_Email.eml — email draft (From/To/Subject/Body) announcing the curriculum review meetings and referencing all assessment reports and analysis documents.
+gold:
+  capability_spec:
+    required_tools:
+    - canvas
+    - excel
+    - word
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/learning-outcomes-assessment-workflow/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/learning-outcomes-assessment-workflow/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/learning-outcomes-assessment-workflow/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - canvas
+  - excel
+  - word
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: learning
+  needed_mcp_servers:
+  - google_forms
+  - canvas
+  - notion
+  - excel
+  - word
+  - google_calendar
+  - emails
+  - terminal
+  removed_servers:
+  - google_forms
+  - notion
+  - google_calendar
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/learning-outcomes-assessment-workflow
+  license: Apache-2.0
+  redirect: |
+    google_forms survey -> Student_Survey.md (form questions saved locally; LIVE collection of student
+    answers is not localizable and that requirement is dropped). notion report -> Assessment_Report.docx
+    (via word). google_calendar invite -> Curriculum_Review_Meeting.ics (written via terminal). emails send
+    -> Meeting_Invitation_Email.eml draft. Inputs from canvas (LMS) kept verbatim; excel/word kept as file
+    producers; terminal kept as text-file writer for .ics/.eml/.md.

@@ -110,19 +110,30 @@ async def _resolve_judge_model(db: AsyncSession, workspace_id):
     return None
 
 
-def _result_context(task: Task) -> str:
-    summary = (task.result_summary or "").strip()
-    if len(summary) > _RESULT_CHAR_CAP:
-        summary = summary[:_RESULT_CHAR_CAP] + "\n…[truncated]"
+def _result_context(task: Task, *, include_summary: bool = True) -> str:
     files = [str(f) for f in (task.result_files or [])]
     parts = [
         f"Task title: {task.title}",
         f"Task description: {task.description or '(none)'}",
         f"Result files: {', '.join(files) if files else '(none)'}",
         "",
-        "Result:",
-        summary or "(empty)",
     ]
+    if include_summary:
+        summary = (task.result_summary or "").strip()
+        if len(summary) > _RESULT_CHAR_CAP:
+            summary = summary[:_RESULT_CHAR_CAP] + "\n…[truncated]"
+        parts += ["Result:", summary or "(empty)"]
+    else:
+        # files_only (judge-mode open-ended runs): the agent's self-reported
+        # summary is the over-credit / echo vector — the judge that reads "I built
+        # a comprehensive report" anchors high even on a thin or absent file. Omit
+        # it so the score reflects the deliverables themselves, not the agent's
+        # claims about them. No files → the judge sees an empty deliverable and
+        # scores low, which is correct (the agent produced no artifact).
+        parts += [
+            "Result: (the agent's self-reported summary is withheld by design — "
+            "grade ONLY the deliverable file contents below)",
+        ]
     return "\n".join(parts)
 
 
@@ -319,6 +330,7 @@ class _InlineRubric:
 async def evaluate_task_quality(
     db: AsyncSession, task: Task, *, commit: bool = True,
     rubric_override: dict | None = None,
+    files_only: bool = False,
 ) -> dict | None:
     """Score ``task`` against its rubric and write the profile to its quality record.
 
@@ -326,7 +338,10 @@ async def evaluate_task_quality(
     Re-running overwrites any existing profile (intentional, for on-demand re-judge).
     ``rubric_override`` (an inline ``{name?, dimensions: [...]}`` dict) takes
     precedence over the task's resolved rubric — used by experiment runs whose
-    dataset case carries its own rubric.
+    dataset case carries its own rubric. ``files_only`` withholds the agent's
+    self-reported summary from the judge context so the score reflects the
+    deliverable files alone (judge-mode open-ended runs — avoids self-report
+    over-credit; gated by ``eval_config.outcome_files_only``).
     """
     if rubric_override and isinstance(rubric_override.get("dimensions"), list):
         rubric = _InlineRubric(
@@ -352,7 +367,7 @@ async def evaluate_task_quality(
         "score_clustering": mit_flags["score_clustering"],
     }
 
-    context = _result_context(task) + await _deliverable_context(task)
+    context = _result_context(task, include_summary=not files_only) + await _deliverable_context(task)
     dims = list(rubric.dimensions or [])
 
     from app.quality.reference import evaluate_reference_dimension

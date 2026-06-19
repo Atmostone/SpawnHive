@@ -1,0 +1,69 @@
+id: yt-veritasium-arxiv-survey-word-gcal-email
+suite: toolathlon-open
+input:
+  title: YT Veritasium Arxiv Survey Word Gcal Email
+  description: |
+    You are a science communicator working on a comprehensive survey that bridges popular science video content with peer-reviewed academic research. Your goal is to identify the most-viewed science videos from a prominent educational channel, find related academic papers for each major topic covered, write a detailed survey document connecting the two, schedule a team presentation event, and notify key collaborators.
+
+    Start by retrieving the channel information for Veritasium, a well-known science and mathematics education channel. List its most popular videos sorted by view count and retrieve the top ten. For each video, get the full details including title, description, view count, publication date, and duration. From these ten videos, identify five distinct science topics such as quantum physics, mathematical paradoxes, evolutionary biology, cognitive science, and fluid dynamics or engineering physics.
+
+    For each of the five identified topics, search the local academic paper database for related papers. Use the core scientific concept from the video as your search query. For example, search for "quantum decoherence" or "many-worlds" for a quantum physics video, "evolutionary game theory" for a biology video, "cognitive biases" for a psychology video, "mathematical paradoxes infinity" for a mathematics video, and "fluid dynamics biomechanics" for an engineering physics video. Retrieve full details including authors, abstract, and publication year for at least one paper per topic, aiming for a total of seven papers across all five topics.
+
+    Create a Word document named Science_Communication_Survey.docx in your workspace. The document must begin with a top-level heading titled "Bridging Popular Science and Academic Research: A Veritasium Survey". Add an Executive Summary section as the first content section, containing at least two paragraphs summarizing the purpose of the survey, the methodology used for matching videos to papers, and the key findings. For each of the five science topics, add a dedicated section with a clear heading stating the topic name. Within each section write at least two paragraphs: the first describing the relevant Veritasium video including its title, core concept explained, and approximate view count; the second linking that concept to the academic paper or papers you found, citing the paper title and lead author and explaining how the academic research supports or expands on the video content. After all five topic sections, add a Conclusion section summarizing the value of science communication and a References section listing all seven papers with author names, paper titles, and publication years.
+
+    The total document should have substantial content across all sections, with academic language appropriate for a research survey.
+
+    Check the shared calendar for any existing events in April 2026. Then create a local iCalendar file Survey_Seminar_Events.ics in your workspace containing two events: the first titled "Science Communication Seminar" on April 10, 2026, from 14:00 to 16:00, noting that this is when the survey findings will be presented to the team; the second a preparatory event titled "Survey Review Session" on April 3, 2026, from 10:00 to 11:00, one week before the seminar, for the team to review the draft document together. Each VEVENT must include the SUMMARY, DTSTART, DTEND, and DESCRIPTION fields.
+
+    Save a local email draft file Survey_Ready_Email.eml addressed to seminar@science.edu with subject "Science Communication Survey - Ready for Review" and a body summarizing the survey completion, the five topics covered, the seminar date, and asking them to review the attached document; include From, To, Subject, and Body. Save a second local email draft file Collaboration_Invitation_Email.eml addressed to collab@research.org with subject "Collaboration Invitation - Veritasium Science Survey" inviting the recipient to co-present at the seminar and contribute additional paper recommendations; include From, To, Subject, and Body.
+
+    Configuration details are in survey_config.json and the research methodology guide is in research_guide.md, both in your workspace.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Science_Communication_Survey.docx — the full survey Word document: top-level title heading, Executive Summary, five topic sections (each with a video-description paragraph and a paper-linking paragraph), Conclusion, and References listing all seven papers with authors, titles, and years.
+    - Survey_Seminar_Events.ics — an iCalendar file with two VEVENTs: "Science Communication Seminar" (April 10, 2026, 14:00-16:00) and "Survey Review Session" (April 3, 2026, 10:00-11:00), each with SUMMARY, DTSTART, DTEND, and DESCRIPTION.
+    - Survey_Ready_Email.eml — email draft to seminar@science.edu, subject "Science Communication Survey - Ready for Review", with From/To/Subject/Body summarizing completion, the five topics, the seminar date, and the review request.
+    - Collaboration_Invitation_Email.eml — email draft to collab@research.org, subject "Collaboration Invitation - Veritasium Science Survey", with From/To/Subject/Body inviting co-presentation and additional paper recommendations.
+gold:
+  capability_spec:
+    required_tools:
+    - youtube
+    - arxiv_local
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yt-veritasium-arxiv-survey-word-gcal-email/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yt-veritasium-arxiv-survey-word-gcal-email/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/yt-veritasium-arxiv-survey-word-gcal-email/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - youtube
+  - arxiv_local
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: youtube
+  needed_mcp_servers:
+  - youtube
+  - arxiv_local
+  - word
+  - google_calendar
+  - emails
+  removed_servers:
+  - google_calendar
+  - emails
+  added_servers:
+  - filesystem
+  task_path: tasks/finalpool/yt-veritasium-arxiv-survey-word-gcal-email
+  license: Apache-2.0
+  redirect: |
+    The two Google Calendar events were redirected to a single local iCalendar
+    file Survey_Seminar_Events.ics (two VEVENTs). The two outbound emails were
+    redirected to local draft files Survey_Ready_Email.eml and
+    Collaboration_Invitation_Email.eml. Dropped google_calendar and emails
+    (output-only sinks); added filesystem to write the .ics and .eml files.
+    Word doc and YouTube/arXiv data sources are unchanged.

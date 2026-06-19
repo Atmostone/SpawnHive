@@ -1,0 +1,62 @@
+id: scholarly-arxiv-survey-word-notion-gcal
+suite: toolathlon-open
+input:
+  title: Scholarly ArXiv LLM Reasoning Survey Word Notion GCal
+  description: |
+    I lead a research group and we're starting a deep dive into reasoning methods for large language models. There's a PDF in your workspace called Survey_Guidelines.pdf that outlines the structure we want, and a guide.md with some notes on how to organize the taxonomy and comparison criteria.
+
+    I need you to search for recent papers on chain-of-thought prompting, tree-of-thought reasoning, self-consistency decoding, step-by-step verification, and automatic chain-of-thought generation. There should be several relevant papers in the database. Download and read through them to understand the key contributions and methodologies.
+
+    Once you've reviewed the papers, write a comprehensive survey document called LLM_Reasoning_Survey.docx. It should follow the structure in the guidelines: start with an abstract summarizing the survey, then an introduction to the field, a background section, a taxonomy of methods section broken into subsections for each reasoning approach, a comparative analysis section with a table comparing the methods, a section on open challenges, and a conclusion. Each method subsection should reference the corresponding paper and summarize the key ideas, methodology, and results. Make sure you cover at least five distinct reasoning methods.
+
+    Also, build a paper-tracking table to record these papers, and save it as a local Word document called Reasoning_Papers.docx. The document should contain a single table with one column per property: Title, Authors, Year, Method, Key_Contribution, and Cited_By. Add one row for each relevant reasoning paper you found (at least five rows plus a header row).
+
+    Finally, schedule five reading group sessions for the week of March 16 through March 20, 2026, and save them as a single local iCalendar file called Reading_Group.ics. Each session should be one hour long and cover one paper. Title them "Reading Group: [short topic]" where the topic reflects the paper being discussed, like "Reading Group: Chain-of-Thought" or "Reading Group: Tree-of-Thought". Schedule them from 10:00 to 11:00 each day, Monday through Friday. The .ics file must contain five VEVENT entries with the correct SUMMARY, DTSTART, and DTEND for each day.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - LLM_Reasoning_Survey.docx — full survey with abstract, introduction, background, a taxonomy-of-methods section with one subsection per reasoning approach (at least five distinct methods, each referencing and summarizing its paper), a comparative-analysis section containing a comparison table, open challenges, and a conclusion.
+    - Reasoning_Papers.docx — a Word document with a single table tracking the papers, columns Title, Authors, Year, Method, Key_Contribution, Cited_By, and one row per relevant paper (at least five paper rows).
+    - Reading_Group.ics — an iCalendar file with five VEVENTs, one per weekday March 16–20, 2026, each 10:00–11:00, titled "Reading Group: [short topic]" reflecting the paper discussed.
+gold:
+  capability_spec:
+    required_tools:
+    - scholarly
+    - arxiv_local
+    - word
+    - terminal
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/scholarly-arxiv-survey-word-notion-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/scholarly-arxiv-survey-word-notion-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/scholarly-arxiv-survey-word-notion-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - scholarly
+  - arxiv_local
+  - word
+  - terminal
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: scholarly
+  needed_mcp_servers:
+  - scholarly
+  - arxiv_local
+  - word
+  - notion
+  - google_calendar
+  - terminal
+  - filesystem
+  removed_servers:
+  - notion
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/scholarly-arxiv-survey-word-notion-gcal
+  license: Apache-2.0
+  redirect: |
+    Notion "Reasoning Papers" database (output sink) -> Reasoning_Papers.docx via the word server (a single table with the same properties as columns). Dropped notion.
+    Google Calendar reading-group events (output sink) -> Reading_Group.ics iCalendar file written via filesystem/terminal. Dropped google_calendar.
+    The survey LLM_Reasoning_Survey.docx was already a local Word file (kept). Inputs Survey_Guidelines.pdf and guide.md are local mocks, untouched.

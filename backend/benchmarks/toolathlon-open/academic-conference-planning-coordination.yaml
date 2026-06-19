@@ -1,0 +1,80 @@
+id: academic-conference-planning-coordination
+suite: toolathlon-open
+input:
+  title: Academic Conference Planning Coordination
+  description: |
+    Your academic conference organizing committee must coordinate all aspects of a major international conference to ensure excellent participant experience and successful scientific program. The first phase involves organizing the conference information and participant submissions. Gather all paper submissions received during the call for papers period. Create a comprehensive database of all submissions with author information, paper titles, abstracts, and subject areas. Document reviewer assignments and track which reviewers have been assigned to each paper. Set up systems to track reviewer acceptance and review completion status. Save this submissions database as a local file Submissions_Database.xlsx in your workspace, with columns for author information, paper titles, abstracts, subject areas, assigned reviewers, and reviewer acceptance / review completion status.
+
+    In the second phase, you will coordinate the peer review process with all assigned reviewers. Prepare and send detailed reviewer instructions and review forms to all appointed reviewers. Establish and communicate review deadlines and expectations. Monitor reviewer progress and send reminders to reviewers who have not completed assigned reviews. Aggregate all review scores and feedback for each submission. Calculate average scores and perform consensus analysis on reviewer ratings. Instead of sending the reviewer instructions and review forms, save the reviewer instructions together with the full list of review-form questions as a local file Reviewer_Instructions_And_Form.md (including the review deadlines and expectations). Save the reminder messages for reviewers who have not completed assigned reviews as local email draft files Reviewer_Reminders.md (one section per reviewer, each with From / To / Subject / Body). Save the aggregated review scores, feedback, average scores, and consensus analysis for each submission as a local file Review_Aggregation.xlsx.
+
+    The third phase requires analyzing submissions and reviews to determine acceptance decisions. Calculate acceptance metrics showing overall acceptance rate and acceptance by topic area. Analyze reviewer comments to identify areas of strong consensus and areas of divergence. Make acceptance decisions ensuring appropriate balance across research areas and speaker diversity. Prepare notification communications for authors with decisions and feedback. Save the acceptance analysis as a local document Acceptance_Decisions.docx covering the overall acceptance rate, acceptance by topic area, the consensus / divergence analysis of reviewer comments, the acceptance decisions with their balance across research areas and speaker diversity, and the per-author decision-and-feedback text that will be communicated.
+
+    In the fourth phase, you will organize the conference program and schedule. Create a spreadsheet showing all accepted presentations with speaker information, presentation times, and session assignments. Optimize session scheduling to minimize conflicts and group related presentations into coherent thematic sessions. Arrange speaker presentation order within sessions and schedule breaks. Coordinate with speakers regarding presentation times and technical requirements. Save this schedule as a local file Conference_Schedule.xlsx in your workspace showing all accepted presentations with speaker information, presentation times, session assignments, presentation order within sessions, scheduled breaks, and any technical requirements coordinated with speakers.
+
+    The fifth phase involves preparing all attendee communications and conference logistics documentation. Create the conference program document showing complete schedule, speaker bios, paper abstracts, and venue information. Prepare registration instructions and logistics information for attendees including travel, accommodations, and parking. Generate orientation materials explaining conference navigation and participation options. Save the conference program document as a local file Conference_Program.docx (complete schedule, speaker bios, paper abstracts, and venue information). Save the registration and logistics information (travel, accommodations, and parking) plus the orientation materials (conference navigation and participation options) as a local document Attendee_Logistics_And_Orientation.docx.
+
+    The sixth phase requires distributing information to all stakeholders and finalizing logistics. Send acceptance notifications and speaker instructions through email to all accepted authors. Create calendar invitations for all conference events and send to registered participants. Prepare final conference program for publication and distribution. Schedule coordination meetings with conference staff and volunteers to finalize all arrangements and ensure readiness. Instead of sending email, save the acceptance notifications and speaker instructions for all accepted authors as a local email draft file Acceptance_Notifications.md (one section per accepted author, each with From / To / Subject / Body). Instead of sending calendar invitations, save all conference events and the staff / volunteer coordination meetings as a local calendar file Conference_Events.ics. The final conference program for publication and distribution is the Conference_Program.docx produced above.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Submissions_Database.xlsx — Spreadsheet of all paper submissions with author information, paper titles, abstracts, subject areas, documented reviewer assignments, and reviewer acceptance / review completion status.
+    - Reviewer_Instructions_And_Form.md — Detailed reviewer instructions plus the full list of review-form questions, including the communicated review deadlines and expectations.
+    - Reviewer_Reminders.md — Email drafts (one section per reviewer with From / To / Subject / Body) reminding reviewers who have not completed assigned reviews.
+    - Review_Aggregation.xlsx — Aggregated review scores and feedback for each submission, with calculated average scores and the consensus analysis on reviewer ratings.
+    - Acceptance_Decisions.docx — Acceptance metrics (overall acceptance rate and acceptance by topic area), consensus / divergence analysis of reviewer comments, the acceptance decisions with balance across research areas and speaker diversity, and the per-author decision-and-feedback notification text.
+    - Conference_Schedule.xlsx — Spreadsheet of all accepted presentations with speaker information, presentation times, session assignments, presentation order within sessions, scheduled breaks, and technical requirements.
+    - Conference_Program.docx — Conference program document with the complete schedule, speaker bios, paper abstracts, and venue information (also serves as the final program for publication and distribution).
+    - Attendee_Logistics_And_Orientation.docx — Registration instructions and logistics (travel, accommodations, parking) plus orientation materials explaining conference navigation and participation options.
+    - Acceptance_Notifications.md — Email drafts (one section per accepted author with From / To / Subject / Body) containing acceptance notifications and speaker instructions.
+    - Conference_Events.ics — Calendar file containing all conference events and the staff / volunteer coordination meetings.
+gold:
+  capability_spec:
+    required_tools:
+    - excel
+    - word
+    - pptx
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/academic-conference-planning-coordination/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/academic-conference-planning-coordination/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/academic-conference-planning-coordination/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - excel
+  - word
+  - pptx
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: academic
+  needed_mcp_servers:
+  - google_forms
+  - notion
+  - excel
+  - word
+  - pptx
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - google_forms
+  - notion
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/academic-conference-planning-coordination
+  license: Apache-2.0
+  redirect: |
+    The Notion submissions database and program pages were redirected to local .xlsx /
+    .docx files (Submissions_Database.xlsx, Acceptance_Decisions.docx, Conference_Program.docx,
+    Attendee_Logistics_And_Orientation.docx) produced via the excel and word servers; the
+    google_sheet-style program/review spreadsheets to .xlsx (Conference_Schedule.xlsx,
+    Review_Aggregation.xlsx). Google Forms reviewer forms were redirected to a questions
+    document (Reviewer_Instructions_And_Form.md). Email sends (reviewer reminders, acceptance
+    notifications + speaker instructions) became local .md draft files. Google Calendar
+    invitations and staff/volunteer coordination meetings were written to Conference_Events.ics
+    via the terminal writer. Removed google_forms, notion, emails, google_calendar (all
+    output-only sinks); kept excel/word/pptx/terminal (file producers and the text-file writer
+    used for the .ics/.md drafts).

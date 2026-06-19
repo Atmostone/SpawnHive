@@ -1,0 +1,70 @@
+id: research-data-archival-compliance
+suite: toolathlon-open
+input:
+  title: Research Data Archival Compliance
+  description: |
+    Your research institution must establish comprehensive data archival and compliance procedures to ensure research data integrity and meets regulatory requirements. The first phase involves conducting a complete inventory of all research datasets and associated documentation. Identify all active research projects and their data files. Document dataset characteristics including file format, size, creation date, and data type. Organize documentation including study protocols, data collection procedures, and analytical methods. Create a centralized registry of all research datasets with essential metadata for each. Save this registry as a local document Dataset_Registry.docx in your workspace.
+
+    In the second phase, you will verify compliance of all datasets with applicable retention policies and funding agency requirements. Review institutional data retention policies specifying how long different data types must be retained. Check funding agency requirements including National Science Foundation, National Institutes of Health, and other sponsor mandates. Assess whether datasets meet funder requirements for data sharing and open access. Document any datasets with sensitive data requiring restricted access or deidentification. Verify that datasets include required documentation and metadata for reproducibility. Save this compliance verification as a local document Compliance_Verification.docx in your workspace.
+
+    The third phase requires creating comprehensive archival metadata and preservation plans for each dataset. Develop standardized metadata documentation following relevant community standards for the research domain. Create detailed data dictionaries defining all variables and coding schemes. Document data provenance including collection methods, preprocessing steps, and quality assurance procedures. Create preservation plans addressing long-term storage, format migration, and access preservation for each dataset. Save the metadata documentation, data dictionaries, provenance, and preservation plans as a local document Archival_Metadata_And_Preservation_Plans.docx in your workspace.
+
+    In the fourth phase, you will organize all research data in a compliant repository structure. Establish standardized directory hierarchies and naming conventions for all datasets. Ensure all files are in acceptable formats suitable for long-term preservation. Create backup copies of all datasets with off-site replication. Establish access controls ensuring appropriate security for sensitive data. Document all datasets in the institutional research data management system. Save the repository structure documentation (directory hierarchies, naming conventions, acceptable formats, backup / off-site replication arrangements, access controls, and the institutional research data management system entries) as a local document Repository_Structure.docx in your workspace.
+
+    The fifth phase involves generating comprehensive compliance documentation. Create detailed archival plans for each dataset documenting retention requirements and preservation procedures. Verify that all documentation required by funders is complete and properly organized. Generate compliance checklists for each funding source. Create institutional compliance certifications confirming that data meets all applicable requirements. Save the per-dataset archival plans, the per-funding-source compliance checklists, and the institutional compliance certifications as a local document Compliance_Documentation.docx in your workspace.
+
+    The sixth phase requires finalizing archival and communicating with stakeholders. Document all archival procedures and create training materials for researchers. Send compliance verification communications to institutional leadership and funding agencies. Store all archival documentation with version control in the institutional repository. Schedule meetings with research teams to confirm data organization and compliance with requirements. Save the documented archival procedures and the researcher training materials as a local document Archival_Procedures_And_Training.docx in your workspace. Instead of sending email, save the compliance verification communications to institutional leadership and funding agencies as a local email draft file Compliance_Communications.md (one section per recipient, each with From / To / Subject / Body). Instead of scheduling calendar meetings, save the research-team meetings to confirm data organization and compliance with requirements as a local calendar file Research_Team_Meetings.ics.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Dataset_Registry.docx — Centralized registry of all active research projects and datasets with essential metadata per dataset (file format, size, creation date, data type) plus the organized study protocols, data collection procedures, and analytical methods documentation.
+    - Compliance_Verification.docx — Review of institutional retention policies and funder requirements (NSF, NIH, and other sponsors), assessment of data sharing / open access compliance, datasets flagged for restricted access or deidentification, and verification that datasets include required documentation and metadata for reproducibility.
+    - Archival_Metadata_And_Preservation_Plans.docx — Standardized metadata documentation, detailed data dictionaries (variables and coding schemes), data provenance (collection methods, preprocessing steps, quality assurance), and per-dataset preservation plans addressing long-term storage, format migration, and access preservation.
+    - Repository_Structure.docx — Standardized directory hierarchies and naming conventions, acceptable long-term-preservation formats, backup / off-site replication arrangements, access controls for sensitive data, and the institutional research data management system entries.
+    - Compliance_Documentation.docx — Per-dataset archival plans (retention requirements and preservation procedures), per-funding-source compliance checklists, and the institutional compliance certifications confirming data meets all applicable requirements.
+    - Archival_Procedures_And_Training.docx — Documented archival procedures and researcher training materials.
+    - Compliance_Communications.md — Email drafts (one section per recipient with From / To / Subject / Body) containing the compliance verification communications to institutional leadership and funding agencies.
+    - Research_Team_Meetings.ics — Calendar file containing the research-team meetings scheduled to confirm data organization and compliance with requirements.
+gold:
+  capability_spec:
+    required_tools:
+    - word
+    - terminal
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/research-data-archival-compliance/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/research-data-archival-compliance/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/research-data-archival-compliance/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - word
+  - terminal
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: research
+  needed_mcp_servers:
+  - filesystem
+  - word
+  - terminal
+  - emails
+  - google_calendar
+  removed_servers:
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/research-data-archival-compliance
+  license: Apache-2.0
+  redirect: |
+    Phase-6 email sends (compliance verification communications to institutional leadership and
+    funding agencies) were redirected to a local email draft file Compliance_Communications.md
+    (one section per recipient with From / To / Subject / Body). Phase-6 Google Calendar meeting
+    scheduling (research-team meetings to confirm data organization and compliance) was redirected
+    to a local Research_Team_Meetings.ics file written via the filesystem/terminal writer. All
+    other phase deliverables (registry, compliance verification, archival metadata / preservation
+    plans, repository structure, compliance documentation, procedures / training) are produced as
+    local .docx files via the word server. Removed emails and google_calendar (output-only sinks);
+    kept word (document producer) and filesystem / terminal (text-file writers for the .md draft
+    and the .ics calendar).

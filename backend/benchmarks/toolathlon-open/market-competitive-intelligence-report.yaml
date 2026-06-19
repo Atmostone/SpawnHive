@@ -1,0 +1,70 @@
+id: market-competitive-intelligence-report
+suite: toolathlon-open
+input:
+  title: Market Competitive Intelligence Report
+  description: |
+    Your company's strategic planning team requires a comprehensive competitive intelligence report to inform product development and pricing strategies. The first phase involves systematically reviewing competitor websites and publicly available pricing information. Using automated browsing tools, extract product specifications, feature lists, pricing data, and promotional offers from at least five major competitors in your market segment. Document all pricing tiers, bundling options, and special offers currently available.
+
+    In the second phase, consolidate all extracted data into a structured format within an analytical database. Create detailed product matrices showing how each competitor's offerings compare across key features, quality indicators, and pricing points. Include information about distribution channels, customer segments targeted, and any unique value propositions each competitor emphasizes in their marketing materials.
+
+    The third phase requires performing detailed comparative analysis on the collected data. Analyze pricing strategies to identify patterns such as premium positioning, value-based approaches, or competitive matching. Calculate price-to-feature ratios across product categories. Identify gaps in the competitive landscape where your company might differentiate or opportunity areas for competitive advantage. Assess market trends in product features and customer acquisition strategies.
+
+    In the fourth phase, create visualizations and summary tables in spreadsheet format showing your analysis. Develop charts comparing pricing across competitors, heat maps showing feature availability, and trend analyses. Create executive-friendly summaries that highlight key findings and opportunities. Prepare detailed appendices with all raw data and methodology documentation for reference.
+
+    The fifth phase involves drafting a comprehensive executive summary report documenting all findings. The report should include competitive landscape overview, pricing analysis, feature comparison, identified opportunities, and strategic recommendations for your company. Include risk assessments of competitive threats and suggestions for differentiation strategies. The sixth phase requires preparing the report in professional presentation format and drafting an email to executive leadership delivering it. Instead of sending the email, save it as a local draft file Executive_Report_Email.eml containing From, To, Subject, and the body that introduces the report and its key findings. Also schedule a briefing meeting with strategy stakeholders to discuss findings and decide on next steps; instead of creating a live calendar event, save the meeting as a local Briefing_Meeting.ics calendar file with the meeting title, date/time, attendees, and an agenda in the description.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Competitive_Analysis.xlsx — Spreadsheet with the consolidated product/competitor matrices (features, quality indicators, pricing tiers, bundling, special offers, distribution channels, customer segments, value propositions), the comparative analysis (pricing-strategy patterns, price-to-feature ratios, identified gaps and opportunities, market trends), executive-friendly summary tables, and appendix sheets holding all raw extracted data and methodology documentation.
+    - Competitive_Intelligence_Report.docx — Executive summary report covering the competitive landscape overview, pricing analysis, feature comparison, identified opportunities, strategic recommendations, risk assessments of competitive threats, and suggested differentiation strategies.
+    - Competitive_Intelligence_Report.pptx — Professional presentation version of the report for executive leadership conveying the key findings and recommendations.
+    - Executive_Report_Email.eml — Email draft to executive leadership with From, To, Subject, and a body introducing the report and summarizing the key findings (in place of actually sending the email).
+    - Briefing_Meeting.ics — Calendar file for the strategy-stakeholder briefing meeting, including the meeting title, date/time, attendees, and an agenda in the description (in place of creating a live calendar event).
+gold:
+  capability_spec:
+    required_tools:
+    - playwright_with_chunk
+    - snowflake
+    - excel
+    - pptx
+    - word
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/market-competitive-intelligence-report/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/market-competitive-intelligence-report/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/market-competitive-intelligence-report/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - playwright_with_chunk
+  - snowflake
+  - excel
+  - pptx
+  - word
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: playwright
+  needed_mcp_servers:
+  - playwright_with_chunk
+  - snowflake
+  - excel
+  - pptx
+  - word
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/market-competitive-intelligence-report
+  license: Apache-2.0
+  redirect: |
+    The Phase 6 email to executive leadership (emails server, output-only sink) was redirected to a local
+    Executive_Report_Email.eml draft, so the emails server was removed. The Phase 6 briefing-meeting
+    scheduling (google_calendar server, output-only sink) was redirected to a local Briefing_Meeting.ics
+    file, so google_calendar was removed; the existing terminal server writes the .ics/.eml text files.
+    playwright_with_chunk (competitor-site browsing) and snowflake (analytical staging DB) are data/working
+    sources and were kept; excel/pptx/word remain as the file producers for the deliverables.

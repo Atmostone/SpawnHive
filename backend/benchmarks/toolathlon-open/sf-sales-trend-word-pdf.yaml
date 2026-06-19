@@ -1,0 +1,54 @@
+id: sf-sales-trend-word-pdf
+suite: toolathlon-open
+input:
+  title: SF Sales Trend Word Pdf
+  description: |
+    Our finance team needs a sales trend analysis document for 2025. Please query the company data warehouse for the monthly revenue data covering January 2025 through December 2025. The data should include the month, total revenue, order count, unique customers, and average order value for each month.
+
+    Create a Word document called Sales_Trend_Analysis.docx in the workspace. The document should start with a heading "Sales Trend Analysis - 2025" followed by an introductory paragraph that says "This report presents the monthly revenue trends for the year 2025, based on data from the sales data warehouse."
+
+    Include a table with columns Month (formatted as YYYY-MM), Total Revenue (formatted as dollar amount with commas and 2 decimal places like $123,456.78), Order Count (integer), Unique Customers (integer), and Avg Order Value (formatted as dollar amount with 2 decimal places). List all 12 months in chronological order.
+
+    After the table, add a Summary section with the following on separate lines: Total Annual Revenue, Total Orders, Average Monthly Revenue (total divided by 12, rounded to 2 decimals), Best Month (the month with highest revenue showing both the month and the amount), and Worst Month (the month with lowest revenue showing both the month and the amount).
+
+    Then add a Trend Analysis section comparing first half (January through June) versus second half (July through December). Show the H1 2025 Revenue and H2 2025 Revenue totals, and state whether revenue increased or decreased in the second half along with the dollar difference and percentage change rounded to 1 decimal place.
+
+    Also create a PDF version of this same report called Sales_Trend_Analysis.pdf in the workspace containing the same data and sections.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Sales_Trend_Analysis.docx — Word report with the "Sales Trend Analysis - 2025" heading, intro paragraph, a 12-month table (Month YYYY-MM, Total Revenue, Order Count, Unique Customers, Avg Order Value), a Summary section (Total Annual Revenue, Total Orders, Average Monthly Revenue, Best Month, Worst Month), and a Trend Analysis section comparing H1 vs H2 2025 with the dollar difference and percentage change.
+    - Sales_Trend_Analysis.pdf — PDF version of the same report containing the same data and sections.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - word
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-trend-word-pdf/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-trend-word-pdf/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-sales-trend-word-pdf/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - word
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - word
+  - pdf-tools
+  - filesystem
+  removed_servers: []
+  added_servers: []
+  task_path: tasks/finalpool/sf-sales-trend-word-pdf
+  license: Apache-2.0
+  redirect: |
+    PURE: already file-only, no output redirect needed

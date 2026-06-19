@@ -1,0 +1,63 @@
+id: course-enrollment-analytics-dashboard
+suite: toolathlon-open
+input:
+  title: Course Enrollment Analytics Dashboard
+  description: |
+    Your educational institution needs to establish a comprehensive student enrollment analysis dashboard to identify at-risk students and optimize enrollment planning. The first phase involves querying the learning management system to extract enrollment data for all active courses in the current semester. You will need to gather demographic information about enrolled students, including their major, class level, and previous academic standing.
+
+    In the second phase, you will analyze performance metrics within the system itself, including quiz scores, assignment completion rates, and participation indicators. Identify patterns that correlate with student success or struggle, particularly focusing on early warning signals that may indicate at-risk students. Create a structured dataset that includes all performance indicators alongside demographic data.
+
+    The third phase requires creating a comprehensive analysis spreadsheet. Save it as a local Excel workbook called Enrollment_Analysis.xlsx in your workspace. You will build pivot tables showing enrollment trends by department, course level, and instructor. Create visualizations that display enrollment patterns across different student demographics and identify any significant variations that might warrant institutional attention. Calculate key metrics such as average quiz scores, completion rates, and course pass rates by department.
+
+    In the fourth phase, perform a detailed at-risk student analysis using the quiz score data and overall performance indicators. Segment students into risk categories based on multiple factors including engagement metrics, assignment submission patterns, and assessment performance. Create a list of students who require immediate intervention and document the specific risk factors affecting each student. Save this at-risk analysis as a local Word document called At_Risk_Students.docx in your workspace.
+
+    The fifth phase involves preparing intervention recommendations for academic advisors. Compile targeted recommendations for each at-risk student, including specific academic support services available, suggested course adjustments, and counseling resources. Draft professional communications that advisors can use when reaching out to these students. Save these recommendations and the supporting documentation as a local Word document called Intervention_Recommendations.docx in your workspace. Then, instead of sending an email, save a local email draft file called Advisor_Email.eml (or Advisor_Email.md) addressed to the academic advisors that contains From, To, Subject, and a body summarizing the recommendations and referencing the supporting data and documentation. Finally, instead of scheduling a calendar event, save a local calendar file called Followup_Meeting.ics describing a follow-up meeting with advising staff to discuss implementation strategies and track student outcomes over the next month.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Enrollment_Analysis.xlsx — Excel workbook with the structured dataset (performance indicators plus demographics), pivot tables of enrollment trends by department, course level, and instructor, demographic enrollment visualizations, and key metrics (average quiz scores, completion rates, course pass rates by department).
+    - At_Risk_Students.docx — Word document segmenting students into risk categories and listing students who require immediate intervention, documenting the specific risk factors affecting each student.
+    - Intervention_Recommendations.docx — Word document with targeted intervention recommendations per at-risk student (academic support services, suggested course adjustments, counseling resources) and the draft professional communications advisors can use.
+    - Advisor_Email.eml — Email draft to academic advisors with From/To/Subject and a body summarizing the recommendations and referencing the supporting data and documentation.
+    - Followup_Meeting.ics — Calendar file for the follow-up meeting with advising staff to discuss implementation strategies and track student outcomes over the next month.
+gold:
+  capability_spec:
+    required_tools:
+    - canvas
+    - excel
+    - word
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/course-enrollment-analytics-dashboard/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/course-enrollment-analytics-dashboard/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/course-enrollment-analytics-dashboard/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - canvas
+  - excel
+  - word
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: course
+  needed_mcp_servers:
+  - canvas
+  - notion
+  - excel
+  - word
+  - google_sheet
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - notion
+  - google_sheet
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/course-enrollment-analytics-dashboard
+  license: Apache-2.0
+  redirect: |
+    Cloud spreadsheet (google_sheet) -> Enrollment_Analysis.xlsx via excel; Notion documentation -> At_Risk_Students.docx and Intervention_Recommendations.docx via word; email send (emails) -> Advisor_Email.eml draft; calendar event (google_calendar) -> Followup_Meeting.ics written via terminal.

@@ -1,0 +1,54 @@
+id: yf-earnings-report-word-notion
+suite: toolathlon-open
+input:
+  title: YF Earnings Report Word Notion
+  description: |
+    I need an earnings analysis document covering three companies: GOOGL (Alphabet), AMZN (Amazon), and JNJ (Johnson and Johnson). Please pull their annual income statement data from our financial database.
+
+    For each company, get the annual financial figures across all available years. The key metrics I need are Total Revenue, Net Income, Gross Profit, and Operating Income. Convert all values from raw numbers to billions by dividing by 1,000,000,000 and round to 2 decimal places. If any value is not available for a given year, mark it as N/A.
+
+    Create a Word document called Earnings_Report.docx in the workspace. The document should have a top level heading "Earnings Analysis Report". Then for each of the three companies, add a section heading with the company ticker followed by "Annual Earnings" (for example, "GOOGL Annual Earnings"). Under each heading, include a table with columns Period, Revenue_B, Net_Income_B, Gross_Profit_B, Operating_Income_B. The "_B" suffix indicates values are in billions. Sort the rows by period in ascending order.
+
+    After all three company tables, add a summary paragraph that states each company's latest fiscal year revenue and net income in billions.
+
+    Finally, create a second Word document called Earnings_Analysis_Key_Insights.docx in the workspace, titled "Earnings Analysis Key Insights", with content summarizing which company had the highest revenue in the latest year, which had the highest net income, and a brief note about each company's revenue trend over the years.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Earnings_Report.docx — Word document with a top-level "Earnings Analysis Report" heading, one section per company (GOOGL, AMZN, JNJ) headed "<TICKER> Annual Earnings", each containing a table (columns: Period, Revenue_B, Net_Income_B, Gross_Profit_B, Operating_Income_B) sorted by period ascending with values in billions, plus a closing summary paragraph stating each company's latest fiscal year revenue and net income in billions.
+    - Earnings_Analysis_Key_Insights.docx — Word document titled "Earnings Analysis Key Insights" summarizing which company had the highest revenue in the latest year, which had the highest net income, and a brief note about each company's revenue trend over the years.
+gold:
+  capability_spec:
+    required_tools:
+    - yahoo-finance
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-earnings-report-word-notion/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-earnings-report-word-notion/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/yf-earnings-report-word-notion/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - yahoo-finance
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: yahoo-finance
+  needed_mcp_servers:
+  - yahoo-finance
+  - word
+  - notion
+  - filesystem
+  removed_servers:
+  - notion
+  added_servers: []
+  task_path: tasks/finalpool/yf-earnings-report-word-notion
+  license: Apache-2.0
+  redirect: |
+    The Notion "Earnings Analysis Key Insights" page (output-only sink) is redirected to a
+    local .docx file Earnings_Analysis_Key_Insights.docx written via the existing "word" server,
+    so "word" was not added. Dropped the "notion" server since it was used only as an output sink.
+    The Earnings_Report.docx deliverable was already a local file and is unchanged.

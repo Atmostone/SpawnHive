@@ -1,0 +1,61 @@
+id: yf-portfolio-ppt-gcal
+suite: toolathlon-open
+input:
+  title: YF Portfolio PPT Calendar
+  description: |
+    Hello, I need to prepare a quarterly portfolio review for our investment committee. The portfolio holds five stocks: AMZN, GOOGL, JNJ, JPM, and XOM. Please look up the stock price data for Q4 2025 (October 1, 2025 through December 31, 2025) for each of these tickers.
+
+    For each stock, I need: the closing price on the first trading day of the quarter (start price), the closing price on the last trading day of the quarter (end price), the quarterly return as a percentage rounded to 1 decimal, the highest price during the quarter (quarter high), the lowest price during the quarter (quarter low), and the average daily trading volume.
+
+    Create a PowerPoint presentation called Portfolio_Review.pptx in the workspace with the following structure:
+
+    A title slide with "Q4 2025 Portfolio Review" as the title and "AMZN, GOOGL, JNJ, JPM, XOM" as the subtitle.
+
+    A portfolio overview slide showing which stocks are in the portfolio, the review period, the best performing stock with its return percentage, and the worst performing stock with its return percentage.
+
+    One slide for each stock (5 slides total) showing the stock symbol as the title and all the metrics listed above (start price, end price, return, quarter high, quarter low, average volume).
+
+    A final "Key Takeaways" slide summarizing the best performer, worst performer, and the average portfolio return across all five stocks rounded to 1 decimal.
+
+    Also, please prepare the portfolio review meeting as a local iCalendar file Portfolio_Review_Meeting.ics in the workspace. The file must contain a single VEVENT for the meeting on March 15, 2026 from 2:00 PM to 3:00 PM with summary "Q4 2025 Portfolio Review Meeting" and location "Conference Room A".
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Portfolio_Review.pptx — PowerPoint with at least 8 slides: a title slide ("Q4 2025 Portfolio Review" title, "AMZN, GOOGL, JNJ, JPM, XOM" subtitle); a portfolio overview slide (stocks held, review period, best performer with return %, worst performer with return %); one slide per stock (AMZN, GOOGL, JNJ, JPM, XOM) titled with the symbol and listing start price, end price, quarterly return %, quarter high, quarter low, and average daily volume; and a final "Key Takeaways" slide with best performer, worst performer, and the average portfolio return across all five stocks (rounded to 1 decimal).
+    - Portfolio_Review_Meeting.ics — iCalendar file with one VEVENT titled "Q4 2025 Portfolio Review Meeting" on 2026-03-15 from 2:00 PM to 3:00 PM, with location "Conference Room A".
+gold:
+  capability_spec:
+    required_tools:
+    - yahoo-finance
+    - pptx
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-portfolio-ppt-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/yf-portfolio-ppt-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/yf-portfolio-ppt-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - yahoo-finance
+  - pptx
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: yahoo-finance
+  needed_mcp_servers:
+  - yahoo-finance
+  - pptx
+  - google_calendar
+  - filesystem
+  removed_servers:
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/yf-portfolio-ppt-gcal
+  license: Apache-2.0
+  redirect: |
+    Google Calendar event "Q4 2025 Portfolio Review Meeting" (March 15, 2026, 2:00-3:00 PM,
+    location "Conference Room A") redirected to a local Portfolio_Review_Meeting.ics file
+    (single VEVENT) written via the filesystem server; google_calendar dropped as an
+    output-only sink. The Portfolio_Review.pptx (pptx server) was already a local file and is
+    unchanged. Yahoo Finance stock-price reading instructions kept verbatim.
