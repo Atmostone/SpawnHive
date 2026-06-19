@@ -100,6 +100,11 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
   const [nRuns, setNRuns] = useState(3)
   const [budget, setBudget] = useState('')
   const [maxParallel, setMaxParallel] = useState('')
+  // Evaluation mode: 'checker' = run the executable checker where a case has one
+  // (Toolathlon ground truth). 'judge' = skip the checker and let the E-02 outcome
+  // judge be the evaluator — turns a verifiable bench into an open-result one so
+  // the outcome×trajectory view works where there is no oracle. (SPA-56/E-25)
+  const [evalMode, setEvalMode] = useState<'checker' | 'judge'>('checker')
   const [submitError, setSubmitError] = useState('')
 
   const { data: templates = [] } = useQuery({ queryKey: ['templates'], queryFn: templatesApi.list })
@@ -150,8 +155,9 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
       n_runs_per_cell: nRuns,
       budget_limit_usd: budget !== '' ? Number(budget) : null,
       max_parallel: maxParallel !== '' ? Number(maxParallel) : null,
+      eval_config: { eval_mode: evalMode },
     }),
-    [name, description, dataset, configMode, configs, axes, nRuns, budget, maxParallel],
+    [name, description, dataset, configMode, configs, axes, nRuns, budget, maxParallel, evalMode],
   )
 
   const datasetReady =
@@ -467,6 +473,23 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setMaxParallel(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Evaluation mode</label>
+            <div className="flex border rounded-lg overflow-hidden w-fit text-sm">
+              {(['checker', 'judge'] as const).map((m) => (
+                <button key={m} type="button" onClick={() => setEvalMode(m)}
+                  className={`px-3 py-1.5 ${evalMode === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  {m === 'checker' ? 'Checker (executable)' : 'Judge (LLM, no checker)'}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              {evalMode === 'checker'
+                ? 'Cases with an executable checker (e.g. Toolathlon) are graded by ground truth; the outcome judge is skipped there.'
+                : 'Skip the executable checker — the E-02 outcome judge becomes the evaluator (open-result mode). Use to exercise the judge + outcome×trajectory view where there is no oracle. Preprocess still seeds the environment.'}
+            </p>
           </div>
 
           {ready && preview && (

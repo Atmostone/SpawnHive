@@ -58,6 +58,10 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
     { label: 'Process · trajectory (E-07)', dims: tDims },
   ].filter((g) => g.dims.length > 0)
   const dims = [...qDims, ...tDims]
+  // Verifiable run (executable checker = outcome ground truth): the outcome judge
+  // is skipped (no quality dims) but the trajectory judge ran. Don't show/solicit
+  // an outcome rating — only the process is human-rateable. (SPA-68)
+  const verifiable = qDims.length === 0 && tDims.length > 0
   const seedScore = (key: string, judge: number | null) => {
     const prev = existing?.dimensions.find((d) => d.key === key)
     if (prev) return prev.score
@@ -111,6 +115,13 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
           cancel
         </button>
       </div>
+
+      {verifiable && (
+        <p className="text-xs text-gray-500 bg-white border rounded-lg px-3 py-2">
+          Outcome is verified by an executable checker (ground truth) — no judge or human
+          result rating here. Rate the process only.
+        </p>
+      )}
 
       {dims.length === 0 ? (
         <p className="text-xs text-gray-400">Evaluate quality or trajectory first to rate dimensions.</p>
