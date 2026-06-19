@@ -83,6 +83,10 @@ async def collect_judge_human_pairs(
         hf = r.human_feedback or {}
         profile = r.quality_profile or {}
         judge = {d.get("key"): d for d in (profile.get("dimensions") or [])}
+        # Process/trajectory (E-07) axes are also calibratable judge dimensions:
+        # human feedback may carry trajectory-axis keys, paired against the E-07 judge.
+        for a in (r.trajectory_profile or {}).get("axes") or []:
+            judge.setdefault(a.get("key"), a)
         gate_passed = (profile.get("gate") or {}).get("passed")
         for d in hf.get("dimensions") or []:
             jd = judge.get(d.get("key")) or {}

@@ -94,7 +94,11 @@ function CloneModal({ detail, pending, onClose, onClone }: {
 }
 
 function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell: (config: string, caseKey: string) => void }) {
-  const [heat, setHeat] = useState<HeatMode>('quality')
+  // Verifiable bench: an executable checker is the outcome ground truth, so the
+  // outcome judge (E-02) is not an evaluation here — hide its heat option +
+  // per-cell scores and default to the trajectory (E-07) view. (SPA-68)
+  const verifiable = detail.matrix.some((c) => (c.external_total ?? 0) > 0)
+  const [heat, setHeat] = useState<HeatMode>(verifiable ? 'trajectory' : 'quality')
   const cases = detail.dataset_cases
   const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c]))
   if (detail.matrix.length === 0) {
@@ -105,7 +109,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
       <div className="flex items-center gap-2 mb-3 text-xs">
         <span className="text-gray-500">Heat:</span>
         <div className="flex border rounded-lg overflow-hidden">
-          {(['quality', 'trajectory', 'off'] as HeatMode[]).map((m) => (
+          {((verifiable ? ['trajectory', 'off'] : ['quality', 'trajectory', 'off']) as HeatMode[]).map((m) => (
             <button key={m} onClick={() => setHeat(m)}
               className={`px-2.5 py-1 ${heat === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {m === 'off' ? 'off' : m === 'quality' ? 'quality (E-02)' : 'trajectory (E-07)'}
@@ -148,10 +152,10 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                       {counts.skipped ? <span className="text-amber-600">{counts.skipped}s</span> : null}
                       {Object.keys(counts).length === 0 && <span className="text-gray-300">—</span>}
                     </div>
-                    {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
+                    {((!verifiable && cell?.quality_mean != null) || cell?.trajectory_mean != null) && (
                       <div className="text-[10px] mt-0.5 text-gray-500 tabular-nums">
-                        {cell?.quality_mean != null && <span title="quality mean (E-02)">q{cell.quality_mean}</span>}
-                        {cell?.trajectory_mean != null && <span className="ml-1" title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
+                        {!verifiable && cell?.quality_mean != null && <span title="quality mean (E-02)">q{cell.quality_mean}</span>}
+                        {cell?.trajectory_mean != null && <span className={!verifiable && cell?.quality_mean != null ? 'ml-1' : undefined} title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
                       </div>
                     )}
                     {cell?.external_total ? (
@@ -168,7 +172,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · ⚙ preprocessing · … running · ⚖ evaluating · · pending · s skipped · q=quality · t=trajectory · ✔pass/total=executable verdict — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · ⚙ preprocessing · … running · ⚖ evaluating · · pending · s skipped · {!verifiable && 'q=quality · '}t=trajectory · ✔pass/total=executable verdict — click a cell for run details</div>
     </div>
   )
 }
@@ -240,6 +244,15 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
     a.click()
     URL.revokeObjectURL(url)
   }
+  // Verifiable bench (executable checker = outcome ground truth): the outcome
+  // judge (E-02) is not the eval — it's the audited subject. Hide its scores
+  // (Summary "Quality" column + the weighted_score/dim:* significance rows) and
+  // keep only the trajectory (E-07) signal. (SPA-68)
+  const verifiable = !!report.external?.available
+  const isOutcomeMetric = (m: string) => m === 'weighted_score' || m.startsWith('dim:')
+  const visibleSignificance = verifiable
+    ? report.significance.filter((s) => !isOutcomeMetric(s.metric))
+    : report.significance
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end gap-2">
@@ -269,7 +282,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <th className="px-3 py-2">Configuration</th>
                 <th className="px-3 py-2">Runs</th>
                 <th className="px-3 py-2">Success</th>
-                <th className="px-3 py-2">Quality</th>
+                {!verifiable && <th className="px-3 py-2">Quality</th>}
                 <th className="px-3 py-2">Trajectory</th>
                 <th className="px-3 py-2">Cost avg</th>
                 <th className="px-3 py-2">Time avg</th>
@@ -283,7 +296,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   </td>
                   <td className="px-3 py-2">{c.n_runs}</td>
                   <td className="px-3 py-2">{c.success_rate != null ? `${(c.success_rate * 100).toFixed(0)}%` : '—'}</td>
-                  <td className="px-3 py-2">{fmt(c.quality_mean)}</td>
+                  {!verifiable && <td className="px-3 py-2">{fmt(c.quality_mean)}</td>}
                   <td className="px-3 py-2">{fmt(c.trajectory_mean)}</td>
                   <td className="px-3 py-2">${fmt(c.cost_mean, 3)}</td>
                   <td className="px-3 py-2">{c.duration_mean != null ? `${Math.round(c.duration_mean)}s` : '—'}</td>
@@ -294,6 +307,15 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </div>
       </section>
 
+      {report.external?.available ? (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">Quality profile heatmap</h3>
+          <p className="text-sm text-gray-500">
+            Outcome is verified by the executable checker (ground truth) — the outcome judge
+            (E-02) is not used on verifiable benches. See the Executable pass-rate section below.
+          </p>
+        </section>
+      ) : (
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">Quality profile heatmap</h3>
         {report.heatmap.dimensions.length === 0 ? (
@@ -333,6 +355,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
+      )}
 
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">
@@ -438,7 +461,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
       )}
 
-      {report.rq2?.available && (
+      {!report.external?.available && report.rq2?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
             RQ2 · verdict × judge{' '}
@@ -553,7 +576,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">Statistical significance <span className="text-xs text-gray-400 font-normal">Welch t-test (primary) + Mann-Whitney U (approx); ★ = p &lt; 0.05</span></h3>
-        {report.significance.length === 0 ? (
+        {visibleSignificance.length === 0 ? (
           <p className="text-sm text-gray-500">Not enough samples per cell yet (need n ≥ 3 scored runs on both sides).</p>
         ) : (
           <div className="bg-white border rounded-lg overflow-hidden">
@@ -568,7 +591,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 </tr>
               </thead>
               <tbody>
-                {report.significance.map((s) => (
+                {visibleSignificance.map((s) => (
                   <tr key={`${s.a}-${s.b}-${s.metric}`} className="border-t">
                     <td className="px-3 py-2">{s.a} vs {s.b}</td>
                     <td className="px-3 py-2 text-gray-600">{s.metric}</td>
@@ -666,6 +689,9 @@ function RunsTab({ id, detail, filter }: {
   const [config, setConfig] = useState(filter.config || '')
   const [caseKey, setCaseKey] = useState(filter.case || '')
   const [openTask, setOpenTask] = useState<string | null>(null)
+  // Verifiable bench (executable checker = outcome ground truth): the outcome
+  // judge (E-02) is the audited subject, not the eval — hide its score column. (SPA-68)
+  const verifiable = detail.matrix.some((c) => (c.external_total ?? 0) > 0)
   const { data: rows = [] } = useQuery({
     queryKey: ['experiment-results', id, config, caseKey],
     queryFn: () =>
@@ -701,7 +727,7 @@ function RunsTab({ id, detail, filter }: {
               <th className="px-3 py-2">Cell</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Verdict</th>
-              <th className="px-3 py-2">Quality</th>
+              {!verifiable && <th className="px-3 py-2">Quality</th>}
               <th className="px-3 py-2">Trajectory</th>
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Time</th>
@@ -748,7 +774,7 @@ function RunsTab({ id, detail, filter }: {
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>
+                    {!verifiable && <td className="px-3 py-2">{fmt(r.weighted_score, 1)}</td>}
                     <td className="px-3 py-2">{fmt(r.trajectory_score, 1)}</td>
                     <td className="px-3 py-2">${r.cost_usd.toFixed(3)}</td>
                     <td className="px-3 py-2">{r.duration_seconds != null ? `${r.duration_seconds}s` : '—'}</td>
@@ -758,10 +784,11 @@ function RunsTab({ id, detail, filter }: {
                   </tr>
                   {open && r.task_id && (
                     <tr className="border-t bg-gray-50">
-                      <td colSpan={9} className="px-3 py-3">
+                      <td colSpan={verifiable ? 8 : 9} className="px-3 py-3">
                         <RunAnalysis
                           taskId={r.task_id}
                           profile={r.quality_profile ?? null}
+                          verifiable={verifiable}
                           onSaved={() => setOpenTask(null)}
                         />
                       </td>
@@ -799,6 +826,7 @@ export default function ExperimentDetail() {
   const pauseMutation = useMutation({ mutationFn: () => experimentsApi.pause(id), onSuccess: invalidate })
   const resumeMutation = useMutation({ mutationFn: () => experimentsApi.resume(id), onSuccess: invalidate })
   const cancelMutation = useMutation({ mutationFn: () => experimentsApi.cancel(id), onSuccess: invalidate })
+  const retryFailedMutation = useMutation({ mutationFn: () => experimentsApi.retryFailed(id), onSuccess: invalidate })
   const deleteMutation = useMutation({
     mutationFn: () => experimentsApi.remove(id),
     onSuccess: () => {
@@ -836,6 +864,7 @@ export default function ExperimentDetail() {
   if (!detail) return <div className="p-6 text-sm text-gray-500">Loading…</div>
 
   const isTerminal = ['completed', 'capped', 'failed', 'cancelled'].includes(detail.status)
+  const failedCount = (detail.matrix ?? []).reduce((s, c) => s + (c.counts?.failed ?? 0), 0)
 
   return (
     <div className="p-6">
@@ -885,6 +914,14 @@ export default function ExperimentDetail() {
             className="flex items-center gap-1.5 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm">
             <Copy className="h-4 w-4" /> Clone…
           </button>
+          {isTerminal && failedCount > 0 && (
+            <button onClick={() => { if (confirm(`Re-run ${failedCount} failed cell(s) in place (rate-limit / API / infra errors)? Valid cells and their scores are kept.`)) retryFailedMutation.mutate() }}
+              disabled={retryFailedMutation.isPending}
+              title="Reset only the failed cells to pending and re-run them in THIS experiment — no clone, valid cells untouched. Repeatable across provider quota windows."
+              className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 text-sm font-medium">
+              <RotateCcw className="h-4 w-4" /> Retry failed ({failedCount})
+            </button>
+          )}
           {isTerminal && (
             <button onClick={() => cloneMutation.mutate({ alsoRun: true })} title="Full reproduction: clone + run"
               className="flex items-center gap-1.5 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm">

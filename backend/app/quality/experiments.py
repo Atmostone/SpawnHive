@@ -617,6 +617,184 @@ async def cancel_experiment(db: AsyncSession, exp: Experiment) -> None:
         await db.commit()
 
 
+async def retry_failed_experiment(db: AsyncSession, exp: Experiment) -> int:
+    """Reset failed cells back to ``pending`` and re-open the experiment so the
+    tick re-runs them in place (no clone). Only cells that ERRORED OUT
+    (``status=failed`` — provider rate-limit / transient API / preprocess or eval
+    infra failure) are retried; genuine results stay put, since a model that
+    finished but flunked the checker is ``status=success`` with
+    ``external_verdict=False``. Idempotent and repeatable: press again to re-run
+    whatever is still failed after a provider quota window resets.
+    """
+    rows = (
+        await db.execute(
+            select(ExperimentRun).where(ExperimentRun.experiment_id == exp.id)
+        )
+    ).scalars().all()
+    retried = 0
+    for r in rows:
+        if r.status != ExperimentRunStatus.FAILED.value:
+            continue
+        # Best-effort cleanup of any lingering Toolathlon preprocess/eval containers.
+        ext_eval.remove(r.preprocess_container_id)
+        ext_eval.remove(r.eval_container_id)
+        r.task_id = None
+        r.status = ExperimentRunStatus.PENDING.value
+        r.cost_usd = Decimal(0)
+        r.weighted_score = None
+        r.trajectory_score = None
+        r.duration_seconds = None
+        r.external_verdict = None
+        r.launch_time = None
+        r.preprocess_container_id = None
+        r.eval_container_id = None
+        r.preprocess_retried = None
+        r.preprocess_started_at = None
+        r.preprocess_log = None
+        r.eval_log = None
+        r.completed_at = None
+        retried += 1
+    if retried:
+        exp.status = ExperimentStatus.RUNNING.value
+        exp.completed_at = None
+    await db.commit()
+    return retried
+
+
+async def add_config_to_experiment(db: AsyncSession, exp: Experiment, cfg_input: dict) -> dict:
+    """Append a new configuration (e.g. another model) to an existing experiment
+    and materialize its cells (config × all cases × n_runs_per_cell) as pending,
+    re-opening the experiment so the tick runs them. Lets you add a model in
+    place instead of starting a fresh experiment. Frozen dataset is reused as-is.
+    """
+    if exp.status == ExperimentStatus.DRAFT.value:
+        raise ValueError("add the configuration at creation, or run the experiment first")
+    canon = {k: cfg_input.get(k) for k in CONFIG_AXES if cfg_input.get(k) is not None}
+    canon["orchestrator"] = bool(cfg_input.get("orchestrator"))
+    errs = _config_errors(canon)
+    if errs:
+        raise ValueError("; ".join(errs))
+    fp = _config_fingerprint(canon)
+    existing = list(exp.configurations or [])
+    if any(c.get("fingerprint") == fp for c in existing):
+        raise ValueError("a configuration with these settings already exists in this experiment")
+    if len(existing) >= MAX_CONFIGS:
+        raise ValueError(f"too many configurations: {len(existing)} >= {MAX_CONFIGS}")
+    nums = [
+        int(str(c.get("config_key", "")).split("-")[1])
+        for c in existing
+        if str(c.get("config_key", "")).startswith("cfg-")
+    ]
+    cfg = dict(canon)
+    cfg["fingerprint"] = fp
+    cfg["label"] = cfg_input.get("label") or _config_label(canon)
+    cfg["config_key"] = f"cfg-{(max(nums) + 1) if nums else 1:02d}"
+    exp.configurations = existing + [cfg]  # reassign so the JSONB column is marked dirty
+    ms = dict(exp.matrix_spec or {})
+    ms["configurations"] = list(ms.get("configurations") or []) + [cfg_input]
+    exp.matrix_spec = ms
+    created = 0
+    for case in exp.dataset_cases:
+        for idx in range(exp.n_runs_per_cell):
+            db.add(
+                ExperimentRun(
+                    experiment_id=exp.id,
+                    config_key=cfg["config_key"],
+                    case_key=case["case_key"],
+                    run_index=idx,
+                )
+            )
+            created += 1
+    if exp.status in TERMINAL_EXPERIMENT:
+        exp.status = ExperimentStatus.RUNNING.value
+        exp.completed_at = None
+    await db.commit()
+    return {"config_key": cfg["config_key"], "label": cfg["label"], "runs_created": created}
+
+
+async def remove_config_from_experiment(
+    db: AsyncSession, exp: Experiment, config_key: str
+) -> dict:
+    """Remove a configuration and ALL its runs from an experiment in place — the
+    inverse of :func:`add_config_to_experiment`. Drops the config from
+    ``configurations`` and (best effort, matched by re-fingerprint) from
+    ``matrix_spec``, deletes its ExperimentRun rows, tears down any in-flight
+    preprocess/eval/agent containers, and clears the cached report so it
+    re-assembles without the config. Use to retire a model (e.g. one that
+    exhausted its quota) without cloning the experiment. Refuses to remove the
+    last remaining configuration — delete the experiment instead.
+    """
+    existing = list(exp.configurations or [])
+    target = next((c for c in existing if c.get("config_key") == config_key), None)
+    if target is None:
+        raise ValueError(f"no configuration '{config_key}' in this experiment")
+    if len(existing) <= 1:
+        raise ValueError("cannot remove the only configuration; delete the experiment instead")
+
+    rows = (
+        await db.execute(
+            select(ExperimentRun).where(
+                ExperimentRun.experiment_id == exp.id,
+                ExperimentRun.config_key == config_key,
+            )
+        )
+    ).scalars().all()
+    inflight_task_ids = [
+        r.task_id
+        for r in rows
+        if r.status in (
+            ExperimentRunStatus.RUNNING.value,
+            ExperimentRunStatus.EVALUATING.value,
+        )
+        and r.task_id
+    ]
+    for r in rows:
+        # Best-effort teardown of any Toolathlon preprocess/eval containers.
+        ext_eval.remove(r.preprocess_container_id)
+        ext_eval.remove(r.eval_container_id)
+        await db.delete(r)
+    removed = len(rows)
+
+    # Drop from the expanded list (reassign so the JSONB column is marked dirty).
+    exp.configurations = [c for c in existing if c.get("config_key") != config_key]
+    # Drop the matching raw spec entry too. matrix_spec carries the un-keyed user
+    # inputs, so match by re-canonicalized fingerprint; axes / other configs stay.
+    ms = dict(exp.matrix_spec or {})
+    fp = target.get("fingerprint")
+    kept, dropped_spec = [], False
+    for raw in list(ms.get("configurations") or []):
+        canon = {k: raw.get(k) for k in CONFIG_AXES if raw.get(k) is not None}
+        canon["orchestrator"] = bool(raw.get("orchestrator"))
+        if not dropped_spec and fp and _config_fingerprint(canon) == fp:
+            dropped_spec = True
+            continue
+        kept.append(raw)
+    ms["configurations"] = kept
+    exp.matrix_spec = ms
+    # Force the report to re-assemble without this config on next fetch.
+    exp.report = None
+    await db.commit()
+
+    if inflight_task_ids:
+        from app.plugins.runtime import get_agent_runtime
+
+        now = datetime.utcnow()
+        tasks = (
+            await db.execute(select(Task).where(Task.id.in_(inflight_task_ids)))
+        ).scalars().all()
+        for t in tasks:
+            if t.agent_container_id and t.status not in _TERMINAL_TASK:
+                try:
+                    get_agent_runtime().kill(t.agent_container_id)
+                    t.status = TaskStatus.FAILED.value
+                    t.completed_at = now
+                except Exception as e:
+                    logger.warning(f"remove config: kill failed for {t.id}: {e}")
+        await db.commit()
+
+    return {"config_key": config_key, "label": target.get("label"), "runs_removed": removed}
+
+
 def child_run_config(
     exp: Experiment, cfg: dict, *, case_key: str, run_index: int
 ) -> dict:
@@ -646,6 +824,22 @@ def _external_eval(case: dict | None) -> dict | None:
     if isinstance(ext, dict) and ext.get("preprocess_command") and ext.get("eval_command"):
         return ext
     return None
+
+
+def _judge_mode(eval_config: dict | None) -> bool:
+    """Judge mode (``eval_config.eval_mode == "judge"``): even on cases that carry
+    an executable checker, do NOT run the checker — settle the agent and let the
+    E-02 outcome judge be the evaluator (no ground-truth verdict). The case's
+    preprocess still seeds the workspace; only the eval (checker) phase is skipped.
+    This turns a verifiable bench into an open-result one so the judge — and the
+    outcome×trajectory 2-D view — can be exercised where there is no oracle."""
+    return (eval_config or {}).get("eval_mode") == "judge"
+
+
+def _run_checker(case: dict | None, eval_config: dict | None) -> bool:
+    """Run the executable checker for this case? Yes iff it has one AND we are not
+    in judge mode."""
+    return _external_eval(case) is not None and not _judge_mode(eval_config)
 
 
 def _requires_toolathlon_pg(case: dict | None) -> bool:
@@ -777,7 +971,9 @@ async def _evaluate_child(
 ) -> None:
     """Best-effort record + evals for a terminal child, honoring eval_config.
 
-    E-02 outcome scoring always runs (eval is the point of a benchmark run);
+    E-02 outcome scoring runs unless the case carries an executable checker —
+    then the checker is the outcome ground truth (SPA-68); opt back in for an
+    audit via ``eval_config.audit_outcome_judge_on_verifiable``.
     E-07 trajectory defaults on, E-14 failure modes defaults off. E-20 is
     captured inside build_quality_record. A case-level rubric (``case.rubric``)
     overrides the template/workspace rubric for outcome scoring. Never raises.
@@ -797,7 +993,17 @@ async def _evaluate_child(
     ).scalar_one_or_none()
     if rec is None:
         return
-    if task.status in _SUCCESS_TASK and rec.quality_profile is None:
+    # Verifiable benches: the executable checker IS the outcome ground truth, so
+    # the E-02 outcome judge is redundant here (and over-credits — SPA-68). Skip
+    # it unless explicitly auditing the judge against the checker. E-07 trajectory
+    # still runs below (no ground truth for the process).
+    verifiable = _run_checker(case, eval_config)
+    audit_outcome = bool((eval_config or {}).get("audit_outcome_judge_on_verifiable"))
+    if (
+        task.status in _SUCCESS_TASK
+        and rec.quality_profile is None
+        and (not verifiable or audit_outcome)
+    ):
         try:
             await evaluate_task_quality(
                 db, task, commit=True, rubric_override=_case_rubric(case)
@@ -1152,7 +1358,7 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
         if task.status not in _TERMINAL_TASK:
             continue
         case = cases.get(r.case_key)
-        if _external_eval(case):
+        if _run_checker(case, exp.eval_config):
             await _start_eval(db, exp, r, case)
             continue
         await _evaluate_child(db, task, exp.eval_config or {}, case=case)
