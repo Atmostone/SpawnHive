@@ -1,0 +1,58 @@
+id: sf-sales-regional-analysis-ppt-gcal-email
+suite: toolathlon-open
+input:
+  title: SF Sales Regional Analysis PPT GCal Email
+  description: |
+    You are a sales reporting analyst. Your task is to analyze regional sales performance from the data warehouse and produce an executive presentation.
+
+    First, query the Snowflake sales data warehouse to retrieve total revenue and order count for each sales region. The data is in the SALES_DW database, PUBLIC schema. Query the ORDERS table joined with CUSTOMERS to get revenue by region. The regions are: Europe, Asia Pacific, North America, Middle East, and Latin America.
+
+    Next, create a PowerPoint presentation file called Regional_Sales_Review.pptx in the workspace. The presentation must have at least 5 slides: Slide 1 is a title slide with "Regional Sales Performance Review". Slide 2 is "Revenue by Region" showing a table or summary of revenue and order count per region. Slide 3 is "Top Region Deep Dive" focusing on the highest-revenue region (Europe) with details on its performance. Slide 4 is "Bottom Region Analysis" focusing on the lowest-revenue region (Latin America) with performance details. Slide 5 is "Recommended Actions" with at least two strategic recommendations.
+
+    Then, schedule the "Regional Sales Review Meeting" for 14 days from today, lasting one hour. Include a description mentioning this is the quarterly regional sales review. Save this event as a local iCalendar file Regional_Sales_Review_Meeting.ics in your workspace, with the correct SUMMARY ("Regional Sales Review Meeting"), DTSTART and DTEND in UTC (the event must be 14 days from today and last one hour), and a DESCRIPTION mentioning this is the quarterly regional sales review.
+
+    Finally, compose an email of the presentation from reporting@company.example.com to sales-leadership@company.example.com. The subject must be "Regional Sales Performance Review". The email body should highlight that Europe is the top region and Latin America needs attention. Save this email as a local draft file Regional_Sales_Review_Email.eml (or .md) in your workspace containing the From, To, Subject, and the full body text, and referencing the Regional_Sales_Review.pptx attachment.
+
+    The Sales_Target_2024.pdf file in your workspace contains the regional targets for context.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Regional_Sales_Review.pptx — PowerPoint with at least 5 slides: a title slide "Regional Sales Performance Review"; a "Revenue by Region" slide with a table/summary of revenue and order count per region (Europe, Asia Pacific, North America, Middle East, Latin America); a "Top Region Deep Dive" slide on Europe (highest revenue); a "Bottom Region Analysis" slide on Latin America (lowest revenue); and a "Recommended Actions" slide with at least two strategic recommendations.
+    - Regional_Sales_Review_Meeting.ics — iCalendar event titled "Regional Sales Review Meeting" scheduled 14 days from today, one hour long, DTSTART/DTEND in UTC, with a description noting it is the quarterly regional sales review.
+    - Regional_Sales_Review_Email.eml — Email draft with From: reporting@company.example.com, To: sales-leadership@company.example.com, Subject: "Regional Sales Performance Review", and a body highlighting that Europe is the top region and Latin America needs attention, referencing the Regional_Sales_Review.pptx attachment.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - pptx
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-regional-analysis-ppt-gcal-email/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-regional-analysis-ppt-gcal-email/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-sales-regional-analysis-ppt-gcal-email/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - pptx
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - pptx
+  - google_calendar
+  - emails
+  - filesystem
+  removed_servers:
+  - google_calendar
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/sf-sales-regional-analysis-ppt-gcal-email
+  license: Apache-2.0
+  redirect: |
+    Google Calendar event "Regional Sales Review Meeting" -> local Regional_Sales_Review_Meeting.ics (written via filesystem), 14 days from today, one hour, UTC.
+    Email send (reporting@ -> sales-leadership@, subject "Regional Sales Performance Review") -> local Regional_Sales_Review_Email.eml draft (written via filesystem).
+    Dropped google_calendar and emails (output-only sinks); kept snowflake (input data warehouse), pptx (presentation producer), filesystem (reads Sales_Target_2024.pdf and writes .ics/.eml).

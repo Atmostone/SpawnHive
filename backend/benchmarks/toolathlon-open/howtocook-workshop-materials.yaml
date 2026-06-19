@@ -1,0 +1,56 @@
+id: howtocook-workshop-materials
+suite: toolathlon-open
+input:
+  title: HowToCook Workshop Materials
+  description: |
+    Our company is organizing a team-building cooking workshop next month and I need you to prepare the materials. We want to feature three Chinese dishes that are relatively easy to make, take no more than 30 minutes of active cooking time, and cover different categories so we get some variety. Please search through the available recipe database to find three suitable dishes that meet these criteria.
+
+    Once you have selected the three recipes, I need you to create three deliverables in the workspace.
+
+    First, create a Word document called Workshop_Handbook.docx. This should serve as a detailed step-by-step cooking guide for participants. Start with a title "Cooking Workshop Handbook" as a top-level heading. Then for each of the three dishes, include a second-level heading with the dish name, followed by a paragraph listing all the required ingredients with quantities, and then another paragraph (or multiple paragraphs) walking through the cooking steps in order. At the end of the document, add a section called "Tips and Notes" with any general cooking advice that would help beginners.
+
+    Second, create a PowerPoint presentation called Workshop_Slides.pptx for the instructor to use during the workshop. The first slide should be a title slide with "Team Cooking Workshop" as the title. Then for each dish, create two slides: one slide with the dish name as the title and the ingredient list as the content, and a second slide with the dish name followed by "Steps" as the title and the cooking steps as bullet points. Finally add a closing slide with "Enjoy Your Meal!" as the title.
+
+    Third, create a PDF file called Shopping_List.pdf in the workspace. This should be a consolidated shopping list that combines all ingredients from all three dishes, organized neatly so that someone from our procurement team can use it to go shopping. Group similar ingredients together if possible and include the total quantities needed. The document should have a clear title "Shopping List for Cooking Workshop" at the top.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Workshop_Handbook.docx — Step-by-step cooking guide with a top-level title "Cooking Workshop Handbook", a second-level heading per dish (name, ingredients with quantities, ordered cooking steps), and a closing "Tips and Notes" section.
+    - Workshop_Slides.pptx — Instructor deck: title slide "Team Cooking Workshop", two slides per dish (ingredients slide, then a "<dish> Steps" slide with the steps as bullets), and a closing "Enjoy Your Meal!" slide.
+    - Shopping_List.pdf — Consolidated procurement shopping list titled "Shopping List for Cooking Workshop", combining all ingredients across the three dishes with similar items grouped and total quantities.
+gold:
+  capability_spec:
+    required_tools:
+    - howtocook
+    - pptx
+    - word
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/howtocook-workshop-materials/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/howtocook-workshop-materials/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/howtocook-workshop-materials/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - howtocook
+  - pptx
+  - word
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: howtocook
+  needed_mcp_servers:
+  - howtocook
+  - pptx
+  - word
+  - pdf-tools
+  - filesystem
+  removed_servers: []
+  added_servers: []
+  task_path: tasks/finalpool/howtocook-workshop-materials
+  license: Apache-2.0
+  redirect: |
+    PURE: already file-only, no output redirect needed. All three deliverables (Workshop_Handbook.docx, Workshop_Slides.pptx, Shopping_List.pdf) are produced as local files in the workspace; the recipe database (howtocook) is read-only input.

@@ -1,0 +1,47 @@
+id: sf-sales-segment-word
+suite: toolathlon-open
+input:
+  title: SF Sales Segment Word
+  description: |
+    There is a PDF file called Q4_Targets.pdf in the workspace that contains our approved quarterly sales targets for Q4 2025 broken down by customer segment. Please read that file first to get the target amounts for Enterprise, SMB, Consumer, and Government segments.
+
+    Next, query the company data warehouse to pull the actual sales figures for Q4 2025, which covers orders placed between October 1, 2025 and December 31, 2025 inclusive. Aggregate the total sales amount and order count by customer segment.
+
+    Create a Word document called Q4_Segment_Report.docx in the workspace. The document should have a heading "Q4 2025 Sales Performance by Segment" at the top. Then include a table with columns Segment, Q4_Target, Q4_Actual (rounded to 2 decimal places), Order_Count, Variance (actual minus target, rounded to 2 decimals), and Achievement_Pct (actual divided by target times 100, rounded to 1 decimal place). Sort the rows alphabetically by segment name. After the table, add a summary paragraph that states the overall total target, total actual sales, and how many segments met or exceeded their targets.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Q4_Segment_Report.docx — Word document with a heading "Q4 2025 Sales Performance by Segment", a table (columns Segment, Q4_Target, Q4_Actual, Order_Count, Variance, Achievement_Pct) sorted alphabetically by segment, and a summary paragraph stating overall total target, total actual sales, and how many segments met or exceeded their targets.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - word
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-segment-word/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-segment-word/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-sales-segment-word/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - word
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - word
+  - pdf-tools
+  - filesystem
+  removed_servers: []
+  added_servers: []
+  task_path: tasks/finalpool/sf-sales-segment-word
+  license: Apache-2.0
+  redirect: |
+    PURE: already file-only, no output redirect needed. The deliverable Q4_Segment_Report.docx is produced locally via the word server; inputs are the local Q4_Targets.pdf (pdf-tools) and the snowflake data warehouse.

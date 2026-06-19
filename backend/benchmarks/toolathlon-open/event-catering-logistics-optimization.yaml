@@ -1,0 +1,73 @@
+id: event-catering-logistics-optimization
+suite: toolathlon-open
+input:
+  title: Event Catering Logistics Optimization
+  description: |
+    Your event planning team is organizing a large corporate conference and needs to develop a comprehensive catering and logistics plan. The first phase involves querying the recipe database to identify available meal combinations that can serve a large group. Search for recipes that accommodate multiple dietary preferences including vegetarian, vegan, gluten-free, and allergy-conscious options. Create a curated menu of options that balances nutritional value with cost efficiency.
+
+    In the second phase, you will determine dietary preferences and attendance information from event attendees. The attendee roster, including each person's dietary notes, is already provided in the local file participant_list.xlsx in your workspace; read it and compute the dietary constraints from that data (do not run a live survey). Tally the vegetarian and vegan requirements, food allergies, cultural dietary restrictions (e.g. halal), and personal preferences. Create a summary of dietary constraints that will inform catering decisions and supplier selection.
+
+    The third phase requires performing detailed calculations for ingredient quantities and procurement needs. Using the selected menu items and expected attendance numbers, determine the total quantities of each ingredient required. Calculate costs for all ingredients, identify potential suppliers, and determine optimal purchasing quantities that balance bulk discounts with storage limitations.
+
+    In the fourth phase, create a comprehensive catering plan in spreadsheet format. Include the detailed menu, ingredient requirements, cost breakdowns, timeline for food preparation, delivery schedules, and staffing needs. Create multiple scenarios showing costs for different menu options and attendee counts to support decision-making. Save this catering plan as a local Excel file Catering_Plan.xlsx in your workspace.
+
+    The fifth phase involves preparing a detailed catering proposal document for executive approval. This should include the recommended menu, cost estimates, timeline, vendor information, and logistics arrangements. Include contingency plans for dietary accommodations and backup options for key menu items. Save this proposal as a local document Catering_Proposal.docx in your workspace. The sixth phase requires scheduling coordination with catering vendors and event logistics teams. Instead of sending calendar invitations, capture all key deadlines, vendor confirmation timelines, and a master timeline showing all critical path items as a local calendar file Catering_Schedule.ics in your workspace. Finally, instead of distributing the catering plan by email to all stakeholders, save the stakeholder distribution message as a local email draft file Catering_Distribution_Email.md (with From / To / Subject / Body, referencing the attached catering plan and proposal); the centralized repository of all planning documents is your workspace directory holding all of the deliverables below.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Catering_Menu.md — The curated menu of recipe options from the recipe database that accommodate vegetarian, vegan, gluten-free, and allergy-conscious diets, balancing nutritional value with cost efficiency.
+    - Dietary_Constraints_Summary.md — Summary of dietary constraints computed from participant_list.xlsx: tallies of vegetarian / vegan requirements, food allergies, cultural dietary restrictions (e.g. halal), and personal preferences across the attendee roster.
+    - Catering_Plan.xlsx — Comprehensive catering plan spreadsheet with the detailed menu, ingredient requirements and total quantities, cost breakdowns, food-preparation timeline, delivery schedules, staffing needs, and multiple cost scenarios for different menu options and attendee counts.
+    - Catering_Proposal.docx — Executive-approval catering proposal with the recommended menu, cost estimates, timeline, vendor information, logistics arrangements, contingency plans for dietary accommodations, and backup options for key menu items.
+    - Catering_Schedule.ics — Calendar file containing all key deadlines, vendor confirmation timelines, and the master timeline of critical path items for vendor and logistics coordination.
+    - Catering_Distribution_Email.md — Email draft (From / To / Subject / Body) distributing the catering plan to all stakeholders and referencing the proposal and plan deliverables.
+gold:
+  capability_spec:
+    required_tools:
+    - howtocook
+    - excel
+    - word
+    - terminal
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/event-catering-logistics-optimization/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/event-catering-logistics-optimization/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/event-catering-logistics-optimization/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - howtocook
+  - excel
+  - word
+  - terminal
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: event
+  needed_mcp_servers:
+  - howtocook
+  - google_forms
+  - excel
+  - word
+  - emails
+  - google_calendar
+  - terminal
+  - filesystem
+  removed_servers:
+  - google_forms
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/event-catering-logistics-optimization
+  license: Apache-2.0
+  redirect: |
+    The catering plan spreadsheet stays a local .xlsx (Catering_Plan.xlsx via excel) and the
+    executive proposal a local .docx (Catering_Proposal.docx via word). Google Calendar
+    coordination invitations were redirected to a local Catering_Schedule.ics file (written via
+    terminal/filesystem). The email distribution to stakeholders became a local draft file
+    Catering_Distribution_Email.md. The live Google-Form dietary-survey answer collection is not
+    localizable and was dropped entirely; instead dietary constraints are computed from the
+    already-provided local participant_list.xlsx. Removed google_forms, emails, google_calendar
+    (output-only sinks / un-localizable live collection); kept howtocook (recipe data source),
+    excel, word (file producers), and terminal/filesystem (text-file writers for .ics/.md).

@@ -133,10 +133,20 @@ async def _process_webhook(
 
             # MinIO upload is best-effort and external; failures don't roll back the tx.
             try:
-                from app.storage.minio_client import upload_task_results
+                from app.storage.minio_client import (
+                    upload_task_results,
+                    upload_task_results_root,
+                )
                 settings = get_settings()
                 workspace_dir = os.path.join(settings.data_dir, "workspaces", str(task.id))
-                s3_paths = upload_task_results(str(task.id), workspace_dir)
+                # Benchmark/Toolathlon deliverables land at the workspace root with
+                # exact filenames; product runs put them under output/. Harvest the
+                # matching location so the judge (E-02) actually receives the files
+                # instead of grading the self-reported summary alone (SPA-70).
+                if _is_benchmark(task):
+                    s3_paths = upload_task_results_root(str(task.id), workspace_dir)
+                else:
+                    s3_paths = upload_task_results(str(task.id), workspace_dir)
                 if s3_paths:
                     task.result_files = s3_paths
                     logger.info(f"Uploaded {len(s3_paths)} files to MinIO for task {task.id}")
