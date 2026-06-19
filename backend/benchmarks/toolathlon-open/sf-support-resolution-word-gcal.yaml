@@ -1,0 +1,56 @@
+id: sf-support-resolution-word-gcal
+suite: toolathlon-open
+input:
+  title: SF Support Resolution Word Calendar
+  description: |
+    Hi, I need you to pull together a support ticket resolution analysis for our team. We track all our support tickets in a database, and I need a clear picture of how long it takes us to resolve tickets broken down by priority level and by issue category.
+
+    Here is what I need you to do:
+
+    First, query our support center data to find all resolved tickets. For each priority level (High, Medium, Low), calculate the total number of resolved tickets, the average resolution time in hours (time between ticket creation and resolution), the minimum resolution time in hours, and the maximum resolution time in hours. Round all hour values to 2 decimal places. Sort the results alphabetically by priority.
+
+    Second, do a similar breakdown by issue category (the issue type field). For each category, get the total ticket count and average resolution time in hours, rounded to 2 decimal places. Sort by average resolution time in descending order.
+
+    Create a Word document called Resolution_Analysis.docx in the workspace. The document should have a top level heading "Support Ticket Resolution Analysis". Then add a section heading "Resolution Times by Priority" followed by a table with columns Priority, Total_Tickets, Avg_Hours, Min_Hours, Max_Hours. Then add another section heading "Resolution Times by Category" followed by a table with columns Category, Total_Tickets, Avg_Hours. After the tables, add a summary paragraph stating the overall total number of resolved tickets, the overall average resolution time, and the average resolution time for each priority level.
+
+    Finally, schedule a team review meeting for March 12, 2026 from 2:00 PM to 3:00 PM with the title "Support Resolution Review Meeting" and a description mentioning that the team will review the resolution analysis findings. Save this meeting as a local calendar file Support_Resolution_Review.ics in the workspace, containing a single VEVENT with the same summary, start time, end time, and description.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Resolution_Analysis.docx — Word document with the "Support Ticket Resolution Analysis" heading, the "Resolution Times by Priority" table (Priority, Total_Tickets, Avg_Hours, Min_Hours, Max_Hours), the "Resolution Times by Category" table (Category, Total_Tickets, Avg_Hours), and the summary paragraph (overall total resolved tickets, overall average resolution time, and average resolution time per priority).
+    - Support_Resolution_Review.ics — iCalendar file with one VEVENT titled "Support Resolution Review Meeting" on 2026-03-12 from 2:00 PM to 3:00 PM and a description noting the team will review the resolution analysis findings.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-resolution-word-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-resolution-word-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-support-resolution-word-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - word
+  - google_calendar
+  - filesystem
+  removed_servers:
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/sf-support-resolution-word-gcal
+  license: Apache-2.0
+  redirect: |
+    Google Calendar event redirected to a local Support_Resolution_Review.ics file
+    (single VEVENT) written via the filesystem server; google_calendar dropped as it
+    was an output-only sink. The Resolution_Analysis.docx (word server) was already a
+    local file and is unchanged. Snowflake input data-reading instructions kept verbatim.

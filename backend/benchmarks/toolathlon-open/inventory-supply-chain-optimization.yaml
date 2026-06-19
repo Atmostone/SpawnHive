@@ -1,0 +1,65 @@
+id: inventory-supply-chain-optimization
+suite: toolathlon-open
+input:
+  title: Inventory Supply Chain Optimization
+  description: |
+    Your supply chain team must optimize inventory management to reduce carrying costs while ensuring product availability. The first phase involves gathering current inventory data from the e-commerce platform and data warehouse systems. Extract information on all warehouse stock levels, product turnover rates, and historical sales patterns for the past two years. Compile supplier information including lead times, minimum order quantities, and pricing structures for all key vendors.
+
+    In the second phase, you will analyze this data to forecast future demand using historical sales patterns and seasonal trends. Create demand forecasts for the next six months for each product category. Identify products with high volatility and those with stable, predictable demand. Segment products by value and importance to differentiate inventory management strategies across the portfolio.
+
+    The third phase requires calculating optimal reorder points and safety stock levels for each product based on demand variability and supplier lead times. Determine the economic order quantity for bulk purchases that balance holding costs against ordering costs. Create decision rules that specify when to place orders and in what quantities to maintain adequate stock while minimizing excess inventory.
+
+    In the fourth phase, use these calculations to generate purchase orders with optimal timing. Create a detailed procurement schedule that staggers orders to avoid inventory peaks and shortages. Develop alternative ordering strategies for suppliers with longer lead times or supply uncertainty. Prepare cost-benefit analyses showing the impact of recommended inventory levels on working capital and cash flow.
+
+    The fifth phase involves creating comprehensive supply chain documentation. Prepare risk assessment reports identifying potential disruptions in your supply chain, including supplier concentration risks, geopolitical factors, and product-specific vulnerabilities. Document contingency plans for critical product lines. Create detailed procedures for inventory monitoring and reorder processes.
+
+    The sixth phase requires distributing these plans to procurement teams and vendors. Save the purchase orders and forecasts that you would send to key suppliers as local email draft files (one .eml or .md file per supplier) containing From/To/Subject and the message body with the relevant purchase orders and forecasts. Save spreadsheet tracking tools as a local .xlsx workbook for ongoing monitoring of inventory levels and delivery schedules. Save the schedule for regular review meetings (to monitor performance against forecasts and adjust strategies as needed) as a local .ics calendar file.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Inventory_Analysis.docx — Word document covering phases one through five: gathered inventory data (warehouse stock levels, product turnover rates, two years of historical sales patterns) and supplier information (lead times, minimum order quantities, pricing structures); six-month demand forecasts per product category with high-volatility vs. stable products and value/importance segmentation; reorder points, safety stock levels, economic order quantity, and order decision rules; the procurement schedule with staggered ordering, alternative strategies for long-lead-time/uncertain suppliers, and the cost-benefit analysis on working capital and cash flow; and the risk assessment (supplier concentration, geopolitical, product-specific vulnerabilities), contingency plans for critical product lines, and inventory monitoring/reorder procedures.
+    - Inventory_Tracking.xlsx — spreadsheet tracking tool for ongoing monitoring of inventory levels and delivery schedules (reorder points, safety stock, EOQ, and the procurement/order schedule per product).
+    - Supplier_Emails/ — one email draft file per key supplier (.eml or .md), each containing From/To/Subject and a body with that supplier's purchase orders and demand forecasts.
+    - Review_Meetings.ics — calendar file scheduling the regular review meetings to monitor performance against forecasts and adjust strategies.
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - snowflake
+    - excel
+    - word
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/inventory-supply-chain-optimization/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/inventory-supply-chain-optimization/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/inventory-supply-chain-optimization/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - snowflake
+  - excel
+  - word
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: inventory
+  needed_mcp_servers:
+  - woocommerce
+  - snowflake
+  - excel
+  - emails
+  - google_sheet
+  - word
+  - terminal
+  - google_calendar
+  removed_servers:
+  - emails
+  - google_sheet
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/inventory-supply-chain-optimization
+  license: Apache-2.0
+  redirect: |
+    Phase 6 sinks were redirected to local files. Supplier emails (server emails) -> per-supplier .eml/.md draft files under Supplier_Emails/. Spreadsheet tracking tools (server google_sheet) -> Inventory_Tracking.xlsx via the excel server (already present). Review meeting scheduling (server google_calendar) -> Review_Meetings.ics written via the terminal server. The phase 1-5 analysis is captured in Inventory_Analysis.docx via word.

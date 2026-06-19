@@ -1,0 +1,62 @@
+id: train-team-retreat-notion-word-gcal
+suite: toolathlon-open
+input:
+  title: Team Retreat Qufu Itinerary Word Calendar
+  description: |
+    Our company is hosting a team retreat at a historic cultural site in Qufu, and I need to organize the travel and itinerary for five team members. Three of them, Alice Chen, Bob Liu, and Carol Wang, will travel from Beijing. Two of them, David Zhang and Emma Li, will travel from Shanghai. Everyone is departing on March 12, 2026, and returning on March 15, 2026.
+
+    Please query the available high-speed rail options for both routes. Look up trains from Beijing to Qufu on March 12, 2026, and from Shanghai to Qufu on March 12, 2026, for the outbound journey. For the return, look up trains from Qufu to Beijing and from Qufu to Shanghai on March 15, 2026. Note the train codes, departure and arrival times, and journey durations for all routes.
+
+    Create a Word document called Team_Retreat_Itinerary.docx in the workspace. The document must have the following four sections, each with a heading. The first heading should be "Retreat Overview" and the paragraph under it should mention that the destination is Qufu, the outbound date is March 12, 2026, the return date is March 15, 2026, and that five team members are participating. The second heading should be "Outbound Journey" and should list each of the five team members with their departure city, train code, departure time, and arrival time. The third heading should be "Return Journey" and should list each team member with their return train code, departure time, and arrival time. The fourth heading should be "Schedule Notes" and should include any relevant information about travel times and coordination.
+
+    After creating the Word document, write a knowledge base summary and save it as a local Word document called Team_Retreat_Knowledge_Base.docx in the workspace. Give the document a heading titled "Team Retreat March 2026". The document content should be a summary paragraph covering the destination, travel dates, the five participant names, and the train codes used for both outbound and return journeys.
+
+    Create exactly two calendar events and save them as a single local iCalendar file called Team_Retreat_Events.ics in the workspace. The first event should have the title "Team Retreat Departs" with start time 2026-03-12 17:00:00 and end time 2026-03-12 20:00:00, and the description should mention all five team member names and the train details. The second event should have the title "Team Retreat Returns" with start time 2026-03-15 14:00:00 and end time 2026-03-15 18:00:00, with a similar description mentioning all five team members. Make sure the .ics file contains both VEVENT entries with the correct SUMMARY, DTSTART, DTEND, and DESCRIPTION fields.
+
+    Finally, save a group email as a local draft file called Team_Retreat_Travel_Confirmed.eml in the workspace. The draft must include the From header, a To header addressed to hr@company.com, the subject "Team Retreat Travel Confirmed", and a body that summarizes the travel plan including all train codes, dates, and the list of five participants.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Team_Retreat_Itinerary.docx — Word itinerary with four headed sections (Retreat Overview, Outbound Journey, Return Journey, Schedule Notes) covering destination Qufu, the March 12-15, 2026 dates, the five team members, and their outbound and return train codes, departure times, and arrival times.
+    - Team_Retreat_Knowledge_Base.docx — Word knowledge-base page headed "Team Retreat March 2026" with a summary paragraph covering the destination, travel dates, the five participant names, and the outbound and return train codes.
+    - Team_Retreat_Events.ics — iCalendar file with two VEVENTs: "Team Retreat Departs" (2026-03-12 17:00:00 to 2026-03-12 20:00:00) and "Team Retreat Returns" (2026-03-15 14:00:00 to 2026-03-15 18:00:00), each describing all five team members and the train details.
+    - Team_Retreat_Travel_Confirmed.eml — Email draft with From/To (hr@company.com)/Subject ("Team Retreat Travel Confirmed") and a body summarizing the travel plan, all train codes, dates, and the five participants.
+gold:
+  capability_spec:
+    required_tools:
+    - rail_12306
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/train-team-retreat-notion-word-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/train-team-retreat-notion-word-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/train-team-retreat-notion-word-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - rail_12306
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: train
+  needed_mcp_servers:
+  - rail_12306
+  - notion
+  - word
+  - google_calendar
+  - emails
+  - filesystem
+  removed_servers:
+  - notion
+  - google_calendar
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/train-team-retreat-notion-word-gcal
+  license: Apache-2.0
+  redirect: |
+    Notion page "Team Retreat March 2026" -> Team_Retreat_Knowledge_Base.docx via the word server.
+    Two Google Calendar events -> Team_Retreat_Events.ics with two VEVENTs via filesystem.
+    Email to hr@company.com -> Team_Retreat_Travel_Confirmed.eml draft via filesystem.
+    Removed notion, google_calendar, emails (all output-only sinks); kept rail_12306 (data source), word, filesystem.

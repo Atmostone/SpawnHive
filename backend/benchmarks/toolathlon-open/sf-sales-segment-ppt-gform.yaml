@@ -1,0 +1,54 @@
+id: sf-sales-segment-ppt-gform
+suite: toolathlon-open
+input:
+  title: SF Sales Segment Ppt Gform
+  description: |
+    The sales director wants a customer segment performance presentation and a feedback form for the sales team to provide input on strategic priorities. Please connect to the data warehouse and query revenue and order counts grouped by customer segment.
+
+    Create a PowerPoint presentation called Segment_Performance.pptx in the workspace with at least four slides. The first slide should have the title "Customer Segment Performance Report". The second slide should be titled "Revenue by Segment" and present the order count and total revenue for each customer segment. The third slide should be titled "Key Insights" and highlight which segment leads in revenue, which has the most orders, and how the segments compare to each other. The fourth slide should be titled "Strategy Recommendations" with at least three actionable recommendations for the sales team based on the segment data.
+
+    After creating the presentation, prepare a feedback form called "Sales Strategy Feedback" for the sales team to share their views on segment priorities. Save the form's questions as a local file Sales_Strategy_Feedback_Form.md. The form should have at least three questions: one asking which customer segment should receive the most sales investment (with the four segment names as options), one asking about preferred resource allocation approach (with multiple choice options), and one open-ended question asking for additional feedback or suggestions. List each question, its type (multiple choice / open-ended), and its answer options.
+
+    Finally, save an email as a local draft file Segment_Report_Email.eml (or .md) addressed from you to sales_director@company.com, with a subject referencing the segment performance report and a brief message body that summarizes the top revenue segment and total revenue figures, and mentions that the team feedback form has been created. Include the From, To, Subject, and Body in the draft file.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Segment_Performance.pptx — PowerPoint with at least 4 slides: title "Customer Segment Performance Report", "Revenue by Segment" (order count and total revenue per segment), "Key Insights" (leading revenue segment, most orders, segment comparison), and "Strategy Recommendations" (at least three actionable recommendations).
+    - Sales_Strategy_Feedback_Form.md — the "Sales Strategy Feedback" form questions: segment investment choice (four segment names as options), resource allocation approach (multiple choice), and an open-ended feedback question, each with type and options listed.
+    - Segment_Report_Email.eml — email draft (From/To/Subject/Body) to sales_director@company.com summarizing the top revenue segment and total revenue, noting that the feedback form has been created.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - pptx
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-segment-ppt-gform/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-segment-ppt-gform/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-sales-segment-ppt-gform/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - pptx
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - pptx
+  - google_forms
+  - emails
+  - filesystem
+  removed_servers:
+  - google_forms
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/sf-sales-segment-ppt-gform
+  license: Apache-2.0
+  redirect: |
+    Google Form "Sales Strategy Feedback" -> Sales_Strategy_Feedback_Form.md listing the form questions (types + options); google_forms dropped.
+    Email to sales_director@company.com -> Segment_Report_Email.eml draft (From/To/Subject/Body); emails dropped.
+    No live form-answer collection was required, so nothing dropped on that front. PPTX already file-only.

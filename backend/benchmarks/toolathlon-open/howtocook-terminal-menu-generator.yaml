@@ -1,0 +1,61 @@
+id: howtocook-terminal-menu-generator
+suite: toolathlon-open
+input:
+  title: Howtocook Terminal Menu Generator
+  description: |
+    I am planning a weekly office lunch menu and need your help pulling together recipes, filtering them, and producing a polished document.
+
+    Start by searching the recipe database for dishes across at least four different categories. Browse through the available categories and collect a good variety of options including meat dishes, vegetable dishes, soups, and staple foods or snacks. For each recipe you find, note its name, category, difficulty rating, and the list of ingredients.
+
+    Once you have gathered a sufficient pool of recipes, save them as a JSON file called all_recipes.json in the workspace. Each entry should have fields for name, category, difficulty, and ingredients. Then run the provided filter_recipes.py script to filter this collection, keeping only recipes whose difficulty is 3 or below. Save the filtered output to a file called filtered_recipes.json in the workspace.
+
+    Before selecting your final dishes, please remember these dietary preferences for future reference: no dishes with difficulty above 3, prefer variety across categories, aim for at least one soup and one vegetable dish during the week, and avoid repeating categories on consecutive days. Also remember the names of the dishes you ultimately select so they can be referenced later.
+
+    From the filtered results, pick five dishes for the weekday menu, one per day from Monday through Friday. Make sure they span at least four distinct categories and respect the dietary preferences you recorded.
+
+    Finally, generate a Word document called Weekly_Menu.docx in the workspace. The document should have a title heading of Weekly Lunch Menu. Then for each weekday from Monday through Friday, add a section heading with the day name. Under each day, include the dish name, its category, its difficulty level, and a complete list of ingredients for that dish. At the end of the document, add a section with any notes about the dietary preferences that guided your selections.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - all_recipes.json — the gathered pool of recipes, each entry with fields for name, category, difficulty, and ingredients, spanning at least four categories.
+    - filtered_recipes.json — the output of running filter_recipes.py over all_recipes.json, keeping only recipes whose difficulty is 3 or below.
+    - Weekly_Menu.docx — the weekly lunch menu document with a "Weekly Lunch Menu" title heading, one section per weekday (Monday-Friday) listing the dish name, category, difficulty level, and full ingredient list, plus a closing section noting the dietary preferences that guided the selections.
+    - memory/memory.json — the persisted memory recording the dietary preferences (no dishes above difficulty 3, prefer variety across categories, at least one soup and one vegetable dish, avoid repeating categories on consecutive days) and the names of the five selected dishes.
+gold:
+  capability_spec:
+    required_tools:
+    - howtocook
+    - terminal
+    - memory
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/howtocook-terminal-menu-generator/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/howtocook-terminal-menu-generator/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/howtocook-terminal-menu-generator/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - howtocook
+  - terminal
+  - memory
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: howtocook
+  needed_mcp_servers:
+  - howtocook
+  - terminal
+  - memory
+  - word
+  - filesystem
+  removed_servers: []
+  added_servers: []
+  task_path: tasks/finalpool/howtocook-terminal-menu-generator
+  license: Apache-2.0
+  redirect: |
+    PURE: already file-only, no output redirect needed. Deliverables are local files
+    (all_recipes.json, filtered_recipes.json, Weekly_Menu.docx) plus the memory/memory.json
+    written by the memory server. No external sinks present.

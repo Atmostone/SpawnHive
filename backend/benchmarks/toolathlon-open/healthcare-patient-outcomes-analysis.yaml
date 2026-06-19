@@ -1,0 +1,65 @@
+id: healthcare-patient-outcomes-analysis
+suite: toolathlon-open
+input:
+  title: Healthcare Patient Outcomes Analysis
+  description: |
+    Your healthcare organization must analyze patient outcomes data across treatment protocols to identify best practices and optimize clinical treatment decisions. The first phase involves aggregating comprehensive patient treatment and outcome records. Extract detailed patient information including demographics, diagnosis, comorbidities, and risk factors. Gather treatment protocol information showing which clinical approach was used for each patient. Collect all outcome measurements including primary and secondary clinical endpoints, functional status improvements, and patient-reported outcomes. Document all adverse events, complications, and safety incidents during treatment.
+
+    In the second phase, you will calculate key clinical effectiveness and safety metrics. Compute effectiveness rates showing what percentage of patients achieved clinical improvement or cure. Calculate time to clinical endpoint for different treatment protocols. Determine adverse event rates and severity classifications. Analyze patient satisfaction and quality of life outcomes using standardized instruments. Calculate healthcare resource utilization including hospitalization rates, length of stay, and readmission rates.
+
+    The third phase requires performing comparative outcome analysis across different treatment protocols and patient subgroups. Compare clinical outcomes between different treatment approaches to identify which performs best. Analyze outcomes by patient characteristics such as age, disease severity, or comorbidities to identify treatment variations. Assess whether outcomes vary significantly by provider, facility, or geographic location. Calculate risk-adjusted outcomes accounting for patient baseline characteristics.
+
+    In the fourth phase, you will identify best practice patterns from top-performing providers or facilities. Analyze characteristics of patients who achieved optimal outcomes and identify common treatment features. Document clinical decision-making patterns associated with superior results. Assess implementation fidelity of recommended protocols and relationship with outcomes. Create detailed case studies showing examples of optimal and suboptimal treatment approaches with resulting outcomes.
+
+    In the fifth phase, you will synthesize findings into comprehensive clinical evidence reports. Present outcome data with professional visualizations comparing treatment effectiveness. Document quality metrics and safety profiles for different approaches. Summarize best practice recommendations with supporting clinical evidence. Prepare implementation guides showing how to incorporate evidence-based practices into clinical workflows. Save this synthesis as a Word document Clinical_Evidence_Report.docx in your workspace.
+
+    The sixth phase requires distributing clinical evidence findings to clinical leadership and providers. Instead of sharing through external channels, capture every distribution artifact as a local file in your workspace. Save the outcome report for all stakeholders as the Word document Clinical_Evidence_Report.docx described above. Save the provider notification (highlighting treatment protocol effectiveness and clinical recommendations) as an email draft file Provider_Notification.eml containing From, To, Subject, and the full notification body. Create a spreadsheet tool for tracking and monitoring clinical outcomes as an Excel workbook Clinical_Outcomes_Tracker.xlsx. Schedule the clinical review meeting to discuss findings and establish protocols for implementing evidence-based improvements by saving it as a calendar file Clinical_Review_Meeting.ics with the event title, date/time, attendees, and an agenda describing the protocols for implementing evidence-based improvements.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Clinical_Evidence_Report.docx — Word report synthesizing all findings: patient/treatment/outcome aggregation, effectiveness and safety metrics, comparative analysis across protocols and subgroups, risk-adjusted outcomes, best-practice patterns with case studies, professional visualizations comparing treatment effectiveness, quality/safety profiles, best-practice recommendations with supporting evidence, and an implementation guide for clinical workflows.
+    - Clinical_Outcomes_Tracker.xlsx — Excel spreadsheet tool for tracking and monitoring clinical outcomes (effectiveness rates, adverse event rates, resource utilization, and per-protocol/per-provider outcome metrics).
+    - Provider_Notification.eml — email draft (From/To/Subject/Body) notifying providers and highlighting treatment protocol effectiveness and clinical recommendations.
+    - Clinical_Review_Meeting.ics — calendar event for the clinical review meeting, including title, date/time, attendees, and an agenda for establishing protocols to implement evidence-based improvements.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - word
+    - excel
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/healthcare-patient-outcomes-analysis/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/healthcare-patient-outcomes-analysis/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/healthcare-patient-outcomes-analysis/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - word
+  - excel
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: healthcare
+  needed_mcp_servers:
+  - snowflake
+  - excel
+  - word
+  - google_sheet
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - google_sheet
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/healthcare-patient-outcomes-analysis
+  license: Apache-2.0
+  redirect: |
+    Google Sheet tracking tool -> Clinical_Outcomes_Tracker.xlsx via the excel server (already present).
+    Provider email notification -> Provider_Notification.eml draft (emails dropped; output-only sink).
+    Google Calendar review meeting -> Clinical_Review_Meeting.ics written via terminal (google_calendar dropped).
+    Word report kept as Clinical_Evidence_Report.docx. snowflake kept as the patient-data source.

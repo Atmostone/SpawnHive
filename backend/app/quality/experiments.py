@@ -1006,7 +1006,8 @@ async def _evaluate_child(
     ):
         try:
             await evaluate_task_quality(
-                db, task, commit=True, rubric_override=_case_rubric(case)
+                db, task, commit=True, rubric_override=_case_rubric(case),
+                files_only=bool((eval_config or {}).get("outcome_files_only")),
             )
         except Exception as e:
             await db.rollback()

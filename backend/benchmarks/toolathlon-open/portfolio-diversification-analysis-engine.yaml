@@ -1,0 +1,66 @@
+id: portfolio-diversification-analysis-engine
+suite: toolathlon-open
+input:
+  title: Portfolio Diversification Analysis Engine
+  description: |
+    Your investment management firm needs to develop a comprehensive portfolio analysis engine to optimize asset allocation across multiple investment types and geographic regions. The first phase involves gathering comprehensive financial data on all current portfolio holdings. Extract historical stock prices, dividend data, and financial performance metrics for all equities. Compile bond yields, credit spreads, and maturity information for fixed income holdings. Gather real estate valuations, commodity prices, and alternative investment performance data for the complete portfolio.
+
+    In the second phase, you will perform detailed quantitative analysis on this data. Calculate correlation matrices showing how different asset classes and individual securities move together under various market conditions. Analyze sector exposure to ensure appropriate diversification across industries. Calculate risk metrics including volatility, beta coefficients, and value-at-risk measures. Identify concentration risks where particular holdings or sectors represent excessive portfolio weight.
+
+    The third phase requires developing allocation recommendations that optimize the risk-return tradeoff. Use modern portfolio theory to calculate efficient frontier allocations that maximize return for target risk levels. Create multiple allocation scenarios representing different investment philosophies such as conservative, moderate, or aggressive growth. Develop detailed rationales for each recommendation linking proposed allocations to specific investment objectives.
+
+    In the fourth phase, you will analyze rebalancing scenarios to transition from the current portfolio to recommended allocations. Create detailed implementation plans showing which positions to increase or decrease. Calculate tax implications of proposed trades including capital gains realization and tax-loss harvesting opportunities. Generate cost-benefit analyses comparing different rebalancing approaches. Prepare presentation materials showing scenarios with supporting analysis; save these presentation materials as a local PowerPoint file Portfolio_Analysis_Presentation.pptx in the workspace.
+
+    The fifth phase involves compiling comprehensive investment strategy documentation for client and internal stakeholder review. Document the investment philosophy, objectives, risk tolerance, and constraints guiding the analysis. Present detailed allocation recommendations with supporting rationale and performance projections. Create implementation roadmaps with specific action items and timelines. Save this strategy documentation as a local Word file Portfolio_Investment_Strategy.docx in the workspace. The sixth phase requires preparing the analysis package for delivery to clients and investment committee members. Instead of sending the package over email, save the message as a local email draft file Portfolio_Analysis_Email.eml in the workspace, containing From, To, Subject, and a Body that references the analysis package and its key recommendations. Instead of scheduling the investment strategy review meetings on a live calendar, save those meetings as a local calendar file Stakeholder_Review_Meetings.ics in the workspace, with one event per stakeholder review meeting (title, date/time, and attendees). Maintain comprehensive documentation files for future reference and monitoring.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Portfolio_Investment_Strategy.docx — Investment strategy documentation covering the investment philosophy, objectives, risk tolerance and constraints; detailed allocation recommendations with supporting rationale and performance projections; and implementation roadmaps with specific action items and timelines.
+    - Portfolio_Analysis_Presentation.pptx — Presentation materials showing the rebalancing scenarios with supporting analysis, including the implementation plans (positions to increase/decrease), tax implications, and cost-benefit comparisons of the rebalancing approaches.
+    - Portfolio_Analysis_Email.eml — Email draft of the analysis package addressed to clients and investment committee members, containing From, To, Subject, and a Body that summarizes the analysis package and its key recommendations.
+    - Stakeholder_Review_Meetings.ics — Calendar file with one event per investment strategy review meeting (title, date/time, and stakeholder attendees).
+gold:
+  capability_spec:
+    required_tools:
+    - yahoo-finance
+    - word
+    - pptx
+    - terminal
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/portfolio-diversification-analysis-engine/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/portfolio-diversification-analysis-engine/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/portfolio-diversification-analysis-engine/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - yahoo-finance
+  - word
+  - pptx
+  - terminal
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: portfolio
+  needed_mcp_servers:
+  - yahoo-finance
+  - word
+  - pptx
+  - emails
+  - google_calendar
+  - terminal
+  - filesystem
+  removed_servers:
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/portfolio-diversification-analysis-engine
+  license: Apache-2.0
+  redirect: |
+    Phase six email send (analysis package to clients/committee) -> local draft
+    Portfolio_Analysis_Email.eml (From/To/Subject/Body). Phase six calendar meetings
+    (google_calendar) -> local Stakeholder_Review_Meetings.ics. Strategy doc -> .docx
+    (word), presentation materials -> .pptx (pptx); both already file producers. emails
+    and google_calendar dropped as output-only sinks; terminal/filesystem write the
+    .eml/.ics, so no server added.

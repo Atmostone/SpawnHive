@@ -1,0 +1,60 @@
+id: sf-support-metrics-pdf-email
+suite: toolathlon-open
+input:
+  title: SF Support Metrics Pdf Email
+  description: |
+    Hey, could you help me put together a support metrics report from our ticket database? I need to analyze our support center performance and share it with the team.
+
+    Please query the tickets table from the support center database to build a comprehensive metrics report.
+
+    Create a PDF file called Support_Metrics.pdf in the workspace with the following content:
+
+    The title should be "Support Metrics Report".
+
+    First, an "Overview" section showing: Total Tickets (the total count of all tickets), Average Response Time in hours rounded to 2 decimals, and Average Customer Satisfaction rounded to 2 decimals.
+
+    Second, a "Metrics by Issue Type" section with a table. The columns should be Issue Type, Tickets (count), Avg Response (hrs) rounded to 2 decimals, and Avg Satisfaction rounded to 2 decimals. Sort by ticket count descending.
+
+    Third, a "Metrics by Priority" section with a table. The columns should be Priority, Tickets (count), Avg Response (hrs) rounded to 2 decimals, and Avg Satisfaction rounded to 2 decimals. Sort by Priority alphabetically.
+
+    Once the PDF is ready, save the accompanying email as a local draft file Support_Metrics_Email.eml (or Support_Metrics_Email.md) containing From, To (the support manager at manager@supportcenter.com), Subject ("Monthly Support Metrics Report"), and a brief body mentioning the total ticket count and average satisfaction score. Reference the Support_Metrics.pdf attachment in the draft.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Support_Metrics.pdf — the support metrics report PDF: title "Support Metrics Report"; an Overview section with Total Tickets, Average Response Time (hrs, 2 decimals), Average Customer Satisfaction (2 decimals); a "Metrics by Issue Type" table (Issue Type, Tickets, Avg Response (hrs), Avg Satisfaction) sorted by ticket count descending; and a "Metrics by Priority" table (Priority, Tickets, Avg Response (hrs), Avg Satisfaction) sorted by Priority alphabetically.
+    - Support_Metrics_Email.eml — the email draft to the support manager with From, To (manager@supportcenter.com), Subject "Monthly Support Metrics Report", a body mentioning the total ticket count and average satisfaction score, and a reference to the Support_Metrics.pdf attachment.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-metrics-pdf-email/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-metrics-pdf-email/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-support-metrics-pdf-email/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - pdf-tools
+  - emails
+  - filesystem
+  removed_servers:
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/sf-support-metrics-pdf-email
+  license: Apache-2.0
+  redirect: |
+    The "send it as an email to manager@supportcenter.com" step (server: emails, output-only sink)
+    is redirected to a local email draft file Support_Metrics_Email.eml with From/To/Subject/Body.
+    The Support_Metrics.pdf was already a local file and is unchanged. Dropped the emails server;
+    kept snowflake (data source), pdf-tools (PDF producer), and filesystem (writes the .eml draft).

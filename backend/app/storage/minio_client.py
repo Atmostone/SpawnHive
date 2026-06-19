@@ -51,6 +51,44 @@ def upload_task_results(task_id: str, workspace_dir: str) -> list[str]:
     return s3_paths
 
 
+def upload_task_results_root(task_id: str, workspace_dir: str) -> list[str]:
+    """Upload deliverables from the workspace ROOT to MinIO (benchmark mode).
+
+    Benchmark/Toolathlon agents write their deliverables to the ``/workspace``
+    root with exact filenames — not the ``output/`` subdir that product mode (and
+    :func:`upload_task_results`) harvests — so without this the judge (E-02) gets
+    zero files and grades only the agent's self-reported summary (SPA-70). This
+    harvests every regular file at the root, skipping dotfiles and system logs
+    (``.pre_log.json`` / ``.eval_log.json``) and any subdirectory (the unused
+    ``output/``, seed dirs). Newest-first, so when the judge's per-eval file cap
+    truncates, the agent's just-written deliverables win over older seeded stub
+    files (README/config/data copied in by preprocess).
+    """
+    if not os.path.isdir(workspace_dir):
+        return []
+
+    files = [
+        os.path.join(workspace_dir, name)
+        for name in os.listdir(workspace_dir)
+        if not name.startswith(".")
+        and os.path.isfile(os.path.join(workspace_dir, name))
+    ]
+    files.sort(key=os.path.getmtime, reverse=True)
+
+    client = get_minio_client()
+    ensure_bucket()
+
+    s3_paths = []
+    for local_path in files:
+        rel_path = os.path.basename(local_path)
+        s3_path = f"results/{task_id}/{rel_path}"
+        client.fput_object(BUCKET, s3_path, local_path)
+        s3_paths.append(s3_path)
+        logger.info(f"Uploaded {rel_path} -> s3://{BUCKET}/{s3_path}")
+
+    return s3_paths
+
+
 def get_file_stream(s3_path: str):
     """Get a file stream from MinIO."""
     client = get_minio_client()

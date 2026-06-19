@@ -1,0 +1,60 @@
+id: scholarly-literature-review-gcal-word-email
+suite: toolathlon-open
+input:
+  title: Scholarly Literature Review GCal Word Email
+  description: |
+    You are a faculty researcher preparing a literature review on large language models for your research team. Your workspace contains Research_Scope.md describing the paper selection criteria and Literature_Review_Template.docx as a starting template.
+
+    Your task is to compile a literature review and coordinate team reading. Follow these steps exactly.
+
+    Step 1: Search Google Scholar for papers on "transformer language model" or "large language models". Use the scholarly search tools to find papers. Select the top papers by citation count, focusing on papers about transformers and large language models published between 2017 and 2023. You should aim to include at least six papers in your review.
+
+    Step 2: Write a Word document called Literature_Review.docx in your workspace. Start with a heading that includes the word "Literature" and "Review". For each selected paper add a section with the paper title, authors, publication year, citation count, and a one to two sentence summary of the key contribution. End the document with a section heading "Summary" or "Conclusion" that compares the approaches across the selected papers and identifies key themes in the field.
+
+    Step 3: Create a calendar event titled "Literature Review Presentation" scheduled for 14 days from today (2026-03-07), meaning the event should be on 2026-03-21. Set the start time to 14:00 and end time to 15:30 in UTC. Include a description mentioning "LLM research" or "large language models". Save this event as a local iCalendar file Literature_Review_Presentation.ics in your workspace, with the correct SUMMARY, DTSTART, DTEND (in UTC), and DESCRIPTION fields.
+
+    Step 4: Compose an email from faculty@university.example.com to research-team@university.example.com. The subject must contain the words "Literature Review". The body should list the papers assigned for reading and mention the presentation date of March 21, 2026. Save this email as a local draft file Literature_Review_Email.eml (or .md) in your workspace containing the From, To, Subject, and the full body text.
+
+    Complete all four steps.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Literature_Review.docx — Word document with a "Literature Review" heading, one section per selected paper (title, authors, publication year, citation count, 1-2 sentence contribution summary), and a closing "Summary" or "Conclusion" section comparing approaches and key themes.
+    - Literature_Review_Presentation.ics — iCalendar event titled "Literature Review Presentation" on 2026-03-21, 14:00-15:30 UTC, with a description mentioning "LLM research" or "large language models".
+    - Literature_Review_Email.eml — Email draft with From: faculty@university.example.com, To: research-team@university.example.com, a Subject containing "Literature Review", and a body listing the assigned papers and the presentation date of March 21, 2026.
+gold:
+  capability_spec:
+    required_tools:
+    - scholarly
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/scholarly-literature-review-gcal-word-email/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/scholarly-literature-review-gcal-word-email/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/scholarly-literature-review-gcal-word-email/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - scholarly
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: scholarly
+  needed_mcp_servers:
+  - scholarly
+  - google_calendar
+  - word
+  - emails
+  - filesystem
+  removed_servers:
+  - google_calendar
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/scholarly-literature-review-gcal-word-email
+  license: Apache-2.0
+  redirect: |
+    Google Calendar event "Literature Review Presentation" -> local Literature_Review_Presentation.ics (written via filesystem).
+    Email send (faculty@ -> research-team@) -> local Literature_Review_Email.eml draft (written via filesystem).
+    Dropped google_calendar and emails (output-only sinks); kept scholarly (input data source), word (docx producer), filesystem (writes .ics/.eml).

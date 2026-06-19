@@ -1,0 +1,61 @@
+id: sf-sales-region-pdf-gsheet
+suite: toolathlon-open
+input:
+  title: SF Sales Region Pdf Gsheet
+  description: |
+    Hi, I need you to pull our delivered order data from the sales data warehouse and create a regional sales report.
+
+    Please query the orders and customers tables from the sales database to get all delivered orders grouped by customer region. For each region, I need the count of delivered orders, number of distinct customers, total revenue rounded to 2 decimal places, average order value rounded to 2 decimal places, and revenue share percentage rounded to 1 decimal place (each region's revenue as a percentage of the total).
+
+    Create a PDF file called Regional_Sales_Report.pdf in the workspace. The PDF should have:
+
+    A title "Regional Sales Report" at the top.
+
+    A section called "Delivered Orders by Region" with a table containing columns: Region, Orders, Customers, Revenue, Avg Order Value, Revenue Share %. The regions should be sorted alphabetically. Include a totals row at the bottom.
+
+    A "Summary" section below the table showing: Total Regions (count), Total Delivered Orders, Total Revenue, and Top Region by Revenue (the region name with the highest total revenue).
+
+    Also please save a spreadsheet file called Regional_Sales_Dashboard.xlsx in the workspace, with a sheet named "Overview" containing the same regional breakdown data (Region, Orders, Customers, Revenue, Avg Order Value, Revenue Share %) so the team can access it offline.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Regional_Sales_Report.pdf — PDF report titled "Regional Sales Report" with a "Delivered Orders by Region" table (Region, Orders, Customers, Revenue, Avg Order Value, Revenue Share %; regions sorted alphabetically; totals row) and a "Summary" section (Total Regions, Total Delivered Orders, Total Revenue, Top Region by Revenue).
+    - Regional_Sales_Dashboard.xlsx — Excel workbook with a sheet named "Overview" holding the same regional breakdown (Region, Orders, Customers, Revenue, Avg Order Value, Revenue Share %).
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - pdf-tools
+    - excel
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-region-pdf-gsheet/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-sales-region-pdf-gsheet/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-sales-region-pdf-gsheet/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - pdf-tools
+  - excel
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - pdf-tools
+  - google_sheet
+  - filesystem
+  removed_servers:
+  - google_sheet
+  added_servers:
+  - excel
+  task_path: tasks/finalpool/sf-sales-region-pdf-gsheet
+  license: Apache-2.0
+  redirect: |
+    The "Regional Sales Dashboard" Google Sheet (server google_sheet, output-only sink) is
+    redirected to a local Regional_Sales_Dashboard.xlsx written via the excel server, keeping the
+    "Overview" sheet and same regional columns. Dropped google_sheet; added excel. The PDF
+    (pdf-tools) and snowflake data source are unchanged.

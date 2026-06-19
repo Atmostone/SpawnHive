@@ -1,0 +1,53 @@
+id: wc-product-catalog-word
+suite: toolathlon-open
+input:
+  title: WC Product Catalog Word
+  description: |
+    Our supplier has sent us their latest product catalog as a PDF file called Supplier_Catalog.pdf in the workspace. This catalog lists products they can supply to us along with their suggested retail prices. I need you to cross-reference this catalog against our current online store inventory to see which products we already carry and which ones we are missing.
+
+    Please read the supplier catalog PDF first to extract all the product names and prices listed in it. Then query our store to get the full list of products we currently sell, including their names and current prices.
+
+    Create a Word document called Product_Comparison.docx in the workspace. The document should have a title "Supplier Catalog vs Store Inventory Comparison" at the top.
+
+    Add a section with the heading "Matching Products" that lists all products from the supplier catalog that we already have in our store. For each matching product, include one paragraph showing the product name, the supplier price from the catalog, and the current store price. Match products by checking if the supplier catalog product name appears as a substring within any store product name, using case-insensitive comparison.
+
+    Then add a section with the heading "Missing Products" that lists all products from the supplier catalog that are not found in our store. For each missing product, include one paragraph showing the product name and the supplier suggested price.
+
+    Finally add a section with the heading "Summary" containing a paragraph that states the total number of products in the supplier catalog, how many were found in the store, and how many are missing.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Product_Comparison.docx — Word document with title "Supplier Catalog vs Store Inventory Comparison" and three sections: "Matching Products" (each matching catalog product with its supplier price and current store price), "Missing Products" (each catalog product not found in the store with its supplier suggested price), and "Summary" (a paragraph stating the total number of catalog products, how many were found in the store, and how many are missing).
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - word
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-product-catalog-word/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-product-catalog-word/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/wc-product-catalog-word/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - word
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: woocommerce
+  needed_mcp_servers:
+  - woocommerce
+  - word
+  - pdf-tools
+  - filesystem
+  removed_servers: []
+  added_servers: []
+  task_path: tasks/finalpool/wc-product-catalog-word
+  license: Apache-2.0
+  redirect: |
+    PURE: already file-only, no output redirect needed. The task reads from the WooCommerce store and the Supplier_Catalog.pdf (data sources) and already delivers its single result as a local Product_Comparison.docx via the word server.
