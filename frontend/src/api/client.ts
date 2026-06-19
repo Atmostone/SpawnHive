@@ -763,6 +763,8 @@ export const experimentsApi = {
   pause: (id: string) => request<Experiment>(`/experiments/${id}/pause`, { method: 'POST' }),
   resume: (id: string) => request<Experiment>(`/experiments/${id}/resume`, { method: 'POST' }),
   cancel: (id: string) => request<Experiment>(`/experiments/${id}/cancel`, { method: 'POST' }),
+  retryFailed: (id: string) =>
+    request<Experiment & { retried: number }>(`/experiments/${id}/retry-failed`, { method: 'POST' }),
   report: (id: string, params?: { method?: 'bt' | 'elo'; refresh?: boolean }) => {
     const qs = new URLSearchParams()
     if (params?.method) qs.set('method', params.method)

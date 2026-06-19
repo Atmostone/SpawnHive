@@ -29,11 +29,16 @@ export default function AnnotationPanel({
     queryKey: ['human-feedback', taskId],
     queryFn: () => qualityApi.getFeedback(taskId),
   })
+  const trajectoryQuery = useQuery({
+    queryKey: ['trajectory-profile', taskId],
+    queryFn: () => qualityApi.getTrajectoryProfile(taskId),
+  })
 
   const profile = profileProp ?? profileQuery.data?.quality_profile ?? null
   const loading =
     feedbackQuery.isLoading ||
     reviewQuery.isLoading ||
+    trajectoryQuery.isLoading ||
     (profileProp == null && profileQuery.isLoading)
   if (loading) return <div className="text-xs text-gray-400 py-2">Loading…</div>
 
@@ -77,6 +82,7 @@ export default function AnnotationPanel({
       <HumanFeedbackForm
         taskId={taskId}
         profile={profile}
+        trajectoryProfile={trajectoryQuery.data?.trajectory_profile ?? null}
         existing={feedbackQuery.data?.human_feedback ?? null}
         defaultOpen
         onSaved={onSaved}

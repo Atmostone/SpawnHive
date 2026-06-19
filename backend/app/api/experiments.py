@@ -310,6 +310,58 @@ async def cancel_experiment(
     return serialize(exp)
 
 
+@router.post("/{experiment_id}/retry-failed", status_code=status.HTTP_202_ACCEPTED)
+async def retry_failed_experiment(
+    experiment_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+    _role=Depends(require_role("owner", "admin")),
+):
+    """Reset cells that errored out (rate-limit / transient API / infra) back to
+    pending and re-open the experiment so the tick re-runs them in place — no
+    clone, valid cells untouched. Repeatable across provider quota windows."""
+    exp = await _get_scoped(experiment_id, workspace, db)
+    retried = await service.retry_failed_experiment(db, exp)
+    return {**serialize(exp), "retried": retried}
+
+
+@router.post("/{experiment_id}/add-config", status_code=status.HTTP_202_ACCEPTED)
+async def add_config(
+    experiment_id: str,
+    body: dict,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+    _role=Depends(require_role("owner", "admin")),
+):
+    """Add a configuration (e.g. another model) to an existing experiment and
+    materialize+run its cells in place over the same frozen dataset — no clone."""
+    exp = await _get_scoped(experiment_id, workspace, db)
+    try:
+        result = await service.add_config_to_experiment(db, exp, body)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return {**serialize(exp), **result}
+
+
+@router.delete("/{experiment_id}/configs/{config_key}", status_code=status.HTTP_200_OK)
+async def remove_config(
+    experiment_id: str,
+    config_key: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+    _role=Depends(require_role("owner", "admin")),
+):
+    """Remove a configuration (e.g. a retired model) and all its runs from an
+    experiment in place — inverse of add-config. Drops it from the matrix/report
+    and clears the cached report; refuses to remove the last configuration."""
+    exp = await _get_scoped(experiment_id, workspace, db)
+    try:
+        result = await service.remove_config_from_experiment(db, exp, config_key)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return {**serialize(exp), **result}
+
+
 @router.get("/{experiment_id}/report")
 async def experiment_report(
     experiment_id: str,

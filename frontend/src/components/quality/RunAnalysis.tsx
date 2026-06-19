@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { QualityProfile } from '@/types'
 import CleanedTracePanel from './CleanedTracePanel'
 import TrajectoryScorePanel from './TrajectoryScorePanel'
@@ -21,6 +21,18 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'annotate', label: 'Annotate' },
 ]
 
+/** Dim a panel that does not apply to checker-graded (verifiable) runs, with a
+ *  one-line reason, while leaving it expandable. Pass-through when not dimmed. */
+function Dimmed({ when, note, children }: { when: boolean; note: string; children: ReactNode }) {
+  if (!when) return <>{children}</>
+  return (
+    <div className="opacity-55" title={note}>
+      <div className="text-[11px] text-gray-400 mb-1">⊘ {note}</div>
+      {children}
+    </div>
+  )
+}
+
 /** Per-run eval drill-down for an experiment run. Mounts the taskId-keyed
  *  quality panels — cleaned trace (E-06), trajectory (E-07), evidence bank
  *  (E-08), trajectory match (E-09), capability (E-13), variance (E-11),
@@ -31,10 +43,14 @@ const TABS: { key: Tab; label: string }[] = [
 export default function RunAnalysis({
   taskId,
   profile,
+  verifiable = false,
   onSaved,
 }: {
   taskId: string
   profile?: QualityProfile | null
+  /** Checker-graded run: dim the evals that don't apply when an executable
+   *  checker is the outcome ground truth (E-09/E-13/E-16). (SPA-68) */
+  verifiable?: boolean
   onSaved?: () => void
 }) {
   const [tab, setTab] = useState<Tab>('trajectory')
@@ -62,12 +78,16 @@ export default function RunAnalysis({
             <CleanedTracePanel taskId={taskId} />
             <TrajectoryScorePanel taskId={taskId} />
             <EvidenceBankPanel taskId={taskId} />
-            <TrajectoryMatchPanel taskId={taskId} />
+            <Dimmed when={verifiable} note="N/A for checker-graded tasks — no gold trajectory (the executable checker is the outcome truth)">
+              <TrajectoryMatchPanel taskId={taskId} />
+            </Dimmed>
           </>
         )}
         {tab === 'robustness' && (
           <>
-            <CapabilityPanel taskId={taskId} />
+            <Dimmed when={verifiable} note="N/A for this benchmark — no capability spec to isolate against">
+              <CapabilityPanel taskId={taskId} />
+            </Dimmed>
             <VarianceRunPanel taskId={taskId} />
             <PerturbationPanel taskId={taskId} />
           </>
@@ -76,7 +96,9 @@ export default function RunAnalysis({
           <>
             <FailureModePanel taskId={taskId} />
             <HallucinationPanel taskId={taskId} />
-            <CalibrationPanel taskId={taskId} />
+            <Dimmed when={verifiable} note="N/A for checker-graded tasks — calibration pairs with the outcome judge (E-02), which is off here">
+              <CalibrationPanel taskId={taskId} />
+            </Dimmed>
           </>
         )}
         {tab === 'annotate' && (
