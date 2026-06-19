@@ -1,0 +1,72 @@
+id: student-success-tracking-multi-touch
+suite: toolathlon-open
+input:
+  title: Student Success Tracking Multi-Touch
+  description: |
+    Your institution must develop a comprehensive student success tracking system that integrates multiple support channels to identify which interventions most effectively improve retention and graduation rates. The first phase involves aggregating student engagement data from the learning management system. Extract metrics including course access frequency, quiz and assignment submission patterns, discussion board participation, and assessment performance. Track engagement over time to identify trends and at-risk patterns.
+
+    In the second phase, you will analyze communication records to document all advisor and support touchpoints for each student. Parse email logs to extract information about advising meetings, communications about student concerns, and documented support services provided. Create a comprehensive touchpoint log that captures the type, date, and nature of each intervention recorded in the system.
+
+    In the third phase, integrate this data with student outcome information from the data warehouse. Link each student's engagement data, communication touchpoints, and support services with their subsequent enrollment status, course completion rates, and retention through the following academic term. Create a structured dataset that enables correlation analysis between support activities and student outcomes.
+
+    In the fourth phase, you will track intervention outcomes and effectiveness in a knowledge management document. Document all support programs and services available, create case studies of successful interventions, and develop best practice guides based on high-impact support activities. Maintain a repository of student success stories and lessons learned.
+
+    The fifth phase involves performing detailed statistical analysis to quantify the relationship between support activities and retention rates. Calculate correlation coefficients between specific intervention types and student outcomes. Perform regression analysis to identify which combinations of support services have the highest impact. Segment analysis by student demographics, academic preparation, and risk factors to understand differential effectiveness.
+
+    The sixth phase requires synthesizing these findings into a comprehensive report with actionable insights for the student support team. Present data visualizations showing effectiveness metrics, highlight highest-impact interventions, and provide recommendations for resource allocation. Create detailed documentation for training advisors on evidence-based support strategies.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Student_Engagement_Metrics.xlsx — per-student LMS engagement metrics (course access frequency, quiz/assignment submission patterns, discussion board participation, assessment performance) with engagement trends over time and at-risk pattern flags.
+    - Touchpoint_Log.xlsx — comprehensive log of every advisor and support touchpoint parsed from the email/communication records, capturing the type, date, and nature of each intervention.
+    - Integrated_Outcomes_Dataset.xlsx — structured dataset linking each student's engagement data, communication touchpoints, and support services with data-warehouse outcomes (enrollment status, course completion rates, retention through the following academic term) to enable correlation analysis.
+    - Statistical_Analysis.xlsx — correlation coefficients between intervention types and outcomes, regression results identifying the highest-impact combinations of support services, and segmented analysis by student demographics, academic preparation, and risk factors.
+    - Knowledge_Base.docx — knowledge management document covering all support programs and services available, case studies of successful interventions, best-practice guides for high-impact support activities, and a repository of student success stories and lessons learned.
+    - Student_Success_Report.docx — comprehensive final report for the student support team with data visualizations of effectiveness metrics, highest-impact interventions highlighted, resource-allocation recommendations, and advisor training documentation on evidence-based support strategies.
+gold:
+  capability_spec:
+    required_tools:
+    - canvas
+    - snowflake
+    - emails
+    - word
+    - excel
+    - google_calendar
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/student-success-tracking-multi-touch/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/student-success-tracking-multi-touch/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/student-success-tracking-multi-touch/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - canvas
+  - snowflake
+  - emails
+  - word
+  - excel
+  - google_calendar
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: student
+  needed_mcp_servers:
+  - canvas
+  - notion
+  - snowflake
+  - word
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - notion
+  added_servers:
+  - excel
+  task_path: tasks/finalpool/student-success-tracking-multi-touch
+  license: Apache-2.0
+  redirect: |
+    Phase 4 wrote intervention outcomes/case studies/best-practice guides into Notion (output sink) -> redirected to Knowledge_Base.docx via the word server; notion dropped.
+    Phases 1/2/3/5 produced structured datasets and analysis -> saved as .xlsx via the added excel server (Student_Engagement_Metrics, Touchpoint_Log, Integrated_Outcomes_Dataset, Statistical_Analysis).
+    Phase 6 final report -> Student_Success_Report.docx via word.
+    canvas/snowflake are data-warehouse/LMS inputs and emails/google_calendar are read as communication+meeting touchpoint sources, so all four are kept.

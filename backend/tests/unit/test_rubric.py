@@ -239,6 +239,27 @@ async def test_deliverable_file_contents_reach_judge(db_session, default_model, 
     assert "(binary file, content not shown)" in seen["context"]
 
 
+def test_result_context_files_only_withholds_self_report():
+    # SPA-70: judge-mode open-ended runs grade the artifacts, not the agent's
+    # self-report — outcome_files_only drops result_summary from the judge
+    # context so a flattering summary can't over-credit a thin/absent deliverable.
+    task = Task(
+        title="write report", status=TaskStatus.DONE.value, workspace_id=WS,
+        description="produce the Q3 report",
+        result_summary="I built a comprehensive, flawless report covering everything.",
+        result_files=["results/tid/report.docx"],
+    )
+    with_summary = judge_mod._result_context(task)
+    files_only = judge_mod._result_context(task, include_summary=False)
+    # the self-report is present by default, withheld in files-only mode
+    assert "comprehensive, flawless" in with_summary
+    assert "comprehensive, flawless" not in files_only
+    assert "withheld by design" in files_only
+    # the task prompt and the file list survive either way
+    assert "produce the Q3 report" in files_only
+    assert "report.docx" in files_only
+
+
 async def test_binary_deliverable_reaches_judge_as_markdown(
     db_session, default_model, monkeypatch
 ):

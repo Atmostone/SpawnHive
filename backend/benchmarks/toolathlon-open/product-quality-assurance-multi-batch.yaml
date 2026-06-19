@@ -1,0 +1,73 @@
+id: product-quality-assurance-multi-batch
+suite: toolathlon-open
+input:
+  title: Product Quality Assurance Multi Batch
+  description: |
+    Your manufacturing facility must implement a comprehensive quality assurance program to monitor product quality across multiple production batches and identify process improvements. The first phase involves establishing quality inspection procedures and logging results. Develop detailed quality control checklists for each product type specifying measurable quality criteria. Train quality inspectors on standardized procedures and acceptance criteria. Systematically inspect samples from each production batch, recording detailed results including specific defects identified, measurement data, and inspector notes. Create a centralized database documenting all inspection results organized by product, batch, date, and inspector.
+
+    In the second phase, you will perform detailed analysis of quality data across all batches. Organize defect data by type, severity, product line, and production period. Identify recurring quality problems and products with consistently high defect rates. Calculate defect rates and quality metrics for each product and batch. Investigate root causes for defects, examining whether problems stem from equipment malfunction, operator error, material issues, or design factors. Document all findings with supporting evidence.
+
+    The third phase requires developing and analyzing statistical process control charts. Create control charts showing quality metrics over time for each product line. Establish upper and lower control limits based on acceptable quality standards. Plot actual batch quality results on control charts to visualize process performance and identify trends. Highlight batches or periods where quality fell outside control limits. Analyze whether quality metrics show statistically significant trends or patterns suggesting systematic problems.
+
+    In the fourth phase, you will use quality analysis findings to identify specific products and batches requiring action. Flag batches with unacceptable quality for rework, scrap, or quarantine. Create lists of products that may require customer notification or recall. Calculate estimated costs of quality failures including rework, scrap, and potential warranty claims. Prepare notifications to production management and quality supervisors about identified issues.
+
+    The fifth phase involves synthesizing quality findings into comprehensive reports for management review. Document all quality inspection results with summary statistics and trend analyses. Present control charts and statistical analyses showing process performance. Identify systemic quality problems and their business impact. Develop specific, prioritized recommendations for process improvements with estimated impact on quality and costs.
+
+    The sixth phase requires distributing quality assurance findings and implementing corrective actions. Instead of sharing detailed quality reports with production management through messaging channels, save the message to production management as a local draft file Quality_Findings_Email.eml containing From, To, Subject and a body that references the quality reports and their key findings. Instead of building an external spreadsheet tracking system, create a local spreadsheet tracking system for ongoing quality monitoring as Quality_Monitoring_Tracker.xlsx. Document corrective action plans for identified quality problems. Instead of scheduling quality review meetings on an external calendar, save each quality review meeting with the production teams as a local calendar file Quality_Review_Meeting.ics containing the meeting title, date/time, duration, attendees, and a description that references the findings to be discussed and the improvements to implement.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Inspection_Database.xlsx — centralized inspection database documenting all quality inspection results organized by product, batch, date, and inspector, including specific defects identified, measurement data, and inspector notes; include the quality control checklists and acceptance criteria for each product type.
+    - Defect_Analysis.xlsx — detailed analysis of quality data across all batches with defect data organized by type, severity, product line, and production period; calculated defect rates and quality metrics per product and batch; recurring quality problems and products with consistently high defect rates; and documented root-cause findings (equipment, operator, material, or design factors) with supporting evidence.
+    - Control_Charts.xlsx — statistical process control charts showing quality metrics over time for each product line, with established upper and lower control limits, actual batch quality results plotted, batches or periods outside control limits highlighted, and analysis of statistically significant trends or patterns.
+    - Action_List.xlsx — list of specific products and batches requiring action: batches flagged for rework, scrap, or quarantine; products that may require customer notification or recall; and estimated costs of quality failures including rework, scrap, and potential warranty claims.
+    - Quality_Management_Report.docx — comprehensive management report synthesizing all quality inspection results with summary statistics and trend analyses, presenting control charts and statistical analyses of process performance, identifying systemic quality problems and their business impact, and providing specific, prioritized recommendations for process improvements with estimated impact on quality and costs.
+    - Corrective_Action_Plan.docx — documented corrective action plans for the identified quality problems.
+    - Quality_Monitoring_Tracker.xlsx — spreadsheet tracking system for ongoing quality monitoring.
+    - Quality_Findings_Email.eml — email draft to production management and quality supervisors with From, To, Subject and a body referencing the quality reports and their key findings and identified issues.
+    - Quality_Review_Meeting.ics — calendar file for the quality review meeting with the production teams, including title, date/time, duration, attendees, and a description referencing the findings to discuss and improvements to implement.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - excel
+    - word
+    - terminal
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/product-quality-assurance-multi-batch/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/product-quality-assurance-multi-batch/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/product-quality-assurance-multi-batch/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - excel
+  - word
+  - terminal
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: product
+  needed_mcp_servers:
+  - terminal
+  - excel
+  - word
+  - snowflake
+  - google_sheet
+  - emails
+  - google_calendar
+  - filesystem
+  removed_servers:
+  - google_sheet
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/product-quality-assurance-multi-batch
+  license: Apache-2.0
+  redirect: |
+    Phase 6 spreadsheet tracking system (google_sheet) -> Quality_Monitoring_Tracker.xlsx via excel (dropped google_sheet).
+    Phase 6 report-sharing message to production management (emails) -> Quality_Findings_Email.eml draft (dropped emails).
+    Phase 6 quality review meeting (google_calendar) -> Quality_Review_Meeting.ics file (dropped google_calendar).
+    terminal/filesystem kept as text-file writers for the .eml and .ics; excel produces .xlsx; word produces the .docx reports; snowflake kept as the inspection-data source.

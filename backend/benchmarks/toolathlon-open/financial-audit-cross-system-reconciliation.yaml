@@ -1,0 +1,69 @@
+id: financial-audit-cross-system-reconciliation
+suite: toolathlon-open
+input:
+  title: Financial Audit Cross System Reconciliation
+  description: |
+    Your finance department must conduct a comprehensive quarterly audit to reconcile transaction data across multiple business systems and validate financial accuracy. The first phase involves extracting transactional data from the e-commerce platform, including all sales, refunds, returns, and adjustments recorded in the system. Generate detailed reports showing all financial transactions for the past quarter, organized by transaction type, date, and merchant account.
+
+    In the second phase, you will extract corresponding data from the data warehouse system that contains the authoritative financial records. This includes verified revenue figures, cost of goods sold, operating expenses, and any adjustments made during the accounting period. Create a consolidated summary of all transactions recorded in the data warehouse for the same period.
+
+    The third phase requires performing a detailed reconciliation between the two systems. Compare transaction counts, amounts, and dates between the e-commerce records and the data warehouse records. Identify discrepancies, including missing transactions, duplicate entries, timing differences, and amount mismatches. Document all exceptions and investigate root causes for significant variances.
+
+    In the fourth phase, create a comprehensive audit report in spreadsheet format documenting all findings, including reconciliation results, identified exceptions, and analysis of variances. Calculate summary statistics showing total transaction volumes, revenue totals, and percentage of transactions that reconcile without issue. Present findings with clear visual summaries and detailed exception reports.
+
+    The fifth phase involves preparing a formal audit report document for executive review. This should include an executive summary of key findings, detailed analysis of all identified discrepancies, recommendations for system improvements, and an action plan for addressing any exceptions. Include supporting schedules and documentation of the reconciliation process. The sixth phase requires preparing the audit report for senior finance management and scheduling a review meeting. Instead of sending an email, save the message to senior finance management as a local draft file Audit_Report_Email.eml containing From, To, Subject and a body that references the audit report and its key findings. Instead of creating a calendar event, save the review meeting as a local calendar file Audit_Review_Meeting.ics containing the meeting title, date/time, duration, attendees, and a description. Finally, export all supporting schedules and maintain comprehensive audit trail documentation as local files in your workspace.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - WooCommerce_Transactions.xlsx — detailed report of all e-commerce financial transactions for the past quarter (sales, refunds, returns, adjustments) organized by transaction type, date, and merchant account.
+    - Warehouse_Summary.xlsx — consolidated summary of all data-warehouse transactions for the same period, including verified revenue, cost of goods sold, operating expenses, and adjustments.
+    - Reconciliation_Audit_Report.xlsx — audit report spreadsheet documenting reconciliation results, identified exceptions (missing transactions, duplicates, timing differences, amount mismatches), variance analysis, and summary statistics (total transaction volumes, revenue totals, percentage of transactions reconciling without issue).
+    - Audit_Report.docx — formal audit report document for executive review with an executive summary of key findings, detailed analysis of all discrepancies, recommendations for system improvements, an action plan, and documentation of the reconciliation process.
+    - Supporting_Schedules.pdf — exported supporting schedules and audit trail documentation of the reconciliation process.
+    - Audit_Report_Email.eml — email draft to senior finance management with From, To, Subject and a body referencing the audit report and its key findings.
+    - Audit_Review_Meeting.ics — calendar file for the executive review meeting with title, date/time, duration, attendees, and description.
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - snowflake
+    - excel
+    - word
+    - pdf-tools
+    - terminal
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/financial-audit-cross-system-reconciliation/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/financial-audit-cross-system-reconciliation/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/financial-audit-cross-system-reconciliation/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - snowflake
+  - excel
+  - word
+  - pdf-tools
+  - terminal
+meta:
+  source: toolathlon_gym_open
+  family: financial
+  needed_mcp_servers:
+  - woocommerce
+  - snowflake
+  - excel
+  - word
+  - pdf-tools
+  - emails
+  - google_calendar
+  - terminal
+  removed_servers:
+  - emails
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/financial-audit-cross-system-reconciliation
+  license: Apache-2.0
+  redirect: |
+    Phase 6 email to senior finance management -> Audit_Report_Email.eml draft (dropped emails server).
+    Phase 6 review-meeting calendar event -> Audit_Review_Meeting.ics file (dropped google_calendar server).
+    terminal kept as the text-file writer for the .eml and .ics; excel/word/pdf-tools produce the report files.

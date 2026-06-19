@@ -1,0 +1,54 @@
+id: sf-support-sla-coaching-word-gcal
+suite: toolathlon-open
+input:
+  title: SF Support SLA Coaching Word GCal
+  description: |
+    The support team manager needs a coaching plan based on SLA performance data to share with the team and schedule review sessions for the year. Please connect to the data warehouse and query the support ticket data to analyze SLA compliance by priority level. For each priority level, retrieve the total number of tickets, the average response time in hours, and the SLA time limit in hours.
+
+    Create a Word document called SLA_Coaching_Plan.docx in the workspace with the following structure. Start with a title "SLA Performance Coaching Plan". Then include a section called "SLA Performance Summary" that contains a table showing the Priority, Total_Tickets, Avg_Response_Hours, SLA_Hours, and Compliance_Rate for each priority level (High, Medium, and Low). After the table, add a section called "Priority Analysis" with a paragraph explaining which priority level has the most tickets, the response time pattern across priorities, and the current compliance status. Finally add a section called "Coaching Recommendations" with at least three specific actionable recommendations for the support team based on the data.
+
+    After creating the document, schedule four monthly coaching review sessions for 2026, one per quarter. Create calendar events titled "Q1 SLA Coaching Review", "Q2 SLA Coaching Review", "Q3 SLA Coaching Review", and "Q4 SLA Coaching Review" on March 15, June 15, September 15, and December 15 of 2026 respectively, each from 10:00 AM to 11:00 AM. Save these four events as a single local iCalendar file SLA_Coaching_Reviews.ics in the workspace, with one VEVENT per quarter using the titles, dates, and times above.
+
+    Finally, prepare an email to support_manager@company.com with a subject line that references the coaching plan and a body that summarizes the key SLA findings and mentions that the quarterly review calendar events have been scheduled. Save this email as a local draft file SLA_Coaching_Email.eml in the workspace containing From, To, Subject, and the body text.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - SLA_Coaching_Plan.docx — Word document with the title "SLA Performance Coaching Plan", an "SLA Performance Summary" table (Priority, Total_Tickets, Avg_Response_Hours, SLA_Hours, Compliance_Rate for High, Medium, Low), a "Priority Analysis" paragraph, and a "Coaching Recommendations" section with at least three actionable recommendations.
+    - SLA_Coaching_Reviews.ics — iCalendar file with four VEVENTs: "Q1 SLA Coaching Review" (2026-03-15), "Q2 SLA Coaching Review" (2026-06-15), "Q3 SLA Coaching Review" (2026-09-15), "Q4 SLA Coaching Review" (2026-12-15), each 10:00–11:00 AM.
+    - SLA_Coaching_Email.eml — email draft to support_manager@company.com with From, To, a subject referencing the coaching plan, and a body summarizing the key SLA findings and noting the quarterly review events were scheduled.
+gold:
+  capability_spec:
+    required_tools:
+    - snowflake
+    - word
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-sla-coaching-word-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/sf-support-sla-coaching-word-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/sf-support-sla-coaching-word-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - snowflake
+  - word
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: snowflake
+  needed_mcp_servers:
+  - snowflake
+  - word
+  - google_calendar
+  - emails
+  - filesystem
+  removed_servers:
+  - google_calendar
+  - emails
+  added_servers: []
+  task_path: tasks/finalpool/sf-support-sla-coaching-word-gcal
+  license: Apache-2.0
+  redirect: |
+    Google Calendar (4 quarterly events) -> single SLA_Coaching_Reviews.ics file with one VEVENT per quarter (written via filesystem).
+    Email send to support_manager@company.com (emails server) -> SLA_Coaching_Email.eml draft (From/To/Subject/Body) written via filesystem.
+    SLA_Coaching_Plan.docx unchanged (word). Dropped google_calendar and emails as output-only sinks.

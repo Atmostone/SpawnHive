@@ -1,0 +1,55 @@
+id: wc-inventory-report-pdf-gcal
+suite: toolathlon-open
+input:
+  title: WC Inventory Report Pdf Calendar
+  description: |
+    I run our online store and I need a complete inventory audit. Please pull the full product catalog from our e-commerce platform and identify all products that have inventory problems. Specifically, find every product that is currently out of stock (zero quantity available) as well as products with low stock levels (5 units or fewer remaining).
+
+    Create a PDF report called Inventory_Audit.pdf in the workspace. The report should have a title "Inventory Audit Report" and include the date March 6, 2026 at the top. Start with a summary section showing the total number of products in the catalog, how many are out of stock, how many have low stock (1 to 5 units), and the total count of flagged items.
+
+    Then create two tables in the report. The first table should list all out of stock products with columns for product ID, product name (truncate to 40 characters if longer, adding ... at the end), SKU (truncate to 18 characters), stock quantity, price formatted with dollar sign and 2 decimal places, and category (use the first category listed for the product, or N/A if none). Sort this table by stock quantity ascending, then by product ID ascending.
+
+    The second table should list all low stock products (quantity 1 through 5) using the same columns and sort order.
+
+    After generating the report, schedule a restock planning meeting. Set it for March 12, 2026 from 10:00 AM to 11:00 AM. The event title should be "Restock Planning Meeting" and the description should mention how many products are out of stock and how many have low stock levels. Save this meeting as a local calendar file Restock_Planning_Meeting.ics in the workspace, containing a single VEVENT with the same summary, start time, end time, and description.
+
+    ## Deliverables (save all of these as local files in your workspace)
+    - Inventory_Audit.pdf — PDF report titled "Inventory Audit Report" dated March 6, 2026, with a summary section (total products in catalog, out-of-stock count, low-stock count for 1-5 units, total flagged items), an out-of-stock products table, and a low-stock products table. Both tables use columns product ID, product name (truncated to 40 chars with ... if longer), SKU (truncated to 18 chars), stock quantity, price ($ with 2 decimals), and category (first category or N/A), sorted by stock quantity ascending then product ID ascending.
+    - Restock_Planning_Meeting.ics — iCalendar file with one VEVENT titled "Restock Planning Meeting" on 2026-03-12 from 10:00 AM to 11:00 AM, with a description mentioning how many products are out of stock and how many have low stock levels.
+gold:
+  capability_spec:
+    required_tools:
+    - woocommerce
+    - pdf-tools
+    - filesystem
+    match: all
+  external_eval:
+    preprocess_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-inventory-report-pdf-gcal/preprocess/main.py --agent_workspace ${AGENT_WORKSPACE} --launch_time ${LAUNCH_TIME}
+    eval_command: python ${TOOLATHLON_GYM_PATH}/tasks/finalpool/wc-inventory-report-pdf-gcal/evaluation/main.py --agent_workspace ${AGENT_WORKSPACE} --groundtruth_workspace ${GROUNDTRUTH_WORKSPACE} --launch_time ${LAUNCH_TIME} --res_log_file ${RES_LOG_FILE}
+    groundtruth_path: tasks/finalpool/wc-inventory-report-pdf-gcal/groundtruth_workspace
+environment:
+  required_services:
+  - toolathlon_pg
+  mcp_servers:
+  - woocommerce
+  - pdf-tools
+  - filesystem
+meta:
+  source: toolathlon_gym_open
+  family: woocommerce
+  needed_mcp_servers:
+  - woocommerce
+  - pdf-tools
+  - google_calendar
+  - filesystem
+  removed_servers:
+  - google_calendar
+  added_servers: []
+  task_path: tasks/finalpool/wc-inventory-report-pdf-gcal
+  license: Apache-2.0
+  redirect: |
+    The Google Calendar "Restock Planning Meeting" event (server google_calendar,
+    output-only sink) is redirected to a local Restock_Planning_Meeting.ics file
+    (single VEVENT) written via the filesystem server; google_calendar dropped. The
+    Inventory_Audit.pdf (pdf-tools) was already a local file and is unchanged. The
+    WooCommerce product-catalog data-reading instructions are kept verbatim.
