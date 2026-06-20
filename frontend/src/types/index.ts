@@ -1536,4 +1536,29 @@ export interface ExperimentReport {
     off?: OrchestratorSide | null
     delta?: Record<string, number | null> | null
   }
+  judge_calibration?: {
+    available?: boolean
+    sample_size: number
+    n_records: number
+    n_humans: number
+    n_dimensions: number
+    threshold_kappa: number
+    dimensions: {
+      key: string
+      name: string
+      n: number
+      pearson?: number | null
+      spearman?: number | null
+      cohen_kappa?: number | null
+      mean_bias?: number | null
+      reliable: boolean
+      status: 'ok' | 'insufficient_data'
+    }[]
+    overall: {
+      n: number
+      cohen_kappa?: number | null
+      agreement_pct?: number | null
+      reliable: boolean
+    }
+  } | null
 }

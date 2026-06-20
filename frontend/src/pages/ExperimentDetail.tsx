@@ -204,6 +204,71 @@ function JudgeTrustBadge() {
   )
 }
 
+// Per-experiment judge↔human calibration (E-17), scoped to THIS experiment's
+// annotated runs — distinct from the workspace-global JudgeTrustBadge. Empty state
+// guides the user to annotate runs (Annotate tab in a run drill-down) so the κ
+// becomes about this experiment instead of prior ones.
+function JudgeHumanCalibration({ cal }: { cal?: ExperimentReport['judge_calibration'] }) {
+  const k = cal?.overall?.cohen_kappa
+  const agree = cal?.overall?.agreement_pct
+  const hasData = !!cal?.available && (cal?.sample_size ?? 0) > 0
+  return (
+    <section>
+      <h3 className="font-semibold text-gray-900 mb-2">
+        Judge ↔ human <span className="text-xs text-gray-400 font-normal">E-17 · agreement on this experiment's annotated runs</span>
+      </h3>
+      {!hasData ? (
+        <div className="bg-white border rounded-lg p-4 text-sm text-gray-500">
+          No human ratings on this experiment yet. Open a run (click a matrix cell) → <span className="font-medium">Annotate</span> tab,
+          score the same dimensions the judge did, and this section will show how well the LLM judge agrees with you (Cohen's κ,
+          per-dimension correlation). The workspace badge above mixes all experiments; this one is scoped to these runs only.
+        </div>
+      ) : (
+        <div className="bg-white border rounded-lg p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            <span>Overall <span className="font-semibold text-gray-800">κ {k == null ? '—' : k.toFixed(2)}</span>
+              {cal?.overall?.reliable ? <span className="text-green-700"> ✓ reliable</span> : <span className="text-amber-600"> ⚠ below {cal?.threshold_kappa}</span>}</span>
+            <span className="text-gray-500">verdict agreement {agree == null ? '—' : `${(agree * 100).toFixed(0)}%`}</span>
+            <span className="text-gray-400">{cal?.n_records} annotated run(s) · {cal?.sample_size} dim-ratings · {cal?.n_humans} annotator(s)</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+              <tr>
+                <th className="px-3 py-2">Dimension</th>
+                <th className="px-3 py-2">n</th>
+                <th className="px-3 py-2">κ</th>
+                <th className="px-3 py-2">Pearson</th>
+                <th className="px-3 py-2">Spearman</th>
+                <th className="px-3 py-2" title="judge − human; positive = judge over-credits">Bias</th>
+                <th className="px-3 py-2">Reliable</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cal!.dimensions.map((d) => (
+                <tr key={d.key} className="border-t">
+                  <td className="px-3 py-2 text-gray-700">{d.name}</td>
+                  <td className="px-3 py-2 text-gray-500">{d.n}</td>
+                  <td className="px-3 py-2">{d.cohen_kappa == null ? '—' : d.cohen_kappa.toFixed(2)}</td>
+                  <td className="px-3 py-2">{d.pearson == null ? '—' : d.pearson.toFixed(2)}</td>
+                  <td className="px-3 py-2">{d.spearman == null ? '—' : d.spearman.toFixed(2)}</td>
+                  <td className={`px-3 py-2 ${(d.mean_bias ?? 0) > 0.5 ? 'text-amber-600' : (d.mean_bias ?? 0) < -0.5 ? 'text-blue-600' : 'text-gray-500'}`}>
+                    {d.mean_bias == null ? '—' : (d.mean_bias > 0 ? '+' : '') + d.mean_bias.toFixed(1)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {d.status === 'insufficient_data'
+                      ? <span className="text-gray-400" title="need ≥3 ratings">n/a</span>
+                      : d.reliable ? <span className="text-green-700">✓</span> : <span className="text-amber-600">⚠</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ReportTab({ id, isTerminal }: { id: string; isTerminal: boolean }) {
   const queryClient = useQueryClient()
   const [method, setMethod] = useState<'bt' | 'elo'>('bt')
@@ -646,6 +711,8 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
+
+      <JudgeHumanCalibration cal={report.judge_calibration} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>

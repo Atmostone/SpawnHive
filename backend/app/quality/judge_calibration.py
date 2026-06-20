@@ -60,12 +60,14 @@ async def collect_judge_human_pairs(
     *,
     suite: str | None = None,
     template_id=None,
+    task_ids=None,
 ) -> list[dict]:
     """One row per rated dimension across records that carry human feedback.
 
     The source of truth for both the ``GET /api/quality/calibration`` export and
-    the E-17 report. ``suite``/``template_id`` narrow the population. Each row
-    pairs the human score with the judge's score for the same dimension key and
+    the E-17 report. ``suite``/``template_id`` narrow the population; ``task_ids``
+    (a collection of task UUIDs) scopes calibration to one experiment's runs. Each
+    row pairs the human score with the judge's score for the same dimension key and
     carries the per-task ``verdict`` and ``judge_gate_passed`` so the report can
     build the overall verdict-agreement."""
     q = select(QualityRecord).where(
@@ -76,6 +78,11 @@ async def collect_judge_human_pairs(
         q = q.where(QualityRecord.benchmark_suite == suite)
     if template_id is not None:
         q = q.where(QualityRecord.template_id == template_id)
+    if task_ids is not None:
+        ids = list(task_ids)
+        if not ids:
+            return []
+        q = q.where(QualityRecord.task_id.in_(ids))
     rows = (await db.execute(q)).scalars().all()
 
     out: list[dict] = []
