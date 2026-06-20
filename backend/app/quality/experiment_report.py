@@ -200,7 +200,18 @@ def build_report(
                 "std": _std(vals),
                 "n": len(vals),
             }
-        scores = [r.weighted_score for r in by_config[key] if r.weighted_score is not None]
+        # Success-only, to match the per-dimension cells above (built from
+        # success_runs) AND the Summary "quality" column (_group_means → success).
+        # Averaging weighted over ALL settled runs while the dimension cells use
+        # success-only made the row self-contradictory (e.g. all dims 6-8 but
+        # weighted 1.6 for a low-success-rate config). Reliability is shown
+        # separately via success_rate.
+        scores = [
+            r.weighted_score
+            for r in by_config[key]
+            if r.status == ExperimentRunStatus.SUCCESS.value
+            and r.weighted_score is not None
+        ]
         heatmap_rows.append(
             {
                 "config_key": key,
@@ -236,7 +247,14 @@ def build_report(
         for ax_key in axis_order:
             vals = axis_samples.get(key, {}).get(ax_key) or []
             cells[ax_key] = {"mean": _mean(vals), "std": _std(vals), "n": len(vals)}
-        overall = [r.trajectory_score for r in by_config[key] if r.trajectory_score is not None]
+        # Success-only, consistent with the per-axis cells (success_runs) and the
+        # Summary "trajectory" column — see the weighted_score note above.
+        overall = [
+            r.trajectory_score
+            for r in by_config[key]
+            if r.status == ExperimentRunStatus.SUCCESS.value
+            and r.trajectory_score is not None
+        ]
         trajectory_heatmap_rows.append(
             {
                 "config_key": key,
@@ -356,19 +374,27 @@ def build_report(
     pareto = {"points": points, "frontier": frontier}
 
     # --- outcome × trajectory scatter -------------------------------------------
+    # Include SETTLED runs (success + failed) that carry both scores, tagged with
+    # status — the failed-but-scored runs (judge_incomplete_runs) are the canonical
+    # RQ2 "good outcome despite an unclean finish" points and must be visible, not
+    # silently dropped. The frontend renders them distinctly (grey crosses).
     scatter = [
         {
             "config_key": r.config_key,
             "label": labels.get(r.config_key, r.config_key),
             "case_key": r.case_key,
             "run_index": r.run_index,
+            "status": r.status,
             "outcome": r.weighted_score,
             "trajectory": r.trajectory_score,
             "cost": float(r.cost_usd or 0),
             "duration": r.duration_seconds,
             "task_id": str(r.task_id) if r.task_id else None,
         }
-        for r in success_runs
+        for r in runs
+        if r.status in _SETTLED
+        and r.weighted_score is not None
+        and r.trajectory_score is not None
     ]
 
     # --- pairwise leaderboard (derived from pointwise scores, E-19) -------------
