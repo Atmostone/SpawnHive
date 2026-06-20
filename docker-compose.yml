@@ -188,11 +188,58 @@ services:
     networks:
       - spawnhive-net
 
+  # SPA-69: isolated PG lanes for PARALLEL Toolathlon runs (profile "toolathlon-lanes").
+  # Each lane is an independent clone of the gym DB, so concurrent cells' preprocess
+  # re-seeding can't clobber each other. The scheduler pins a run to a lane via
+  # Experiment.n_toolathlon_lanes and routes its preprocess/eval/agent to that host.
+  # Start: docker compose --profile toolathlon-lanes up -d  (alongside, or instead of,
+  # the single toolathlon_pg used by serial/legacy runs).
+  toolathlon_pg_lane_0: &toolathlon_lane
+    profiles: ["toolathlon-lanes"]
+    image: postgres:15
+    container_name: toolathlon_pg_lane_0
+    environment:
+      - POSTGRES_DB=toolathlon_gym
+      - POSTGRES_USER=eigent
+      - POSTGRES_PASSWORD=camel
+    volumes:
+      - ${TOOLATHLON_GYM_PATH:-../toolathlon_gym}/db/init.sql.gz:/docker-entrypoint-initdb.d/init.sql.gz:ro
+      - toolathlon-pgdata-lane-0:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eigent -d toolathlon_gym"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - spawnhive-net
+  toolathlon_pg_lane_1:
+    <<: *toolathlon_lane
+    container_name: toolathlon_pg_lane_1
+    volumes:
+      - ${TOOLATHLON_GYM_PATH:-../toolathlon_gym}/db/init.sql.gz:/docker-entrypoint-initdb.d/init.sql.gz:ro
+      - toolathlon-pgdata-lane-1:/var/lib/postgresql/data
+  toolathlon_pg_lane_2:
+    <<: *toolathlon_lane
+    container_name: toolathlon_pg_lane_2
+    volumes:
+      - ${TOOLATHLON_GYM_PATH:-../toolathlon_gym}/db/init.sql.gz:/docker-entrypoint-initdb.d/init.sql.gz:ro
+      - toolathlon-pgdata-lane-2:/var/lib/postgresql/data
+  toolathlon_pg_lane_3:
+    <<: *toolathlon_lane
+    container_name: toolathlon_pg_lane_3
+    volumes:
+      - ${TOOLATHLON_GYM_PATH:-../toolathlon_gym}/db/init.sql.gz:/docker-entrypoint-initdb.d/init.sql.gz:ro
+      - toolathlon-pgdata-lane-3:/var/lib/postgresql/data
+
 volumes:
   pgdata:
   qdrantdata:
   miniodata:
   toolathlon-pgdata:
+  toolathlon-pgdata-lane-0:
+  toolathlon-pgdata-lane-1:
+  toolathlon-pgdata-lane-2:
+  toolathlon-pgdata-lane-3:
 
 networks:
   spawnhive-net:
