@@ -490,6 +490,9 @@ async def create_experiment(
     max_parallel = payload.get("max_parallel")
     if max_parallel is not None and int(max_parallel) < 1:
         raise ValueError("max_parallel must be >= 1")
+    n_lanes = payload.get("n_toolathlon_lanes")
+    if n_lanes is not None and int(n_lanes) < 1:
+        raise ValueError("n_toolathlon_lanes must be >= 1")
     budget = payload.get("budget_limit_usd")
     if budget is not None and Decimal(str(budget)) <= 0:
         raise ValueError("budget_limit_usd must be positive")
@@ -513,6 +516,7 @@ async def create_experiment(
         n_runs_per_cell=n_runs,
         budget_limit_usd=Decimal(str(budget)) if budget is not None else None,
         max_parallel=int(max_parallel) if max_parallel is not None else None,
+        n_toolathlon_lanes=int(n_lanes) if n_lanes is not None else None,
         eval_config=payload.get("eval_config") or {},
         created_by=created_by,
     )
@@ -847,6 +851,33 @@ def _requires_toolathlon_pg(case: dict | None) -> bool:
     return "toolathlon_pg" in (env.get("required_services") or [])
 
 
+def _lanes_enabled(exp: Experiment) -> int | None:
+    """SPA-69: the number of isolated Toolathlon PG lanes this experiment runs on,
+    or None for the legacy serial path (shared ``toolathlon_pg``). Lanes are opt-in:
+    only an explicit ``n_toolathlon_lanes >= 1`` switches a run onto a per-lane
+    ``toolathlon_pg_lane_<i>`` instance — so existing experiments (NULL) keep using
+    the single shared container untouched."""
+    n = exp.n_toolathlon_lanes
+    return n if (n and n >= 1) else None
+
+
+def _pg_host_for_lane(lane_index: int | None) -> str | None:
+    """Per-lane PG hostname override, or None to use the default ``toolathlon_pg``
+    (legacy serial). Only the host varies per lane — the database name, user and
+    password stay identical, so the gym preprocess/eval scripts need no changes."""
+    if lane_index is None:
+        return None
+    return f"toolathlon_pg_lane_{lane_index}"
+
+
+def _first_free_lane(used: set[int], n_lanes: int) -> int | None:
+    """Smallest lane index in ``[0, n_lanes)`` not currently occupied, or None."""
+    for i in range(n_lanes):
+        if i not in used:
+            return i
+    return None
+
+
 _PORTAL_RE = re.compile(r"localhost:\d+|127\.0\.0\.1:\d+")
 
 
@@ -892,14 +923,19 @@ async def _resolve_toolathlon_tools(
 
 
 async def _apply_toolathlon_run_config(
-    db: AsyncSession, exp: Experiment, case: dict, rc: dict
+    db: AsyncSession, exp: Experiment, case: dict, rc: dict, run_row: ExperimentRun
 ) -> None:
     """Patch a child run_config for a Toolathlon case: the dedicated agent image,
     the case's MCP servers force-enabled, and the higher iteration ceiling
-    (mirrors app.cli.toolathlon_pilot.create)."""
+    (mirrors app.cli.toolathlon_pilot.create). SPA-69: when the run is pinned to a
+    PG lane, carry the lane host in ``rc["pg_host"]`` so the orchestrator points the
+    agent's MCP servers at ``toolathlon_pg_lane_<i>`` (otherwise the shared default)."""
     tool_ids = await _resolve_toolathlon_tools(db, exp.workspace_id, case)
     rc["agent_image"] = TOOLATHLON_AGENT_IMAGE
     rc["max_iterations"] = TOOLATHLON_MAX_ITERATIONS
+    pg_host = _pg_host_for_lane(run_row.lane_index)
+    if pg_host:
+        rc["pg_host"] = pg_host
     override = rc.get("tools_override") or {}
     enable = list(dict.fromkeys(list(override.get("enable") or []) + tool_ids))
     rc["tools_override"] = {"enable": enable, "disable": list(override.get("disable") or [])}
@@ -931,7 +967,7 @@ async def _make_child(
         exp, cfg, case_key=run_row.case_key, run_index=run_row.run_index
     )
     if _external_eval(case):
-        await _apply_toolathlon_run_config(db, exp, case, rc)
+        await _apply_toolathlon_run_config(db, exp, case, rc, run_row)
     child = Task(
         title=case["title"][:500],
         description=case.get("description"),
@@ -981,6 +1017,29 @@ async def _evaluate_child(
     from app.quality.data_lake import build_quality_record
     from app.quality.judge import evaluate_task_quality
     from app.quality.trajectory import evaluate_task_trajectory
+
+    # Settle-time harvest backstop: a benchmark run can go terminal WITHOUT a
+    # completed/failed webhook — the orchestrator timeout reaper kills a long-running
+    # agent and sets FAILED directly in the DB (engine.py), so the webhook harvest
+    # never fires and the deliverables sitting at the workspace root would be judged
+    # as an empty list → 0. This is the single choke point every settling run passes
+    # through, so harvest here when result_files is still empty (no-op if the webhook
+    # already harvested or nothing is on disk). Mirrors the benchmark branch in
+    # webhooks.py and covers all three terminal paths (completed / failed / reaped).
+    if not (task.result_files or []):
+        try:
+            import os
+
+            from app.config import get_settings
+            from app.storage.minio_client import upload_task_results_root
+
+            ws_dir = os.path.join(get_settings().data_dir, "workspaces", str(task.id))
+            paths = upload_task_results_root(str(task.id), ws_dir)
+            if paths:
+                task.result_files = paths
+                await db.flush()
+        except Exception as e:
+            logger.warning(f"experiment: settle-time harvest failed for {task.id}: {e}")
 
     try:
         await build_quality_record(db, task, commit=True)
@@ -1098,6 +1157,7 @@ async def _start_toolathlon_run(
             case["external_eval"]["preprocess_command"],
             long_lt,
             keep_alive=portal,
+            pg_host=_pg_host_for_lane(run.lane_index),
         )
         # Portal case: the agent shares the (kept-alive) preprocess container's
         # netns so it can reach the mock localhost:PORT server.
@@ -1189,6 +1249,7 @@ async def _advance_preprocessing(
                 case["external_eval"]["preprocess_command"],
                 short_lt,
                 keep_alive=_requires_portal(case),
+                pg_host=_pg_host_for_lane(run.lane_index),
             )
         except Exception as e:
             run.preprocess_log = f"preprocess retry failed: {e}"[:4000]
@@ -1217,6 +1278,7 @@ async def _start_eval(
             case["external_eval"]["eval_command"],
             case["external_eval"].get("groundtruth_path"),
             run.launch_time,
+            pg_host=_pg_host_for_lane(run.lane_index),
         )
         run.status = ExperimentRunStatus.EVALUATING.value
     except Exception as e:
@@ -1330,7 +1392,11 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
     configs = {c["config_key"]: c for c in exp.configurations}
     cases = {c["case_key"]: c for c in exp.dataset_cases}
     # Toolathlon shares one Postgres → at most one cell in flight at a time.
-    serial = any(_requires_toolathlon_pg(c) for c in exp.dataset_cases)
+    requires_pg = any(_requires_toolathlon_pg(c) for c in exp.dataset_cases)
+    lanes = _lanes_enabled(exp)
+    # Toolathlon cases share a mutable mock postgres → run serially UNLESS the
+    # experiment provisions isolated lanes (SPA-69). serial == legacy single-container.
+    serial = requires_pg and lanes is None
 
     # Snapshot the states at tick start so a transition this tick (e.g.
     # PREPROCESSING → RUNNING) is not also processed by a later phase.
@@ -1422,9 +1488,45 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
             target = min(target, exp.max_parallel)
         if serial:
             target = 1
+        elif lanes:
+            target = min(target, lanes)
         slots = max(0, target - len(in_flight))
+        # SPA-69: lanes already busy with in-flight Toolathlon runs; a newly claimed
+        # Toolathlon cell takes the first free one (its preprocess/eval/agent are then
+        # pinned to toolathlon_pg_lane_<lane_index>).
+        used_lanes = {r.lane_index for r in in_flight if r.lane_index is not None}
+        # Spread the claimed slots across configs (models) instead of taking
+        # pending in raw order — cells are materialized config-by-config, so the
+        # naive prefix would pile N runs of ONE model onto a single provider while
+        # the others idle. Pick, for each slot, a pending cell from the config with
+        # the fewest in-flight+already-picked runs → ~1 task per model, balanced
+        # progress and provider load (SPA-69).
+        load: dict[str, int] = {}
+        for r in in_flight:
+            load[r.config_key] = load.get(r.config_key, 0) + 1
+        # Total progress per config (settled + in-flight, i.e. everything not still
+        # pending) — used to break ties so the LEAST-advanced model is preferred. A
+        # plain alphabetical tie-break starves the last config: with N lanes and N+1
+        # configs, the highest-sorting one never wins a tie and only runs once the
+        # others are exhausted. Progress-based ties keep all models advancing evenly.
+        done_by_cfg: dict[str, int] = {}
+        for r in rows:
+            if r.status != ExperimentRunStatus.PENDING.value:
+                done_by_cfg[r.config_key] = done_by_cfg.get(r.config_key, 0) + 1
+        by_cfg: dict[str, list] = {}
+        for r in pending:
+            by_cfg.setdefault(r.config_key, []).append(r)
+        claim_list: list = []
+        while len(claim_list) < slots:
+            avail = [k for k, v in by_cfg.items() if v]
+            if not avail:
+                break
+            k = min(avail, key=lambda c: (load.get(c, 0), done_by_cfg.get(c, 0), c))
+            claim_list.append(by_cfg[k].pop(0))
+            load[k] = load.get(k, 0) + 1
+            done_by_cfg[k] = done_by_cfg.get(k, 0) + 1
         claimed = 0
-        for r in pending[:slots]:
+        for r in claim_list:
             cfg = configs.get(r.config_key)
             case = cases.get(r.case_key)
             if cfg is None or case is None:  # defensive; cells are pre-validated
@@ -1432,6 +1534,12 @@ async def advance_experiment(db: AsyncSession, exp: Experiment) -> None:
                 r.completed_at = datetime.utcnow()
                 continue
             if _external_eval(case):
+                if lanes:
+                    lane = _first_free_lane(used_lanes, lanes)
+                    if lane is None:
+                        continue  # all lanes busy this tick; claim on a later tick
+                    r.lane_index = lane
+                    used_lanes.add(lane)
                 await _start_toolathlon_run(db, exp, r, cfg, case)
             else:
                 child = await _make_child(db, exp, r, cfg, case)
