@@ -135,12 +135,12 @@ function ProfileView({ profile }: { profile: TrajectoryProfile }) {
       {/* Per-axis scores + reasons */}
       <div className="space-y-1.5">
         {profile.axes.map((a) => (
-          <div key={a.key} className="text-xs">
-            <div className="flex items-center justify-between">
+          <div key={a.key} className="text-xs min-w-0">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-gray-700">{a.name}</span>
-              <span className="font-medium">{a.score}/10</span>
+              <span className="font-medium shrink-0">{a.score}/10</span>
             </div>
-            {a.reason && <p className="text-gray-500">{a.reason}</p>}
+            {a.reason && <p className="text-gray-500 break-words">{a.reason}</p>}
           </div>
         ))}
       </div>

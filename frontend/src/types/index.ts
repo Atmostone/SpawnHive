@@ -1489,6 +1489,7 @@ export interface ExperimentReport {
     label: string
     case_key: string
     run_index: number
+    status?: string
     outcome?: number | null
     trajectory?: number | null
     cost: number

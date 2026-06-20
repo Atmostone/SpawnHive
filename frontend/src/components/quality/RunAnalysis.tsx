@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { QualityProfile } from '@/types'
 import CleanedTracePanel from './CleanedTracePanel'
+import OutcomeScorePanel from './OutcomeScorePanel'
 import TrajectoryScorePanel from './TrajectoryScorePanel'
 import EvidenceBankPanel from './EvidenceBankPanel'
 import TrajectoryMatchPanel from './TrajectoryMatchPanel'
@@ -15,7 +16,7 @@ import AnnotationPanel from './AnnotationPanel'
 type Tab = 'trajectory' | 'robustness' | 'failure' | 'annotate'
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'trajectory', label: 'Trajectory & trace' },
+  { key: 'trajectory', label: 'Outcome & trajectory' },
   { key: 'robustness', label: 'Robustness' },
   { key: 'failure', label: 'Failure & facts' },
   { key: 'annotate', label: 'Annotate' },
@@ -75,6 +76,9 @@ export default function RunAnalysis({
       <div className="space-y-4">
         {tab === 'trajectory' && (
           <>
+            <Dimmed when={verifiable} note="N/A for checker-graded tasks — the executable checker is the outcome ground truth (E-02 off)">
+              <OutcomeScorePanel profile={profile ?? null} />
+            </Dimmed>
             <CleanedTracePanel taskId={taskId} />
             <TrajectoryScorePanel taskId={taskId} />
             <EvidenceBankPanel taskId={taskId} />
