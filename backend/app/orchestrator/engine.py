@@ -200,6 +200,14 @@ async def _spawn_agent_for_template(db: AsyncSession, task: Task, template: Temp
         # real systems / workspace root, not the product /workspace/output dir.
         if run_config.get("benchmark_mode"):
             extra_env["AGENT_BENCHMARK_MODE"] = "1"
+        # SPA-69: per-lane Toolathlon PG host — the agent's toolathlon MCP servers
+        # connect here instead of the image-baked shared toolathlon_pg, so parallel
+        # lanes never clobber each other's mock state. Allowlisted to the lane naming
+        # scheme so run_config can't redirect the agent at an arbitrary host.
+        pg_host = run_config.get("pg_host")
+        if pg_host and str(pg_host).startswith("toolathlon_pg"):
+            extra_env["PGHOST"] = str(pg_host)
+            extra_env["PG_HOST"] = str(pg_host)
 
         # Per-run agent image override (run_config.agent_image) — only images from
         # our own agent family are allowed (e.g. spawnhive-agent-toolathlon:latest).
