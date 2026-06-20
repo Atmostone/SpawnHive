@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import { experimentsApi, qualityApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
+import SummaryRadarPanel from '@/components/quality/SummaryRadarPanel'
 import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2, X } from 'lucide-react'
@@ -117,29 +118,29 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </div>
       </div>
-      <table className="text-sm border-separate" style={{ borderSpacing: 4 }}>
+      <table className="text-sm border-separate w-full" style={{ borderSpacing: 4 }}>
         <thead>
           <tr>
-            <th className="text-left text-xs text-gray-500 px-2">config \ case</th>
-            {cases.map((c) => (
-              <th key={c.case_key} className="text-xs text-gray-500 font-normal px-2 max-w-32 truncate" title={c.title}>
-                {c.case_key}
+            <th className="text-left text-xs text-gray-500 px-2 sticky top-0 bg-white z-10">case \ config</th>
+            {detail.configurations.map((cfg) => (
+              <th key={cfg.config_key} className="text-xs text-gray-500 font-normal px-2 whitespace-nowrap sticky top-0 bg-white z-10" title={cfg.label}>
+                {cfg.config_key} <span className="text-gray-400">{cfg.label}</span>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {detail.configurations.map((cfg) => (
-            <tr key={cfg.config_key}>
-              <td className="text-xs text-gray-700 font-medium px-2 whitespace-nowrap" title={cfg.label}>
-                {cfg.config_key} <span className="text-gray-400">{cfg.label}</span>
+          {cases.map((c) => (
+            <tr key={c.case_key}>
+              <td className="text-xs text-gray-700 font-medium px-2 max-w-[16rem] truncate" title={c.title}>
+                {c.case_key}
               </td>
-              {cases.map((c) => {
+              {detail.configurations.map((cfg) => {
                 const cell = cells.get(`${cfg.config_key}|${c.case_key}`)
                 const counts = cell?.counts || {}
                 const heatVal = heat === 'quality' ? cell?.quality_mean : heat === 'trajectory' ? cell?.trajectory_mean : null
                 return (
-                  <td key={c.case_key} onClick={() => onCell(cfg.config_key, c.case_key)}
+                  <td key={cfg.config_key} onClick={() => onCell(cfg.config_key, c.case_key)}
                     style={heat === 'off' ? undefined : cellHeat(heatVal)}
                     className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
                     <div className="flex items-center justify-center gap-1 text-xs">
@@ -488,14 +489,44 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {!verifiable && (
+          <SummaryRadarPanel
+            title="Quality profile"
+            subtitle="overlay · per-config E-02 dimensions (success-only) — toggle configs"
+            axes={report.heatmap.dimensions}
+            axisLabel={(k) => k.replace(/_/g, ' ')}
+            rows={report.heatmap.rows}
+            colorOf={(k) => colorByConfig.get(k)}
+          />
+        )}
+        <SummaryRadarPanel
+          title="Trajectory profile"
+          subtitle="overlay · per-config E-07 axes (success-only) — toggle configs"
+          axes={report.trajectory_heatmap.axes}
+          axisLabel={(k) => report.trajectory_heatmap.axis_labels?.[k] ?? k.replace(/_/g, ' ')}
+          rows={report.trajectory_heatmap.rows}
+          colorOf={(k) => colorByConfig.get(k)}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost (size = time)</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
+            {new Set(report.pareto.points.map((p) => p.cost)).size <= 1 ? (
+              <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
+                Cost is identical across configs (${(report.pareto.points[0]?.cost ?? 0).toFixed(3)}) — these
+                providers don't expose per-token pricing, so a quality × cost frontier is degenerate. Compare
+                quality via the leaderboard and heatmap instead.
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" dataKey="cost" name="cost" unit="$" tick={{ fontSize: 11 }} />
-                <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }} />
+                <XAxis type="number" dataKey="cost" name="cost" unit="$" tick={{ fontSize: 11 }}
+                  label={{ value: 'Cost ($)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }}
+                  label={{ value: 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <ZAxis type="number" dataKey="time" range={[60, 400]} name="time" unit="s" />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
                   formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : String(v ?? ''))}
@@ -505,6 +536,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <Scatter name="dominated" data={report.pareto.points.filter((p) => !p.on_frontier)} fill="#9ca3af" />
               </ScatterChart>
             </ResponsiveContainer>
+            )}
           </div>
         </section>
 
@@ -512,17 +544,22 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           <h3 className="font-semibold text-gray-900 mb-2">Outcome × Trajectory <span className="text-xs text-gray-400 font-normal">per run</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" dataKey="outcome" name="outcome" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }} />
+                <XAxis type="number" dataKey="outcome" name="outcome" domain={[0, 10]} tick={{ fontSize: 11 }}
+                  label={{ value: 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }}
+                  label={{ value: 'Trajectory (E-07)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} />
                 <Legend />
                 {report.summary.per_config.map((c) => (
                   <Scatter key={c.config_key} name={c.config_key}
-                    data={report.scatter.filter((p) => p.config_key === c.config_key && p.outcome != null && p.trajectory != null)}
+                    data={report.scatter.filter((p) => p.config_key === c.config_key && p.status !== 'failed' && p.outcome != null && p.trajectory != null)}
                     fill={colorByConfig.get(c.config_key)} />
                 ))}
+                <Scatter name="failed (any model)" shape="cross"
+                  data={report.scatter.filter((p) => p.status === 'failed' && p.outcome != null && p.trajectory != null)}
+                  fill="#9ca3af" />
               </ScatterChart>
             </ResponsiveContainer>
           </div>
@@ -785,12 +822,14 @@ function RunsTab({ id, detail, filter }: {
                   {open && r.task_id && (
                     <tr className="border-t bg-gray-50">
                       <td colSpan={verifiable ? 8 : 9} className="px-3 py-3">
-                        <RunAnalysis
-                          taskId={r.task_id}
-                          profile={r.quality_profile ?? null}
-                          verifiable={verifiable}
-                          onSaved={() => setOpenTask(null)}
-                        />
+                        <div className="max-w-[68rem] min-w-0 sticky left-0">
+                          <RunAnalysis
+                            taskId={r.task_id}
+                            profile={r.quality_profile ?? null}
+                            verifiable={verifiable}
+                            onSaved={() => setOpenTask(null)}
+                          />
+                        </div>
                       </td>
                     </tr>
                   )}

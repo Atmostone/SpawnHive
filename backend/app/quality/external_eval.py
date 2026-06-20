@@ -113,12 +113,19 @@ def _remove_name(name: str) -> None:
         pass
 
 
-def _run_pack(name: str, task_id, task_path: str, command: str) -> str:
+def _run_pack(
+    name: str, task_id, task_path: str, command: str, pg_host: str | None = None
+) -> str:
     """Start a detached ``toolathlon-pack`` container; return its id. The gym
     (host path) and the task workspace (host path) are bind-mounted; ``PG_ENV``
-    points every PG-backed script/server at ``toolathlon_pg``."""
+    points every PG-backed script/server at ``toolathlon_pg``. ``pg_host`` (SPA-69)
+    overrides ``PGHOST`` to pin this container at an isolated per-lane
+    ``toolathlon_pg_lane_<i>`` instance; default keeps the shared ``toolathlon_pg``."""
     ensure_workspace_dir(task_id)
     _remove_name(name)
+    env = dict(PG_ENV)
+    if pg_host:
+        env["PGHOST"] = pg_host
     container = _client().containers.run(
         image=PACK_IMAGE,
         name=name,
@@ -128,7 +135,7 @@ def _run_pack(name: str, task_id, task_path: str, command: str) -> str:
             gym_host_path(): {"bind": GYM_MOUNT, "mode": "rw"},
             workspace_host_path(task_id): {"bind": WS_MOUNT, "mode": "rw"},
         },
-        environment=dict(PG_ENV),
+        environment=env,
         working_dir=f"{GYM_MOUNT}/{task_path}",
         detach=True,
         labels={"spawnhive.toolathlon": "1", "spawnhive.task_id": str(task_id)},
@@ -149,6 +156,7 @@ def start_preprocess(
     launch_time: str,
     *,
     keep_alive: bool = False,
+    pg_host: str | None = None,
 ) -> str:
     """Seed the workspace + run the case's preprocess, detached. Returns the
     container id (poll it with :func:`poll_exit`).
@@ -164,7 +172,9 @@ def start_preprocess(
     if keep_alive:
         cmd = f"{cmd} && tail -f /dev/null"
     cmd = _seed_prefix(task_path) + cmd
-    return _run_pack(preprocess_container_name(task_id), task_id, task_path, cmd)
+    return _run_pack(
+        preprocess_container_name(task_id), task_id, task_path, cmd, pg_host=pg_host
+    )
 
 
 def start_eval(
@@ -173,12 +183,14 @@ def start_eval(
     eval_command: str,
     groundtruth_path: str | None,
     launch_time: str,
+    *,
+    pg_host: str | None = None,
 ) -> str:
     """Run the case's evaluation script, detached. Returns the container id;
     a clean exit code of ``0`` is a pass."""
     gt = f"{GYM_MOUNT}/{groundtruth_path}" if groundtruth_path else None
     cmd = substitute(eval_command, gt=gt, launch_time=launch_time, res_log=EVAL_RES_LOG)
-    return _run_pack(f"tlev-{str(task_id)[:8]}", task_id, task_path, cmd)
+    return _run_pack(f"tlev-{str(task_id)[:8]}", task_id, task_path, cmd, pg_host=pg_host)
 
 
 def poll_exit(container_id: str) -> tuple[int | None, str]:
