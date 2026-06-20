@@ -613,11 +613,21 @@ async def orchestrator_loop():
                                 f"task {locked.id} stays in READY"
                             )
 
-            # Check for timed out tasks every ~60 seconds (12 * 5s)
+            # Check for timed out tasks every ~60 seconds (12 * 5s); also reap
+            # exited agent containers so finished/crashed/killed agents don't pile
+            # up (they're dead weight once their webhook + log archive land).
             timeout_check_counter += 1
             if timeout_check_counter >= 12:
                 timeout_check_counter = 0
                 await check_timed_out_tasks()
+                try:
+                    from app.orchestrator.docker_manager import (
+                        reap_exited_agent_containers,
+                    )
+
+                    reap_exited_agent_containers()
+                except Exception as e:
+                    logger.warning(f"agent container reap failed: {e}")
 
         except Exception as e:
             logger.error(f"Orchestrator loop error: {e}", exc_info=True)
