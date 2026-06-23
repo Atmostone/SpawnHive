@@ -140,8 +140,11 @@ def build_report(
     *,
     method: str = "bt",
     partial: bool = False,
+    calibration: dict | None = None,
 ) -> dict:
-    """Assemble the full report from pre-loaded rows (pure)."""
+    """Assemble the full report from pre-loaded rows (pure). ``calibration`` is the
+    per-experiment judge↔human agreement (E-17) scoped to this experiment's tasks,
+    computed by the async caller (this function stays pure)."""
     configs = {c["config_key"]: c for c in exp.configurations}
     labels = {k: c.get("label") or k for k, c in configs.items()}
     by_config: dict[str, list[ExperimentRun]] = {k: [] for k in configs}
@@ -503,6 +506,7 @@ def build_report(
         "significance": significance,
         "failure_modes": failure_modes,
         "orchestrator": orchestrator,
+        "judge_calibration": calibration,
     }
 
 
@@ -534,6 +538,28 @@ async def compute_report(
             )
         ).scalars().all()
         records_by_task = {rec.task_id: rec for rec in rows}
+
+    # Per-experiment judge↔human calibration (E-17): scope the workspace calibration
+    # to THIS experiment's tasks, so the report shows agreement on the runs the user
+    # actually annotated here — not the workspace-global badge (which mixes prior
+    # experiments). Empty until some of these runs carry human feedback.
+    calibration = None
+    if task_ids:
+        from app.quality.judge_calibration import (
+            DEFAULT_MIN_KAPPA,
+            _compute_report,
+            collect_judge_human_pairs,
+        )
+        from app.api.settings import get_setting
+
+        pairs = await collect_judge_human_pairs(
+            db, exp.workspace_id, task_ids=task_ids
+        )
+        threshold = await get_setting(db, "judge_calibration_min_kappa", DEFAULT_MIN_KAPPA)
+        calibration = _compute_report(pairs, threshold_kappa=float(threshold))
+        calibration["available"] = calibration.get("sample_size", 0) > 0
+
     return build_report(
-        exp, runs, records_by_task, method=method, partial=partial
+        exp, runs, records_by_task, method=method, partial=partial,
+        calibration=calibration,
     )
