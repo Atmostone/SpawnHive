@@ -84,14 +84,23 @@ JUDGE_TOOL = [
                         "type": "integer",
                         "minimum": 0,
                         "maximum": _MAX_SCALE,
-                        "description": "Quality on this dimension, 0 (worst) to 10 (best).",
+                        "description": "Quality on this dimension, 0 (worst) to 10 (best). Omit when applicable=false.",
+                    },
+                    "applicable": {
+                        "type": "boolean",
+                        "description": (
+                            "false if this dimension does not apply to this task at all — e.g. "
+                            "originality/source quality on a mechanical data task, or output accuracy "
+                            "when no deliverable exists; when false the dimension is EXCLUDED from the "
+                            "weighted score, not scored 0 or 10."
+                        ),
                     },
                     "reasoning": {
                         "type": "string",
                         "description": "Brief justification for the score.",
                     },
                 },
-                "required": ["score", "reasoning"],
+                "required": ["reasoning"],
             },
         },
     }
@@ -179,6 +188,7 @@ async def _deliverable_context(task: Task) -> str:
         # read is truncated/garbled (.csv/.json/.docx/…): convert to Markdown for
         # a clean, full-file excerpt (SPA-71). Falls back to the note on failure.
         body = text
+        converted = False
         if text is None or is_convertible(name):
             try:
                 md = await asyncio.to_thread(result_file_markdown, path)
@@ -187,13 +197,24 @@ async def _deliverable_context(task: Task) -> str:
                 md = None
             if md and md.strip():
                 body = md
+                # A binary artifact (.xlsx/.docx/.pptx/.pdf — text was None) is shown
+                # to the judge as machine-converted Markdown. Flag it so the judge does
+                # NOT mistake the conversion for a wrong-format/markdown-with-.xlsx file
+                # and tank format_compliance — the original IS a valid binary.
+                converted = text is None
         if body is None:
             parts.append(f"--- {name} ---\n(binary file, content not shown)")
             continue
         excerpt = body[: min(_FILE_CHAR_CAP, _FILES_TOTAL_CHAR_CAP - total)]
         total += len(excerpt)
         suffix = "\n…[truncated]" if len(body) > len(excerpt) else ""
-        parts.append(f"--- {name} ---\n{excerpt}{suffix}")
+        note = (
+            " (binary artifact machine-converted to Markdown for display; the original IS"
+            " a valid binary file — judge its structure and content, NOT whether the text"
+            " looks like Markdown)"
+            if converted else ""
+        )
+        parts.append(f"--- {name}{note} ---\n{excerpt}{suffix}")
     skipped += max(0, len(files) - _FILES_MAX)
     if skipped:
         parts.append(f"({skipped} more file(s) not shown)")
@@ -231,6 +252,11 @@ async def _judge_dimension(
             "content": (
                 f"Dimension: {name}\n"
                 f"What it measures: {dim.get('description') or name}\n\n"
+                "If this dimension is inherently not applicable to THIS task (the thing "
+                "it measures does not exist here — e.g. output accuracy with no deliverable "
+                "to check, or presentation/prose quality on a numbers-only artifact), set "
+                "applicable=false and do not invent a score; the dimension will be excluded "
+                "from the aggregate rather than scored 0.\n\n"
                 f"{context}"
             ),
         },
@@ -246,8 +272,19 @@ async def _judge_dimension(
         )
         choice = resp.choices[0].message
         args = json.loads(choice.tool_calls[0].function.arguments)
-        score = max(0, min(_MAX_SCALE, int(args["score"])))
         inp, out = _tokens_from_response(resp)
+        if args.get("applicable") is False:
+            # The dimension does not apply to this task at all — excluded from the
+            # weighted aggregate and the gate (mirrors the "skipped" handling in
+            # evaluate_task_quality). No score is invented.
+            return {
+                "status": "not_applicable",
+                "score": None,
+                "reasoning": str(args.get("reasoning") or "")[:1000],
+                "input_tokens": inp,
+                "output_tokens": out,
+            }
+        score = max(0, min(_MAX_SCALE, int(args["score"])))
         return {
             "status": "scored",
             "score": score,
@@ -432,6 +469,15 @@ async def evaluate_task_quality(
             entry["passed"] = threshold is None or entry["score"] >= threshold
             if entry["critical"] and not entry["passed"]:
                 failed_critical.append(d.get("key"))
+        elif res.get("status") == "not_applicable":
+            # The judge declared this dimension inherently N/A for the task — it is
+            # EXCLUDED from the weighted aggregate (which auto-renormalizes over the
+            # scored axes) and from the gate, exactly like "skipped". Not a critical
+            # failure, not an error. Carries the judge's reason and counts its tokens.
+            entry["reasoning"] = res.get("reasoning")
+            in_tok += int(res.get("input_tokens") or 0)
+            out_tok += int(res.get("output_tokens") or 0)
+            entry["passed"] = True
         elif res.get("status") == "skipped":
             # reference dim w/o reference_answer, or objective probe w/o matching
             # artifact — neither scored nor an error; excluded from gate/weighted.
