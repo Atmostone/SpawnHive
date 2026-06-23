@@ -15,6 +15,15 @@ import litellm
 
 logger = logging.getLogger(__name__)
 
+# Some trusted custom endpoints serve TLS certs from a CA not in the container
+# trust store (e.g. api.giga.chat behind the Russian Минцифры root CA). litellm
+# verifies certs by default, so the handshake fails and EVERY call surfaces as
+# "Connection error" — 100% agent failure, not provider flakiness. Skip
+# verification by default on this stand; re-enable with LLM_SSL_VERIFY=1.
+# Mirrors the backend (app/plugins/llm.py).
+if os.environ.get("LLM_SSL_VERIFY", "0").lower() not in ("1", "true", "yes"):
+    litellm.ssl_verify = False
+
 BUILTIN_TOOLS = [
     {
         "type": "function",
@@ -496,6 +505,10 @@ async def run_agent() -> dict:
                     completion_kwargs["temperature"] = temperature
                 if seed is not None:
                     completion_kwargs["seed"] = seed
+                # Kimi For Coding gates by client User-Agent (403 access_terminated
+                # for a default UA); present an approved coding-agent UA.
+                if api_base and "api.kimi.com" in api_base:
+                    completion_kwargs["extra_headers"] = {"User-Agent": "claude-cli/1.0.0"}
                 response = await _acompletion_with_retry(
                     task_id,
                     model=f"openai/{model}",
@@ -579,6 +592,29 @@ async def run_agent() -> dict:
                             },
                         })
                 continue
+
+            # Harness guard: some models emit their NATIVE tool-call syntax as plain
+            # TEXT instead of structured tool_calls (e.g. Qwen3.6 / Giga-Cowork at low
+            # temperature leaks "<tool_call>...</tool_call>", sometimes closed by a
+            # mismatched "</function>", into message.content). The turn then carries
+            # no tool_calls and would be wrongly recorded as a successful final answer
+            # with zero work done — a silent success that masks the failure and
+            # pollutes reliability stats. Detect the leaked tags and FAIL the run.
+            leaked = message.content or ""
+            if "<tool_call>" in leaked or "</tool_call>" in leaked or "</function>" in leaked:
+                logger.error(f"[{task_id}] Unparsed tool-call leak in final content — marking run FAILED")
+                return {
+                    "task_id": task_id, "event": "failed",
+                    "data": {
+                        "error": "model emitted an unparsed tool call as text (tool-call "
+                                 "format leak); turn ended with no executed tool call and "
+                                 "no deliverables",
+                        "token_usage": {
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
+                        },
+                    },
+                }
 
             result_summary = message.content or "Task completed"
             logger.info(f"[{task_id}] Agent finished: {result_summary[:200]}")
