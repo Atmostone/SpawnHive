@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timedelta
 
 import docker
 from docker.errors import NotFound
@@ -156,6 +157,47 @@ def kill_all_agents(workspace_id: str | None = None) -> int:
             logger.error(f"Failed to kill {container.id[:12]}: {e}")
     logger.info(f"Killed {count} agent containers (workspace={workspace_id})")
     return count
+
+
+def reap_exited_agent_containers(grace_minutes: int = 5) -> int:
+    """Remove EXITED spawnhive agent containers so they don't pile up forever.
+
+    Agent containers run detached and are never auto-removed: an agent's result is
+    delivered by webhook and its files live on a host-bind volume, so the container
+    is dead weight once it exits (whether it finished cleanly, crashed, or was killed
+    by the timeout reaper). The webhook path harvests files + archives the log before
+    the container stops, so a short ``grace_minutes`` (default 5) guarantees that
+    settle work is done before we delete. Only touches containers carrying our
+    ``spawnhive.task_id`` label in the ``exited`` state — never running agents, infra,
+    or other projects' containers. Best-effort; returns how many were removed."""
+    client = get_docker_client()
+    containers = client.containers.list(
+        all=True,
+        filters={"label": [f"{LABEL_PREFIX}.task_id"], "status": "exited"},
+    )
+    cutoff = datetime.utcnow() - timedelta(minutes=grace_minutes)
+    removed = 0
+    for container in containers:
+        try:
+            finished = (container.attrs.get("State") or {}).get("FinishedAt") or ""
+            # Docker timestamps look like "2026-06-20T21:30:00.123456789Z"; parse the
+            # whole-second prefix (UTC) and skip anything still inside the grace window.
+            if finished[:19]:
+                try:
+                    ended = datetime.strptime(finished[:19], "%Y-%m-%dT%H:%M:%S")
+                    if ended > cutoff:
+                        continue
+                except ValueError:
+                    pass  # unparseable timestamp → fall through and remove
+            container.remove(force=True)
+            removed += 1
+        except NotFound:
+            continue
+        except Exception as e:
+            logger.warning(f"reap: failed to remove {container.id[:12]}: {e}")
+    if removed:
+        logger.info(f"Reaped {removed} exited agent container(s)")
+    return removed
 
 
 def list_agents(workspace_id: str | None = None) -> list[dict]:
