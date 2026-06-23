@@ -190,3 +190,43 @@ async def test_judge_mixed_axis_shapes_are_tolerated(monkeypatch):
     out = await _judge_trajectory(_trace(), _llm(), max_input_tokens=10_000)
     by = {a["key"]: a["score"] for a in out["axes"]}
     assert out["status"] == "scored" and by["efficiency"] == 10
+
+
+async def test_judge_not_applicable_axis_excluded_and_renormalizes(monkeypatch):
+    # An axis the judge marks applicable=false is excluded from the aggregate:
+    # the overall divides by the SCORED-axis count, not the fixed len(AXES), so
+    # the N/A axis does not drag the mean toward 0.
+    args = _args()  # eff 6, tool_sel 9, param 8, err 5, goal 9, loop 10 → sum 47
+    args["error_recovery"] = {"applicable": False, "reason": "no tool errors occurred"}
+    monkeypatch.setattr(traj, "get_llm_provider", lambda: _FakeProvider(args))
+    out = await _judge_trajectory(_trace(), _llm(), max_input_tokens=10_000)
+    assert out["status"] == "scored"
+    by = {a["key"]: a for a in out["axes"]}
+    # excluded axis is preserved in the list, marked N/A, with score None
+    assert by["error_recovery"]["status"] == "not_applicable"
+    assert by["error_recovery"]["score"] is None
+    # overall = (6+9+8+9+10) / 5 scored axes (NOT /6)
+    assert out["overall_score"] == round((6 + 9 + 8 + 9 + 10) / 5, 2)
+
+
+async def test_judge_na_loop_axis_does_not_flip_badge(monkeypatch):
+    # loop_detection marked N/A (no real activity) must NOT flip the loop badge,
+    # even though its (absent) score is below the threshold.
+    args = _args()
+    args["loop_detection"] = {"applicable": False, "reason": "crashed at step 1"}
+    monkeypatch.setattr(traj, "get_llm_provider", lambda: _FakeProvider(args))
+    out = await _judge_trajectory(_trace(), _llm(), max_input_tokens=10_000)
+    assert out["loop_detected"] is False
+    by = {a["key"]: a for a in out["axes"]}
+    assert by["loop_detection"]["status"] == "not_applicable"
+
+
+async def test_judge_all_axes_na_yields_none_overall(monkeypatch):
+    # If every axis is N/A (nothing to judge), overall is None, not 0.
+    args = {k: {"applicable": False, "reason": "n/a"} for k, _, _ in AXES}
+    args["summary"] = "no activity"
+    monkeypatch.setattr(traj, "get_llm_provider", lambda: _FakeProvider(args))
+    out = await _judge_trajectory(_trace(), _llm(), max_input_tokens=10_000)
+    assert out["status"] == "scored"
+    assert out["overall_score"] is None
+    assert all(a["score"] is None for a in out["axes"])
