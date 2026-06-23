@@ -79,6 +79,14 @@ def _axis_schema() -> dict:
                 "type": "string",
                 "description": "Brief justification for the score (one sentence).",
             },
+            "applicable": {
+                "type": "boolean",
+                "description": (
+                    "false if this axis does not apply to this trajectory at all — "
+                    "when false the axis is EXCLUDED from the trajectory aggregate, "
+                    "not scored 0."
+                ),
+            },
         },
         "required": ["score", "reason"],
     }
@@ -119,6 +127,7 @@ def _parse_axes_from_args(args: dict) -> tuple[list[dict], float | None, bool]:
     evidence-aware final scoring (E-08)."""
     axes: list[dict] = []
     total = 0
+    scored_count = 0
     for key, name, _ in AXES:
         raw = args.get(key)
         # The judge usually returns {"score", "reason"} per axis, but some models
@@ -126,8 +135,24 @@ def _parse_axes_from_args(args: dict) -> tuple[list[dict], float | None, bool]:
         # response can't crash the whole scoring.
         if isinstance(raw, dict):
             raw_score, raw_reason = raw.get("score"), raw.get("reason")
+            applicable = raw.get("applicable")
         else:
             raw_score, raw_reason = raw, ""
+            applicable = None
+        if applicable is False:
+            # Axis inherently N/A for this trajectory (e.g. error_recovery with no
+            # tool errors, parameter_quality with zero tool calls) — excluded from
+            # the aggregate (both the total AND the divisor), not scored 0.
+            axes.append(
+                {
+                    "key": key,
+                    "name": name,
+                    "score": None,
+                    "status": "not_applicable",
+                    "reason": str(raw_reason or "")[:_REASON_CAP],
+                }
+            )
+            continue
         try:
             score = int(raw_score)
         except (TypeError, ValueError):
@@ -142,10 +167,19 @@ def _parse_axes_from_args(args: dict) -> tuple[list[dict], float | None, bool]:
             }
         )
         total += score
+        scored_count += 1
 
-    overall = round(total / len(AXES), 2) if AXES else None
+    # Renormalize over only the scored axes — an excluded axis must not drag the
+    # mean toward 0 by dividing by the fixed axis count.
+    overall = round(total / scored_count, 2) if scored_count else None
+    # The loop badge only flips on a real, scored loop_detection axis; a N/A
+    # loop_detection axis (score None) leaves the badge False.
     loop_axis = next((a for a in axes if a["key"] == "loop_detection"), None)
-    loop_detected = bool(loop_axis and loop_axis["score"] < _LOOP_SCORE_THRESHOLD)
+    loop_detected = bool(
+        loop_axis
+        and loop_axis.get("score") is not None
+        and loop_axis["score"] < _LOOP_SCORE_THRESHOLD
+    )
     return axes, overall, loop_detected
 
 
@@ -211,7 +245,12 @@ async def _judge_trajectory(cleaned_trace: dict, judge_llm, *, max_input_tokens:
                 "Assess HOW the agent reached its result — not whether the final answer "
                 "is correct. Score each of the six axes from 0 (worst) to 10 (best) using "
                 "the score_trajectory tool, with a brief reason per axis and a one-line "
-                "summary. Be calibrated: 10 is flawless, 5 is mediocre, 0 is absent/broken."
+                "summary. Be calibrated: 10 is flawless, 5 is mediocre, 0 is absent/broken. "
+                "Set applicable=false for an axis that does not apply to this run (it will "
+                "be excluded from the aggregate, not scored 0): parameter_quality and "
+                "efficiency when the agent made zero tool calls / did no real work; "
+                "error_recovery when no tool errors occurred (nothing to recover from); "
+                "loop_detection when there was no real activity (crashed at step 1)."
             ),
         },
         {
