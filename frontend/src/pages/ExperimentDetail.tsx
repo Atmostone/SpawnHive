@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   CartesianGrid,
+  LabelList,
   Legend,
   ResponsiveContainer,
   Scatter,
@@ -597,8 +598,12 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : String(v ?? ''))}
                   labelFormatter={() => ''} />
                 <Legend />
-                <Scatter name="frontier" data={report.pareto.points.filter((p) => p.on_frontier)} fill="#16a34a" />
-                <Scatter name="dominated" data={report.pareto.points.filter((p) => !p.on_frontier)} fill="#9ca3af" />
+                <Scatter name="frontier" data={report.pareto.points.filter((p) => p.on_frontier)} fill="#16a34a">
+                  <LabelList dataKey="label" position="top" offset={8} fontSize={11} fill="#15803d" />
+                </Scatter>
+                <Scatter name="dominated" data={report.pareto.points.filter((p) => !p.on_frontier)} fill="#9ca3af">
+                  <LabelList dataKey="label" position="top" offset={8} fontSize={11} fill="#6b7280" />
+                </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
             )}

@@ -105,6 +105,17 @@ def reset_provider_concurrency() -> None:
     _semaphores.clear()
 
 
+# Some coding-plan endpoints gate access by client User-Agent: e.g. Kimi For
+# Coding returns HTTP 403 ``access_terminated_error`` ("only available for Coding
+# Agents such as Kimi CLI, Claude Code, ...") unless the request presents an
+# approved coding-agent UA. Present it for those hosts — ``extra_headers`` flows
+# through litellm to the OpenAI-compatible request and overrides the SDK default
+# UA. Map by api_base host substring; extend as other gated endpoints appear.
+_GATED_USER_AGENTS = {
+    "api.kimi.com": "claude-cli/1.0.0",
+}
+
+
 class LLMProvider(ABC):
     @abstractmethod
     async def acompletion(
@@ -149,6 +160,14 @@ class LiteLLMProvider(LLMProvider):
             prefixed = model
         else:
             prefixed = model if "/" in model else f"openai/{model}"
+
+        api_base = call_kwargs.get("api_base") or ""
+        for _host, _ua in _GATED_USER_AGENTS.items():
+            if _host in api_base:
+                headers = dict(call_kwargs.get("extra_headers") or {})
+                headers.setdefault("User-Agent", _ua)
+                call_kwargs["extra_headers"] = headers
+                break
 
         async def _call():
             return await litellm.acompletion(

@@ -41,9 +41,14 @@ async def _flush(db, *objs):
 
 # ---- LLM provider fake (mirrors litellm response shape) -------------------
 
-def _resp(score, reasoning="ok", pt=10, ct=4):
+def _resp(score=None, reasoning="ok", pt=10, ct=4, applicable=None):
+    args = {"reasoning": reasoning}
+    if applicable is not None:
+        args["applicable"] = applicable
+    if score is not None:
+        args["score"] = score
     fn = MagicMock()
-    fn.arguments = json.dumps({"score": score, "reasoning": reasoning})
+    fn.arguments = json.dumps(args)
     tc = MagicMock()
     tc.function = fn
     msg = MagicMock()
@@ -55,9 +60,12 @@ def _resp(score, reasoning="ok", pt=10, ct=4):
 
 
 class _FakeProvider:
-    def __init__(self, score=8, fail_contains=()):
+    def __init__(self, score=8, fail_contains=(), na_contains=()):
         self.score = score
         self.fail_contains = tuple(fail_contains)
+        # Dimensions whose user-message contains any of these markers are answered
+        # with applicable=false (and NO score) instead of a numeric score.
+        self.na_contains = tuple(na_contains)
         self.calls = 0
 
     async def acompletion(self, **kwargs):
@@ -65,6 +73,8 @@ class _FakeProvider:
         content = kwargs["messages"][1]["content"]
         if any(f in content for f in self.fail_contains):
             raise RuntimeError("boom")
+        if any(f in content for f in self.na_contains):
+            return _resp(applicable=False, reasoning="not applicable to this task")
         return _resp(self.score)
 
 
@@ -352,3 +362,81 @@ async def test_eval_skipped_without_judge_model(db_session, monkeypatch):
     monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: fake)
     assert await judge_mod.evaluate_task_quality(db_session, task, commit=False) is None
     assert fake.calls == 0
+
+
+# ---- not_applicable (renormalization) --------------------------------------
+
+async def test_not_applicable_dimension_excluded_and_renormalizes(
+    db_session, default_model, monkeypatch
+):
+    # A dimension the judge marks applicable=false is EXCLUDED from the weighted
+    # aggregate: the score renormalizes over the remaining scored axes, the N/A
+    # axis is not scored 0 and does not enter the gate or failed_dimensions.
+    rubric = _rubric("R", is_default=True, dimensions=[
+        _dim("present", weight=0.5, threshold=6, critical=True),
+        _dim("absent", weight=0.5, threshold=6, critical=True),  # → not_applicable
+    ])
+    await _flush(db_session, rubric)
+    task = Task(title="x", status=TaskStatus.DONE.value, workspace_id=WS,
+                result_summary="r", model_used="m")
+    await _flush(db_session, task)
+
+    # 'absent' is answered applicable=false; 'present' scores 8.
+    fake = _FakeProvider(score=8, na_contains=["Dimension: Absent"])
+    monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: fake)
+    profile = await judge_mod.evaluate_task_quality(db_session, task, commit=False)
+
+    dims = {d["key"]: d for d in profile["dimensions"]}
+    assert dims["absent"]["status"] == "not_applicable"
+    assert dims["absent"]["score"] is None
+    assert dims["absent"]["passed"] is True            # not a critical failure
+    assert dims["present"]["status"] == "scored" and dims["present"]["score"] == 8
+    # weighted renormalizes over the single scored axis: 8*0.5 / 0.5 == 8.0
+    assert profile["weighted_score"] == 8.0
+    # the N/A critical axis must NOT fail the gate
+    assert profile["gate"]["passed"] is True
+    assert "absent" not in profile["gate"]["failed_dimensions"]
+
+
+async def test_all_dimensions_not_applicable_yields_no_score(
+    db_session, default_model, monkeypatch
+):
+    # If every dimension is N/A, weighted_den is 0 → weighted_score is None
+    # (consistent with the skipped-all behavior), and the gate still passes.
+    rubric = _rubric("R", is_default=True, dimensions=[
+        _dim("a", weight=0.5, critical=True),
+        _dim("b", weight=0.5),
+    ])
+    await _flush(db_session, rubric)
+    task = Task(title="x", status=TaskStatus.DONE.value, workspace_id=WS,
+                result_summary="r", model_used="m")
+    await _flush(db_session, task)
+
+    fake = _FakeProvider(na_contains=["Dimension: A", "Dimension: B"])
+    monkeypatch.setattr(judge_mod, "get_llm_provider", lambda: fake)
+    profile = await judge_mod.evaluate_task_quality(db_session, task, commit=False)
+    assert profile["weighted_score"] is None
+    assert profile["gate"]["passed"] is True
+    assert profile["gate"]["failed_dimensions"] == []
+
+
+def test_toolathlon_rubric_in_defaults():
+    # The Toolathlon tool-use/data rubric is an additive 6th default that flows
+    # through iter_default_rubrics(); its weights sum to 1.0.
+    from app.quality.rubric import DEFAULT_RUBRICS, iter_default_rubrics
+
+    by_name = {r["name"]: r for r in DEFAULT_RUBRICS}
+    assert "Tool Use / Data Task" in by_name
+    tool = by_name["Tool Use / Data Task"]
+    assert tool["applies_to"] == "toolathlon"
+    assert tool["is_default"] is False
+    keys = [d["key"] for d in tool["dimensions"]]
+    assert keys == [
+        "task_completion", "output_accuracy", "instruction_following",
+        "format_compliance", "presentation_clarity",
+    ]
+    assert round(sum(d["weight"] for d in tool["dimensions"]), 6) == 1.0
+    # the original 5 rubrics are untouched and it reaches iter_default_rubrics()
+    seeded = {name for name, _ in iter_default_rubrics()}
+    assert "Tool Use / Data Task" in seeded
+    assert {"Analytical Report", "Code", "Content", "Design", "Data Analysis"} <= seeded

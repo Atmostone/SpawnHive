@@ -1,7 +1,7 @@
 """Rubrics for the Multi-dimensional Quality Rubric Engine (E-02).
 
 A rubric is a set of independent quality dimensions. ``DEFAULT_RUBRICS`` are the
-five built-ins seeded into the default workspace (and cloned to each new one);
+built-ins seeded into the default workspace (and cloned to each new one);
 ``resolve_rubric_for_task`` picks the rubric to score a task with.
 
 Each dimension declares its own evaluator. Only ``judge`` (LLM-as-judge) is wired
@@ -34,7 +34,7 @@ def _dim(key, name, description, *, weight, threshold, critical=False, evaluator
     }
 
 
-# Five built-in rubrics. ``applies_to`` matches a default-template tag so a task
+# Built-in rubrics. ``applies_to`` matches a default-template tag so a task
 # without an explicit rubric_id still gets a sensible rubric (see resolution).
 DEFAULT_RUBRICS: list[dict] = [
     {
@@ -105,6 +105,19 @@ DEFAULT_RUBRICS: list[dict] = [
             _dim("insightfulness", "Insightfulness", "Actionable, non-obvious findings.", weight=0.15, threshold=5),
             _dim("visualization", "Visualization", "Clear, appropriate charts/tables (if any).", weight=0.10, threshold=4),
             _dim("clarity", "Clarity", "Findings presented clearly with evidence.", weight=0.15, threshold=5),
+        ],
+    },
+    {
+        "name": "Tool Use / Data Task",
+        "description": "Quality profile for agentic tool-use and data tasks (Toolathlon-style): correctness of produced artifacts, not prose craft.",
+        "applies_to": "toolathlon",
+        "is_default": False,
+        "dimensions": [
+            _dim("task_completion", "Task Completion", "Did the run produce ALL required deliverable artifacts, populated with real content (not placeholders/empty sheets), as specified? Every required file/email/event/db-row present and non-empty. Score 0 when no deliverables were produced.", weight=0.30, threshold=6, critical=True),
+            _dim("output_accuracy", "Output Accuracy", "Are the concrete values correct: exact numbers (arithmetic, rounding to spec, cross-file/cross-system totals), correct rows/records, no fabricated data? Grade mechanical correctness like an executable checker. If there are NO artifacts to check, mark this axis not_applicable (task_completion already carries that penalty) — do not collapse to 0.", weight=0.30, threshold=6, critical=True),
+            _dim("instruction_following", "Instruction Following", "Did the deliverables obey explicit task constraints: required sheet/column names, sort order (alphabetical/numeric), section ordering, filters/date ranges, truncation, naming.", weight=0.20, threshold=5),
+            _dim("format_compliance", "Format Compliance", "Is each artifact a VALID instance of its declared format: a real iCalendar (BEGIN:VCALENDAR/VEVENT) not markdown-with-.ics, a true .docx/.xlsx not markdown text, no markdown/HTML bleed-through, no garbled encoding/mojibake, correct extension/MIME.", weight=0.12, threshold=5),
+            _dim("presentation_clarity", "Presentation Clarity", "For artifacts with a free-prose target (docx reports, email bodies, slide narratives): clear, well-organized, audience-appropriate language with proper number formatting. Mark not_applicable when EVERY deliverable for the task is a pure structured/exact artifact (numbers-only xlsx, .ics, db rows) with no narrative target.", weight=0.08, threshold=4),
         ],
     },
 ]
