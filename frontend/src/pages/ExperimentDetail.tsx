@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -106,6 +108,21 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
   const [heat, setHeat] = useState<HeatMode>(verifiable ? 'trajectory' : 'quality')
   const cases = detail.dataset_cases
   const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c]))
+  const labelOf = new Map(detail.configurations.map((c) => [c.config_key, c.label || c.config_key]))
+  // Triangulation scatter: every cell with BOTH a judge (E-02 quality) and a human
+  // (E-05) score — point colored by the executable checker verdict so checker
+  // false-negatives (✗ checker, but high judge+human) jump off the y=x line.
+  const triPoints = detail.matrix
+    .filter((c) => c.quality_mean != null && c.human_mean != null)
+    .map((c) => {
+      const total = c.external_total ?? 0
+      return {
+        judge: c.quality_mean as number,
+        human: c.human_mean as number,
+        label: `${labelOf.get(c.config_key) ?? c.config_key} · ${c.case_key}`,
+        checker: total === 0 ? 'none' : (c.external_pass ?? 0) >= total ? 'pass' : 'fail',
+      }
+    })
   if (detail.matrix.length === 0) {
     return <div className="text-sm text-gray-500 p-4">No runs yet — the matrix materializes when the experiment starts.</div>
   }
@@ -192,6 +209,39 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
         </tbody>
       </table>
       <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q=quality E-02 · t=trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) — click a cell for run details</div>
+      {anyHuman && triPoints.length >= 2 && (
+        <div className="mt-6 border-t pt-4">
+          <div className="text-sm font-medium text-gray-700 mb-1">
+            ⚖️ Judge ↔ 🧑 Human
+            <span className="text-xs text-gray-400 font-normal"> · per cell · E-02 quality vs E-05 human · points on the dashed diagonal = agreement</span>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 10, right: 20, bottom: 24, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="judge" name="judge" domain={[0, 10]} tick={{ fontSize: 11 }}
+                label={{ value: '⚖️ judge quality (E-02)', position: 'insideBottom', offset: -12, fontSize: 11 }} />
+              <YAxis type="number" dataKey="human" name="human" domain={[0, 10]} tick={{ fontSize: 11 }}
+                label={{ value: '🧑 human (E-05)', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+              <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 10, y: 10 }]} stroke="#9ca3af" strokeDasharray="4 4" />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }}
+                content={({ payload }) => (payload && payload.length ? (
+                  <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                    <div className="font-medium">{payload[0].payload.label}</div>
+                    <div>⚖️ {payload[0].payload.judge} · 🧑 {payload[0].payload.human} · checker {payload[0].payload.checker}</div>
+                  </div>
+                ) : null)} />
+              <Scatter data={triPoints}>
+                {triPoints.map((p, i) => (
+                  <Cell key={i} fill={p.checker === 'fail' ? '#dc2626' : p.checker === 'pass' ? '#16a34a' : '#3b82f6'} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <div className="text-xs text-gray-400 mt-1">
+            {verifiable ? '🟢 checker ✓ · 🔴 checker ✗ · ' : ''}🔵 no checker · dashed = perfect agreement. Points well ABOVE the diagonal where 🔴 = checker false-negatives (judge + human say good, checker failed).
+          </div>
+        </div>
+      )}
     </div>
   )
 }
