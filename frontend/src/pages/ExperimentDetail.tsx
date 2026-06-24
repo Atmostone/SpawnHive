@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -32,7 +34,7 @@ function fmt(v: number | null | undefined, digits = 2): string {
   return v == null ? '—' : v.toFixed(digits)
 }
 
-type HeatMode = 'quality' | 'trajectory' | 'off'
+type HeatMode = 'quality' | 'trajectory' | 'human' | 'off'
 
 // Subtle red→green cell tint (0 → red, 10 → green) so it never overpowers the
 // status glyphs printed on top of it.
@@ -96,13 +98,31 @@ function CloneModal({ detail, pending, onClose, onClone }: {
 }
 
 function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell: (config: string, caseKey: string) => void }) {
-  // Verifiable bench: an executable checker is the outcome ground truth, so the
-  // outcome judge (E-02) is not an evaluation here — hide its heat option +
-  // per-cell scores and default to the trajectory (E-07) view. (SPA-68)
+  // Verifiable bench: an executable checker provides a ground-truth verdict, but
+  // the checker is itself unreliable (~21% vs gold), so the LLM judge (E-02) and
+  // human (E-05) are shown ALONGSIDE it as independent oracles — all three are
+  // available as heat views and on every cell (triangulation). Default to the
+  // trajectory view on verifiable benches where the cell already shows ✔checker.
   const verifiable = detail.matrix.some((c) => (c.external_total ?? 0) > 0)
+  const anyHuman = detail.matrix.some((c) => (c.human_rated ?? 0) > 0)
   const [heat, setHeat] = useState<HeatMode>(verifiable ? 'trajectory' : 'quality')
   const cases = detail.dataset_cases
   const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c]))
+  const labelOf = new Map(detail.configurations.map((c) => [c.config_key, c.label || c.config_key]))
+  // Triangulation scatter: every cell with BOTH a judge (E-02 quality) and a human
+  // (E-05) score — point colored by the executable checker verdict so checker
+  // false-negatives (✗ checker, but high judge+human) jump off the y=x line.
+  const triPoints = detail.matrix
+    .filter((c) => c.quality_mean != null && c.human_mean != null)
+    .map((c) => {
+      const total = c.external_total ?? 0
+      return {
+        judge: c.quality_mean as number,
+        human: c.human_mean as number,
+        label: `${labelOf.get(c.config_key) ?? c.config_key} · ${c.case_key}`,
+        checker: total === 0 ? 'none' : (c.external_pass ?? 0) >= total ? 'pass' : 'fail',
+      }
+    })
   if (detail.matrix.length === 0) {
     return <div className="text-sm text-gray-500 p-4">No runs yet — the matrix materializes when the experiment starts.</div>
   }
@@ -111,10 +131,10 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
       <div className="flex items-center gap-2 mb-3 text-xs">
         <span className="text-gray-500">Heat:</span>
         <div className="flex border rounded-lg overflow-hidden">
-          {((verifiable ? ['trajectory', 'off'] : ['quality', 'trajectory', 'off']) as HeatMode[]).map((m) => (
+          {(['quality', 'trajectory', ...(anyHuman ? ['human'] : []), 'off'] as HeatMode[]).map((m) => (
             <button key={m} onClick={() => setHeat(m)}
               className={`px-2.5 py-1 ${heat === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {m === 'off' ? 'off' : m === 'quality' ? 'quality (E-02)' : 'trajectory (E-07)'}
+              {m === 'off' ? 'off' : m === 'quality' ? 'quality (E-02)' : m === 'trajectory' ? 'trajectory (E-07)' : 'human (E-05)'}
             </button>
           ))}
         </div>
@@ -139,31 +159,45 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
               {detail.configurations.map((cfg) => {
                 const cell = cells.get(`${cfg.config_key}|${c.case_key}`)
                 const counts = cell?.counts || {}
-                const heatVal = heat === 'quality' ? cell?.quality_mean : heat === 'trajectory' ? cell?.trajectory_mean : null
+                const heatVal = heat === 'quality' ? cell?.quality_mean : heat === 'trajectory' ? cell?.trajectory_mean : heat === 'human' ? cell?.human_mean : null
                 return (
                   <td key={cfg.config_key} onClick={() => onCell(cfg.config_key, c.case_key)}
                     style={heat === 'off' ? undefined : cellHeat(heatVal)}
                     className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
+                    {/* 🔩 mechanical row: run outcome + executable checker verdict */}
                     <div className="flex items-center justify-center gap-1 text-xs">
+                      <span title="run outcome + executable checker (E-23)">🔩</span>
                       {counts.success ? <span className="text-green-600 font-medium">{counts.success}✓</span> : null}
                       {counts.failed ? <span className="text-red-600 font-medium">{counts.failed}✗</span> : null}
                       {counts.preprocessing ? <span className="text-purple-600 font-medium" title="preprocessing (Toolathlon seed)">{counts.preprocessing}⚙</span> : null}
                       {counts.running ? <span className="text-blue-600 font-medium">{counts.running}…</span> : null}
-                      {counts.evaluating ? <span className="text-indigo-600 font-medium" title="evaluating (executable checker)">{counts.evaluating}⚖</span> : null}
+                      {counts.evaluating ? <span className="text-indigo-600 font-medium" title="evaluating (executable checker)">{counts.evaluating}⏳</span> : null}
                       {counts.pending ? <span className="text-gray-400">{counts.pending}·</span> : null}
                       {counts.skipped ? <span className="text-amber-600">{counts.skipped}s</span> : null}
                       {Object.keys(counts).length === 0 && <span className="text-gray-300">—</span>}
+                      {cell?.external_total ? (
+                        <span className={cell.external_pass === cell.external_total ? 'text-green-600' : cell.external_pass ? 'text-amber-600' : 'text-red-600'}
+                          title="executable verdict — passed / evaluated (Toolathlon checker)">
+                          ✔{cell.external_pass}/{cell.external_total}
+                        </span>
+                      ) : null}
                     </div>
-                    {((!verifiable && cell?.quality_mean != null) || cell?.trajectory_mean != null) && (
-                      <div className="text-[10px] mt-0.5 text-gray-500 tabular-nums">
-                        {!verifiable && cell?.quality_mean != null && <span title="quality mean (E-02)">q{cell.quality_mean}</span>}
-                        {cell?.trajectory_mean != null && <span className={!verifiable && cell?.quality_mean != null ? 'ml-1' : undefined} title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
+                    {/* ⚖️ judge row: quality (E-02) + trajectory (E-07), always shown */}
+                    {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
+                      <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums">
+                        <span title="LLM judge — E-02 quality / E-07 trajectory">⚖️</span>
+                        {cell?.quality_mean != null && <span className="ml-0.5" title="quality mean (E-02)">q{cell.quality_mean}</span>}
+                        {cell?.trajectory_mean != null && <span className="ml-1" title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
                       </div>
                     )}
-                    {cell?.external_total ? (
-                      <div className="text-[10px] mt-0.5 tabular-nums" title="executable verdict — passed / evaluated (Toolathlon)">
-                        <span className={cell.external_pass === cell.external_total ? 'text-green-600' : cell.external_pass ? 'text-amber-600' : 'text-red-600'}>
-                          ✔{cell.external_pass}/{cell.external_total}
+                    {/* 🧑 human row: mean dimension score + verdict (E-05) */}
+                    {cell?.human_rated ? (
+                      <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums" title="human annotation (E-05): mean dimension score + verdict">
+                        <span>🧑</span>
+                        {cell.human_mean != null && <span className="ml-0.5">{cell.human_mean}</span>}
+                        <span className={`ml-0.5 ${cell.human_approve === cell.human_rated ? 'text-green-600' : cell.human_approve ? 'text-amber-600' : 'text-red-600'}`}
+                          title={`${cell.human_approve}/${cell.human_rated} approved`}>
+                          {cell.human_approve === cell.human_rated ? '✓' : cell.human_approve ? '~' : '✗'}
                         </span>
                       </div>
                     ) : null}
@@ -174,7 +208,40 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">✓ success · ✗ failed · ⚙ preprocessing · … running · ⚖ evaluating · · pending · s skipped · {!verifiable && 'q=quality · '}t=trajectory · ✔pass/total=executable verdict — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q=quality E-02 · t=trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) — click a cell for run details</div>
+      {anyHuman && triPoints.length >= 2 && (
+        <div className="mt-6 border-t pt-4">
+          <div className="text-sm font-medium text-gray-700 mb-1">
+            ⚖️ Judge ↔ 🧑 Human
+            <span className="text-xs text-gray-400 font-normal"> · per cell · E-02 quality vs E-05 human · points on the dashed diagonal = agreement</span>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 10, right: 20, bottom: 24, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="judge" name="judge" domain={[0, 10]} tick={{ fontSize: 11 }}
+                label={{ value: '⚖️ judge quality (E-02)', position: 'insideBottom', offset: -12, fontSize: 11 }} />
+              <YAxis type="number" dataKey="human" name="human" domain={[0, 10]} tick={{ fontSize: 11 }}
+                label={{ value: '🧑 human (E-05)', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+              <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 10, y: 10 }]} stroke="#9ca3af" strokeDasharray="4 4" />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }}
+                content={({ payload }) => (payload && payload.length ? (
+                  <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                    <div className="font-medium">{payload[0].payload.label}</div>
+                    <div>⚖️ {payload[0].payload.judge} · 🧑 {payload[0].payload.human} · checker {payload[0].payload.checker}</div>
+                  </div>
+                ) : null)} />
+              <Scatter data={triPoints}>
+                {triPoints.map((p, i) => (
+                  <Cell key={i} fill={p.checker === 'fail' ? '#dc2626' : p.checker === 'pass' ? '#16a34a' : '#3b82f6'} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <div className="text-xs text-gray-400 mt-1">
+            {verifiable ? '🟢 checker ✓ · 🔴 checker ✗ · ' : ''}🔵 no checker · dashed = perfect agreement. Points well ABOVE the diagonal where 🔴 = checker false-negatives (judge + human say good, checker failed).
+          </div>
+        </div>
+      )}
     </div>
   )
 }
