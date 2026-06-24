@@ -29,7 +29,8 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 3  # v3: external (executable pass-rate) + rq2 (verdict × judge 2×2)
+SCHEMA_VERSION = 4  # v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
+# v3: external (executable pass-rate) + rq2 (verdict × judge 2×2)
 SIGNIFICANCE_ALPHA = 0.05
 # Outcome-judge threshold splitting "high" vs "low" in the RQ2 verdict×judge 2×2.
 RQ2_JUDGE_THRESHOLD = 5.0
@@ -272,6 +273,119 @@ def build_report(
         "rows": trajectory_heatmap_rows,
     }
 
+    # --- human feedback (E-05) per config -------------------------------------
+    # The third oracle aggregated like the judge heatmaps, BUT over ALL runs that
+    # carry human feedback — not success-only. Human annotation is a post-hoc
+    # verdict on the run (a human deliberately rates failures too), so dropping
+    # non-success runs would discard exactly the rejects the verdict distribution
+    # is about. Dimensions are SPARSE (a human may rate a subset), so missing /
+    # non-numeric scores are skipped per dimension.
+    h_dim_order: list[str] = []
+    h_dim_labels: dict[str, str] = {}
+    h_dim_samples: dict[str, dict[str, list[float]]] = {}
+    h_overall: dict[str, list[float]] = {}
+    h_verdicts: dict[str, dict[str, int]] = {}
+    any_human = False
+    for r in runs:
+        rec = records_by_task.get(r.task_id)
+        hf = (getattr(rec, "human_feedback", None) or {}) if rec is not None else {}
+        if not hf:
+            continue
+        any_human = True
+        run_scores: list[float] = []
+        for dim in hf.get("dimensions") or []:
+            key, score = dim.get("key"), dim.get("score")
+            if key is None or not isinstance(score, (int, float)):
+                continue
+            if key not in h_dim_order:
+                h_dim_order.append(key)
+                h_dim_labels[key] = dim.get("name") or key
+            h_dim_samples.setdefault(r.config_key, {}).setdefault(key, []).append(float(score))
+            run_scores.append(float(score))
+        if run_scores:
+            h_overall.setdefault(r.config_key, []).append(sum(run_scores) / len(run_scores))
+        verdict = hf.get("verdict") or "none"
+        bucket = h_verdicts.setdefault(r.config_key, {"approve": 0, "reject": 0, "none": 0})
+        bucket[verdict if verdict in bucket else "none"] += 1
+    human_rows = []
+    for key in sorted(configs):
+        cells = {}
+        for dim_key in h_dim_order:
+            vals = h_dim_samples.get(key, {}).get(dim_key) or []
+            cells[dim_key] = {"mean": _mean(vals), "std": _std(vals), "n": len(vals)}
+        overall_vals = h_overall.get(key) or []
+        verdicts = h_verdicts.get(key) or {"approve": 0, "reject": 0, "none": 0}
+        human_rows.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "cells": cells,
+                "overall_score": {
+                    "mean": _mean(overall_vals),
+                    "std": _std(overall_vals),
+                    "n": len(overall_vals),
+                },
+                "n_rated": sum(verdicts.values()),
+                "verdicts": verdicts,
+            }
+        )
+    human_feedback = {
+        "available": any_human,
+        "dimensions": h_dim_order,
+        "dimension_labels": h_dim_labels,
+        "rows": human_rows,
+    }
+
+    # --- cost breakdown per config --------------------------------------------
+    # Where the money went: agent execution (== QualityRecord.cost_usd, the task
+    # cost; includes orchestrator overhead when enabled — it is not separately
+    # metered) vs each evaluator's judge_cost_usd. Computed straight from the
+    # profiles so it stays complete even though ExperimentRun.cost_usd
+    # (_run_cost) only folds in E-02/E-07/E-14. Over settled runs (where cost was
+    # actually incurred).
+    _JUDGE_COST_KEYS = [
+        ("judge_outcome", "quality_profile"),
+        ("judge_trajectory", "trajectory_profile"),
+        ("judge_evidence", "trajectory_evidence_profile"),
+        ("judge_failure", "failure_profile"),
+        ("judge_hallucination", "hallucination_profile"),
+    ]
+
+    def _cost_row(group: list[ExperimentRun]) -> dict:
+        settled = [r for r in group if r.status in _SETTLED]
+        parts = {"agent": 0.0, "judge_total": 0.0, "total": 0.0}
+        for k, _ in _JUDGE_COST_KEYS:
+            parts[k] = 0.0
+        for r in settled:
+            rec = records_by_task.get(r.task_id)
+            agent = (
+                float(getattr(rec, "cost_usd", 0) or 0)
+                if rec is not None
+                else float(r.cost_usd or 0)
+            )
+            parts["agent"] += agent
+            judges = 0.0
+            for k, attr in _JUDGE_COST_KEYS:
+                prof = getattr(rec, attr, None) if rec is not None else None
+                c = float((prof or {}).get("judge_cost_usd") or 0) if prof else 0.0
+                parts[k] += c
+                judges += c
+            parts["judge_total"] += judges
+            parts["total"] += agent + judges
+        return {k: round(v, 6) for k, v in parts.items()}
+
+    any_cost = any(float(r.cost_usd or 0) > 0 for r in runs)
+    cost_per_config = [
+        {"config_key": key, "label": labels.get(key, key), **_cost_row(by_config[key])}
+        for key in sorted(configs)
+    ]
+    cost_totals = _cost_row(runs)
+    cost_breakdown = {
+        "available": any_cost,
+        "per_config": cost_per_config,
+        "totals": cost_totals,
+    }
+
     # --- E-09 trajectory-match per config -------------------------------------
     # Match against the canonical (gold) trajectory — the strongest "judge the
     # process" signal — aggregated per config (only cases that carry a canonical
@@ -497,6 +611,8 @@ def build_report(
         "summary": summary,
         "heatmap": heatmap,
         "trajectory_heatmap": trajectory_heatmap,
+        "human_feedback": human_feedback,
+        "cost_breakdown": cost_breakdown,
         "trajectory_match": trajectory_match,
         "external": external,
         "rq2": rq2,

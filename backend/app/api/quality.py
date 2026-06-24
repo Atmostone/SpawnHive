@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, get_current_workspace, require_role
 from app.database import get_db
+from app.models.experiment import Experiment, ExperimentRun
 from app.models.quality_record import QualityRecord
 from app.models.rubric import Rubric
 from app.models.task import Task
@@ -285,6 +286,46 @@ async def get_trajectory(
     if rec is None:
         raise HTTPException(status_code=404, detail="quality record not found")
     return {"task_id": task_id, "trajectory_profile": rec.trajectory_profile}
+
+
+@router.get("/records/{task_id}/external-checker")
+async def get_external_checker(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Executable-checker (E-23 / Toolathlon gold.external_eval) detail for a run:
+    the pass/fail verdict plus the eval + preprocess container log tails, so a user
+    can see WHY the checker failed — concrete evidence for the "checker is itself
+    unreliable (~21%)" narrative. ``available=false`` for plain (non-checker) runs.
+    Scoped to the workspace via the parent experiment. The exit code itself is not
+    stored (verdict = exit==0); the log tail carries the actual error."""
+    run = (
+        await db.execute(
+            select(ExperimentRun)
+            .join(Experiment, ExperimentRun.experiment_id == Experiment.id)
+            .where(
+                ExperimentRun.task_id == uuid.UUID(task_id),
+                Experiment.workspace_id == workspace.id,
+            )
+        )
+    ).scalars().first()
+    if run is None or (
+        run.external_verdict is None and not run.eval_log and not run.preprocess_log
+    ):
+        return {"task_id": task_id, "available": False}
+    return {
+        "task_id": task_id,
+        "available": True,
+        "verdict": None
+        if run.external_verdict is None
+        else ("pass" if run.external_verdict else "fail"),
+        "case_key": run.case_key,
+        "config_key": run.config_key,
+        "launch_time": run.launch_time,
+        "eval_log": run.eval_log,
+        "preprocess_log": run.preprocess_log,
+    }
 
 
 @router.post("/records/{task_id}/evaluate-trajectory")

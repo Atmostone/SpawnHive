@@ -12,6 +12,7 @@ import FailureModePanel from './FailureModePanel'
 import HallucinationPanel from './HallucinationPanel'
 import CalibrationPanel from './CalibrationPanel'
 import AnnotationPanel from './AnnotationPanel'
+import ExternalCheckerPanel from './ExternalCheckerPanel'
 
 type Tab = 'trajectory' | 'robustness' | 'failure' | 'annotate'
 
@@ -98,6 +99,9 @@ export default function RunAnalysis({
         )}
         {tab === 'failure' && (
           <>
+            {/* Why the executable checker passed/failed — the ground-truth oracle
+                on verifiable benches (renders only there). */}
+            <ExternalCheckerPanel taskId={taskId} verifiable={verifiable} />
             <FailureModePanel taskId={taskId} />
             <HallucinationPanel taskId={taskId} />
             <Dimmed when={verifiable} note="N/A for checker-graded tasks — calibration pairs with the outcome judge (E-02), which is off here">

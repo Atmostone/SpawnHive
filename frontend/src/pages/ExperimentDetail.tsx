@@ -18,7 +18,7 @@ import {
 import { experimentsApi, qualityApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import SummaryRadarPanel from '@/components/quality/SummaryRadarPanel'
-import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
+import type { ExperimentCostRow, ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2, X } from 'lucide-react'
 
@@ -71,6 +71,18 @@ function metricJudge(metric: string): { label: string; cls: string } {
     return { label: 'Trajectory (E-07)', cls: 'text-purple-700 bg-purple-50' }
   // weighted_score + every dim:* are outcome-rubric metrics from the E-02 judge.
   return { label: 'Quality (E-02)', cls: 'text-blue-700 bg-blue-50' }
+}
+
+// Per-cell dimension/axis means (sorted worst-first by the backend) → a compact
+// "low→high" line for the cell tooltip, so a reader can see which axis drags the
+// score down without opening the run. (SPA-73)
+function fmtBreakdown(rows?: { name: string; mean: number }[]): string {
+  if (!rows || rows.length === 0) return ''
+  return rows.map((r) => `${r.name} ${r.mean}`).join(' · ')
+}
+
+function fmtUsd(v: number | null | undefined, digits = 3): string {
+  return v == null ? '—' : `$${v.toFixed(digits)}`
 }
 
 // Subtle red→green cell tint (0 → red, 10 → green) so it never overpowers the
@@ -226,15 +238,25 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
                       <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums">
                         <span title="LLM judge — q: outcome quality (E-02) · t: process trajectory (E-07)">⚖️</span>
-                        {cell?.quality_mean != null && <span className="ml-0.5" title="outcome quality — rubric score of the result (E-02 judge)">q{cell.quality_mean}</span>}
-                        {cell?.trajectory_mean != null && <span className="ml-1" title="process trajectory — 6-axis score of how the agent worked (E-07 judge)">t{cell.trajectory_mean}</span>}
+                        {cell?.quality_mean != null && (
+                          <span className="ml-0.5"
+                            title={`outcome quality — rubric score of the result (E-02 judge)${cell.quality_std != null ? ` · σ ${cell.quality_std} across runs` : ''}${fmtBreakdown(cell.dim_means) ? `\nby dimension (low→high): ${fmtBreakdown(cell.dim_means)}` : ''}`}>
+                            q{cell.quality_mean}{cell.quality_std != null && <span className="text-gray-400">±{cell.quality_std}</span>}
+                          </span>
+                        )}
+                        {cell?.trajectory_mean != null && (
+                          <span className="ml-1"
+                            title={`process trajectory — 6-axis score of how the agent worked (E-07 judge)${cell.trajectory_std != null ? ` · σ ${cell.trajectory_std} across runs` : ''}${fmtBreakdown(cell.axis_means) ? `\nby axis (low→high): ${fmtBreakdown(cell.axis_means)}` : ''}`}>
+                            t{cell.trajectory_mean}{cell.trajectory_std != null && <span className="text-gray-400">±{cell.trajectory_std}</span>}
+                          </span>
+                        )}
                       </div>
                     )}
                     {/* 🧑 human row: mean dimension score + verdict (E-05) */}
                     {cell?.human_rated ? (
                       <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums" title="human annotation (E-05): mean dimension score + verdict">
                         <span>🧑</span>
-                        {cell.human_mean != null && <span className="ml-0.5">{cell.human_mean}</span>}
+                        {cell.human_mean != null && <span className="ml-0.5">{cell.human_mean}{cell.human_std != null && <span className="text-gray-400">±{cell.human_std}</span>}</span>}
                         <span className={`ml-0.5 ${cell.human_approve === cell.human_rated ? 'text-green-600' : cell.human_approve ? 'text-amber-600' : 'text-red-600'}`}
                           title={`${cell.human_approve}/${cell.human_rated} approved`}>
                           {cell.human_approve === cell.human_rated ? '✓' : cell.human_approve ? '~' : '✗'}
@@ -248,7 +270,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality E-02 · t = process trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality E-02 · t = process trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) · ±σ = spread across runs · hover q/t for the per-dimension/axis breakdown — click a cell for run details</div>
       {anyHuman && triPoints.length >= 2 && (
         <div className="mt-6 border-t pt-4">
           <div className="text-sm font-medium text-gray-700 mb-1">
@@ -427,6 +449,22 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
   const visibleSignificance = verifiable
     ? report.significance.filter((s) => !isOutcomeMetric(s.metric))
     : report.significance
+  // Cost-breakdown columns: agent + the two core judges (E-02/E-07) always show —
+  // on verifiable benches a $0 agent (providers that don't price per-token) next to
+  // a non-zero hidden E-02 judge IS the point. The optional judges (E-08/E-14/E-15)
+  // appear only when they actually spent, so the table stays readable.
+  const COST_COLS: { key: keyof ExperimentCostRow; label: string; core?: boolean }[] = [
+    { key: 'agent', label: 'Agent', core: true },
+    { key: 'judge_outcome', label: 'Quality (E-02)', core: true },
+    { key: 'judge_trajectory', label: 'Trajectory (E-07)', core: true },
+    { key: 'judge_evidence', label: 'Evidence (E-08)' },
+    { key: 'judge_failure', label: 'Failure (E-14)' },
+    { key: 'judge_hallucination', label: 'Hallucination (E-15)' },
+  ]
+  const cb = report.cost_breakdown
+  const activeCostCols = cb
+    ? COST_COLS.filter((c) => c.core || (cb.totals[c.key] as number) > 0)
+    : []
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end gap-2">
@@ -480,6 +518,49 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </table>
         </div>
       </section>
+
+      {cb?.available && activeCostCols.length > 0 && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Cost breakdown <span className="text-xs text-gray-400 font-normal">where the eval spend went — agent execution vs each judge (USD){verifiable ? ' · the outcome judge (E-02) still costs even when its scores are hidden' : ''}</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  {activeCostCols.map((c) => <th key={c.key} className="px-3 py-2">{c.label}</th>)}
+                  <th className="px-3 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cb.per_config.map((row) => (
+                  <tr key={row.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{row.config_key} <span className="text-gray-500 font-normal">{row.label}</span></td>
+                    {activeCostCols.map((c) => (
+                      <td key={c.key} className="px-3 py-2 text-gray-600">{fmtUsd(row[c.key] as number)}</td>
+                    ))}
+                    <td className="px-3 py-2 font-semibold">{fmtUsd(row.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-gray-50">
+                  <td className="px-3 py-2 font-medium">All configs</td>
+                  {activeCostCols.map((c) => (
+                    <td key={c.key} className="px-3 py-2 font-medium">{fmtUsd(cb.totals[c.key] as number)}</td>
+                  ))}
+                  <td className="px-3 py-2 font-bold">{fmtUsd(cb.totals.total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+            Agent execution includes orchestrator overhead when enabled (not metered separately). Judge columns are each
+            evaluator's <code>judge_cost_usd</code>; an evaluator with zero spend across all configs is hidden.
+          </p>
+        </section>
+      )}
 
       {report.external?.available ? (
         <section>
@@ -576,6 +657,63 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
+
+      {report.human_feedback?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Human feedback profile <span className="text-xs text-gray-400 font-normal">per-dimension E-05 human ratings · all rated runs · the third oracle</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-x-auto p-3">
+            <table className="text-sm border-separate" style={{ borderSpacing: 3 }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-xs text-gray-500 px-2">config</th>
+                  {report.human_feedback.dimensions.map((d) => (
+                    <th key={d} className="text-xs text-gray-500 font-normal px-2" title={report.human_feedback!.dimension_labels[d]}>
+                      {(report.human_feedback!.dimension_labels[d] || d).replace(/_/g, ' ')}
+                    </th>
+                  ))}
+                  <th className="text-xs text-gray-700 font-medium px-2">overall</th>
+                  <th className="text-xs text-gray-500 font-normal px-2" title="approve / reject verdicts on the rated runs (· = rated, no verdict)">verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.human_feedback.rows.map((row) => (
+                  <tr key={row.config_key}>
+                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
+                    {report.human_feedback!.dimensions.map((d) => {
+                      const cell = row.cells[d]
+                      return (
+                        <td key={d} className="rounded px-3 py-2 text-center text-sm font-medium" style={heatStyle(cell?.mean)}
+                          title={cell ? `n=${cell.n}${cell.std != null ? ` · std=${cell.std}` : ''}` : ''}>
+                          {fmt(cell?.mean, 1)}
+                        </td>
+                      )
+                    })}
+                    <td className="rounded px-3 py-2 text-center text-sm font-bold" style={heatStyle(row.overall_score.mean)}
+                      title={`n=${row.overall_score.n}${row.overall_score.std != null ? ` · std=${row.overall_score.std}` : ''}`}>
+                      {fmt(row.overall_score.mean, 1)}
+                    </td>
+                    <td className="px-2 text-center text-xs whitespace-nowrap">
+                      {row.n_rated === 0 ? <span className="text-gray-300">—</span> : (
+                        <span title={`${row.n_rated} rated run(s)`}>
+                          {row.verdicts.approve > 0 && <span className="text-green-700">{row.verdicts.approve}✓</span>}
+                          {row.verdicts.reject > 0 && <span className="text-red-700 ml-1">{row.verdicts.reject}✗</span>}
+                          {row.verdicts.none > 0 && <span className="text-gray-400 ml-1">{row.verdicts.none}·</span>}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+            Raw human signal (E-05) — independent of the judge↔human agreement (E-17) below. Aggregated over every rated
+            run (not success-only), so the verdict counts keep the rejects. Cells colour low→high like the judge heatmaps; hover for n / σ.
+          </p>
+        </section>
+      )}
 
       {report.trajectory_match.available && (
         <section>
