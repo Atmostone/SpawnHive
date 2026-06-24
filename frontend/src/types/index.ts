@@ -1347,6 +1347,15 @@ export interface ExperimentMatrixCell {
   counts: Record<string, number>
   quality_mean?: number | null
   trajectory_mean?: number | null
+  // Spread across the cell's scored runs (population σ; null until ≥2 samples) —
+  // a stable score vs a noisy one (SPA-73).
+  quality_std?: number | null
+  trajectory_std?: number | null
+  human_std?: number | null
+  // Per-cell rubric dimension / trajectory axis means, sorted worst-first — which
+  // dimension/axis drags this config×case (cell tooltip, SPA-73).
+  dim_means?: { name: string; mean: number }[]
+  axis_means?: { name: string; mean: number }[]
   // Toolathlon executable verdict tally for the cell (gold.external_eval).
   external_pass?: number
   external_total?: number
@@ -1403,6 +1412,32 @@ export interface ExperimentConfigSummary {
   duration_mean?: number | null
 }
 
+// Per-config (or experiment-total) cost decomposition in USD (SPA-73).
+export interface ExperimentCostRow {
+  config_key?: string
+  label?: string
+  agent: number
+  judge_outcome: number
+  judge_trajectory: number
+  judge_evidence: number
+  judge_failure: number
+  judge_hallucination: number
+  judge_total: number
+  total: number
+}
+
+// Executable-checker (E-23) detail for a run: verdict + container log tails.
+export interface ExternalCheckerLogs {
+  task_id: string
+  available: boolean
+  verdict?: 'pass' | 'fail' | null
+  case_key?: string
+  config_key?: string
+  launch_time?: string | null
+  eval_log?: string | null
+  preprocess_log?: string | null
+}
+
 export interface OrchestratorSide {
   configs: string[]
   n_runs: number
@@ -1452,6 +1487,28 @@ export interface ExperimentReport {
       overall_score: { mean?: number | null; n: number }
     }[]
   }
+  // E-05 human feedback aggregated per config (SPA-73): the third oracle, shown
+  // alongside the judge heatmaps. Over ALL rated runs (not success-only) so the
+  // verdict distribution keeps the rejected runs it is about.
+  human_feedback?: {
+    available: boolean
+    dimensions: string[]
+    dimension_labels: Record<string, string>
+    rows: {
+      config_key: string
+      label: string
+      cells: Record<string, { mean?: number | null; std?: number | null; n: number }>
+      overall_score: { mean?: number | null; std?: number | null; n: number }
+      n_rated: number
+      verdicts: { approve: number; reject: number; none: number }
+    }[]
+  } | null
+  // Where the eval money went per config (SPA-73): agent execution vs each judge.
+  cost_breakdown?: {
+    available: boolean
+    per_config: ExperimentCostRow[]
+    totals: ExperimentCostRow
+  } | null
   trajectory_match: {
     available: boolean
     per_config: {

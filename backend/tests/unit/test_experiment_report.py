@@ -91,12 +91,23 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
     )
 
 
-def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None):
+def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
+            human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0):
     return SimpleNamespace(
-        quality_profile={"dimensions": dimensions or []} if dimensions else None,
+        cost_usd=Decimal(str(cost_usd)),
+        quality_profile=(
+            {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
+            if (dimensions or quality_cost) else None
+        ),
         failure_profile={"failures": failures} if failures else None,
-        trajectory_profile={"status": "scored", "axes": trajectory_axes} if trajectory_axes else None,
+        trajectory_profile=(
+            {"status": "scored", "axes": trajectory_axes, "judge_cost_usd": trajectory_cost}
+            if trajectory_axes else None
+        ),
         trajectory_match_profile=trajectory_match,
+        trajectory_evidence_profile=None,
+        hallucination_profile=None,
+        human_feedback=human_feedback,
     )
 
 
@@ -135,7 +146,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -224,7 +235,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
 
     ext = report["external"]
     assert ext["available"] is True
@@ -240,3 +251,86 @@ def test_build_report_external_pass_rate_and_rq2():
     assert rq2["overall"]["cells"] == {"pass_high": 2, "pass_low": 1, "fail_high": 1, "fail_low": 1}
     assert rq2["overall"]["n"] == 5
     assert rq2["overall"]["agreement"] == 0.6  # (pass_high + fail_low) / n = 3/5
+
+
+def test_build_report_human_feedback_aggregate():
+    # cfg-01: two annotated runs — one SUCCESS/approve, one FAILED/reject. The
+    # reject must be counted: human aggregation is NOT success-only (else the
+    # verdict distribution would drop exactly the rejects it is about).
+    r1 = _run("cfg-01", "case-a", 0, status="success", score=8.0)
+    r2 = _run("cfg-01", "case-a", 1, status="failed", score=None)
+    r3 = _run("cfg-02", "case-a", 0, status="success", score=5.0)
+    runs = [r1, r2, r3]
+    records = {
+        r1.task_id: _record(human_feedback={
+            "verdict": "approve",
+            "dimensions": [
+                {"key": "accuracy", "name": "Accuracy", "score": 9},
+                {"key": "clarity", "name": "Clarity", "score": 7},
+            ],
+        }),
+        r2.task_id: _record(human_feedback={
+            "verdict": "reject",
+            "dimensions": [{"key": "accuracy", "name": "Accuracy", "score": 3}],
+        }),
+        r3.task_id: _record(),  # no human feedback
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    hf = report["human_feedback"]
+    assert hf["available"] is True
+    assert hf["dimensions"] == ["accuracy", "clarity"]
+    assert hf["dimension_labels"]["accuracy"] == "Accuracy"
+    row1 = next(r for r in hf["rows"] if r["config_key"] == "cfg-01")
+    # accuracy averaged over BOTH runs (9, 3) → mean 6.0, n 2, σ 3.0
+    assert row1["cells"]["accuracy"]["n"] == 2
+    assert row1["cells"]["accuracy"]["mean"] == 6.0
+    assert row1["cells"]["accuracy"]["std"] == 3.0
+    # clarity only on the success run
+    assert row1["cells"]["clarity"]["n"] == 1
+    # per-run overall = mean of that run's dims: (9+7)/2=8.0 and 3.0 → config 5.5
+    assert row1["overall_score"]["mean"] == 5.5
+    assert row1["overall_score"]["n"] == 2
+    assert row1["n_rated"] == 2
+    assert row1["verdicts"] == {"approve": 1, "reject": 1, "none": 0}
+    # cfg-02 had no human feedback → empty row, still present
+    row2 = next(r for r in hf["rows"] if r["config_key"] == "cfg-02")
+    assert row2["n_rated"] == 0
+    assert row2["cells"]["accuracy"]["n"] == 0
+
+
+def test_build_report_cost_breakdown():
+    r1 = _run("cfg-01", "case-a", 0, status="success", cost="0.10")
+    r2 = _run("cfg-02", "case-a", 0, status="success", cost="0.20")
+    runs = [r1, r2]
+    records = {
+        r1.task_id: _record(cost_usd="0.10", quality_cost=0.02, trajectory_cost=0.01,
+                            dimensions=[{"key": "a", "score": 8}],
+                            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 7}]),
+        r2.task_id: _record(cost_usd="0.20", quality_cost=0.05, trajectory_cost=0.03,
+                            dimensions=[{"key": "a", "score": 5}],
+                            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 5}]),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    cb = report["cost_breakdown"]
+    assert cb["available"] is True
+    by = {c["config_key"]: c for c in cb["per_config"]}
+    assert by["cfg-01"]["agent"] == 0.10
+    assert by["cfg-01"]["judge_outcome"] == 0.02
+    assert by["cfg-01"]["judge_trajectory"] == 0.01
+    assert by["cfg-01"]["judge_total"] == 0.03
+    assert by["cfg-01"]["total"] == 0.13
+    assert by["cfg-02"]["judge_evidence"] == 0.0  # E-08 off → zero (column hidden in UI)
+    totals = cb["totals"]
+    assert totals["agent"] == 0.30
+    assert totals["judge_outcome"] == 0.07
+    assert totals["judge_trajectory"] == 0.04
+    assert totals["total"] == 0.41
+
+
+def test_build_report_no_human_no_cost():
+    report = build_report(_exp(CONFIGS), [], {}, partial=True)
+    assert report["human_feedback"]["available"] is False
+    assert report["human_feedback"]["dimensions"] == []
+    assert report["human_feedback"]["rows"][0]["n_rated"] == 0
+    assert report["cost_breakdown"]["available"] is False
+    assert report["cost_breakdown"]["totals"]["total"] == 0
