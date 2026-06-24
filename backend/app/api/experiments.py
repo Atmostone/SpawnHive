@@ -125,6 +125,38 @@ async def _load_runs(db: AsyncSession, exp: Experiment) -> list[ExperimentRun]:
     )
 
 
+async def _human_scores_by_task(db: AsyncSession, task_ids: list) -> dict:
+    """E-05 human annotations for the given task ids, keyed by task_id.
+
+    Returns ``{task_id: {"overall": <mean dim score 0-10 or None>, "verdict":
+    "approve"|"reject"|None}}`` for every run that carries human feedback — the
+    third oracle (alongside the executable checker and the LLM judge) surfaced on
+    the progress matrix and report charts."""
+    if not task_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(QualityRecord.task_id, QualityRecord.human_feedback).where(
+                QualityRecord.task_id.in_(task_ids),
+                QualityRecord.human_feedback.isnot(None),
+            )
+        )
+    ).all()
+    out: dict = {}
+    for task_id, hf in rows:
+        dims = (hf or {}).get("dimensions") or []
+        scores = [
+            float(d["score"])
+            for d in dims
+            if isinstance(d.get("score"), (int, float))
+        ]
+        out[task_id] = {
+            "overall": round(sum(scores) / len(scores), 1) if scores else None,
+            "verdict": (hf or {}).get("verdict"),
+        }
+    return out
+
+
 @router.get("")
 async def list_experiments(
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -192,6 +224,7 @@ async def get_experiment(
     """Detail + the live progress matrix (per-cell status counts)."""
     exp = await _get_scoped(experiment_id, workspace, db)
     runs = await _load_runs(db, exp)
+    human_by_task = await _human_scores_by_task(db, [r.task_id for r in runs if r.task_id])
     cells: dict[tuple[str, str], dict] = {}
     totals: dict[str, int] = {}
     for r in runs:
@@ -203,8 +236,11 @@ async def get_experiment(
                 "counts": {},
                 "_q": [],
                 "_t": [],
+                "_h": [],
                 "external_pass": 0,
                 "external_total": 0,
+                "human_rated": 0,
+                "human_approve": 0,
             },
         )
         cell["counts"][r.status] = cell["counts"].get(r.status, 0) + 1
@@ -217,12 +253,21 @@ async def get_experiment(
             cell["external_total"] += 1
             if r.external_verdict:
                 cell["external_pass"] += 1
+        human = human_by_task.get(r.task_id)  # E-05 human annotation, if any
+        if human is not None:
+            cell["human_rated"] += 1
+            if human["overall"] is not None:
+                cell["_h"].append(human["overall"])
+            if human["verdict"] == "approve":
+                cell["human_approve"] += 1
     matrix = []
     for cell in cells.values():
         q = cell.pop("_q")
         t = cell.pop("_t")
+        h = cell.pop("_h")
         cell["quality_mean"] = round(sum(q) / len(q), 2) if q else None
         cell["trajectory_mean"] = round(sum(t) / len(t), 2) if t else None
+        cell["human_mean"] = round(sum(h) / len(h), 1) if h else None
         matrix.append(cell)
     return {
         **serialize(exp),
