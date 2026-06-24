@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import statistics
 import uuid
 from typing import Optional
 
@@ -163,6 +164,55 @@ async def _human_scores_by_task(db: AsyncSession, task_ids: list) -> dict:
     return out
 
 
+async def _profile_breakdown_by_task(db: AsyncSession, task_ids: list) -> dict:
+    """Per-task rubric dimensions (E-02) + trajectory axes (E-07) as ``(name,
+    score)`` lists, keyed by task_id — the raw material for the per-cell top/bottom
+    breakdown on the progress matrix (which axis/dimension drags a cell down). Only
+    scored tasks are queried (the caller passes task_ids that carry a score)."""
+    if not task_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                QualityRecord.task_id,
+                QualityRecord.quality_profile,
+                QualityRecord.trajectory_profile,
+            ).where(QualityRecord.task_id.in_(task_ids))
+        )
+    ).all()
+    out: dict = {}
+    for task_id, qp, tp in rows:
+        # Skip entries with no usable label (both name and key missing/falsy) —
+        # else a None name becomes a dict key and renders as "null" in the cell
+        # tooltip (mirrors the guard in experiment_report.py).
+        dims = [
+            (name, float(d["score"]))
+            for d in ((qp or {}).get("dimensions") or [])
+            if isinstance(d.get("score"), (int, float))
+            and (name := d.get("name") or d.get("key"))
+        ]
+        axes = [
+            (name, float(a["score"]))
+            for a in ((tp or {}).get("axes") or [])
+            if isinstance(a.get("score"), (int, float))
+            and (name := a.get("name") or a.get("key"))
+        ]
+        out[task_id] = {"dims": dims, "axes": axes}
+    return out
+
+
+def _top_bottom(samples: dict[str, list[float]]) -> list[dict]:
+    """``{name: [scores]}`` → ``[{name, mean}]`` sorted worst-first, so the UI can
+    read off the dragging axis/dimension (head) and the strongest (tail)."""
+    rows = [
+        {"name": name, "mean": round(sum(vals) / len(vals), 1)}
+        for name, vals in samples.items()
+        if vals
+    ]
+    rows.sort(key=lambda r: r["mean"])
+    return rows
+
+
 @router.get("")
 async def list_experiments(
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -231,6 +281,16 @@ async def get_experiment(
     exp = await _get_scoped(experiment_id, workspace, db)
     runs = await _load_runs(db, exp)
     human_by_task = await _human_scores_by_task(db, [r.task_id for r in runs if r.task_id])
+    # Per-cell rubric/axis breakdown is built only from scored runs (those carrying
+    # a weighted/trajectory score), keeping this hot, polled endpoint's extra query
+    # bounded to records that actually contribute.
+    scored_task_ids = [
+        r.task_id
+        for r in runs
+        if r.task_id
+        and (r.weighted_score is not None or r.trajectory_score is not None)
+    ]
+    breakdown_by_task = await _profile_breakdown_by_task(db, scored_task_ids)
     cells: dict[tuple[str, str], dict] = {}
     totals: dict[str, int] = {}
     for r in runs:
@@ -243,6 +303,8 @@ async def get_experiment(
                 "_q": [],
                 "_t": [],
                 "_h": [],
+                "_dims": {},
+                "_axes": {},
                 "external_pass": 0,
                 "external_total": 0,
                 "human_rated": 0,
@@ -251,10 +313,19 @@ async def get_experiment(
         )
         cell["counts"][r.status] = cell["counts"].get(r.status, 0) + 1
         totals[r.status] = totals.get(r.status, 0) + 1
+        bd = breakdown_by_task.get(r.task_id)
         if r.weighted_score is not None:
             cell["_q"].append(float(r.weighted_score))
+            # Per-dimension breakdown drawn from the SAME scored runs as the cell
+            # quality_mean, so the cell tooltip is consistent with the q value.
+            if bd is not None:
+                for name, score in bd["dims"]:
+                    cell["_dims"].setdefault(name, []).append(score)
         if r.trajectory_score is not None:
             cell["_t"].append(float(r.trajectory_score))
+            if bd is not None:
+                for name, score in bd["axes"]:
+                    cell["_axes"].setdefault(name, []).append(score)
         if r.external_verdict is not None:  # Toolathlon executable verdict
             cell["external_total"] += 1
             if r.external_verdict:
@@ -271,9 +342,18 @@ async def get_experiment(
         q = cell.pop("_q")
         t = cell.pop("_t")
         h = cell.pop("_h")
+        dims = cell.pop("_dims")
+        axes = cell.pop("_axes")
         cell["quality_mean"] = round(sum(q) / len(q), 2) if q else None
         cell["trajectory_mean"] = round(sum(t) / len(t), 2) if t else None
         cell["human_mean"] = round(sum(h) / len(h), 1) if h else None
+        # Spread across runs in the cell (population std, like the report heatmap):
+        # a stable score (σ≈0) vs a noisy one (σ large). None until ≥2 samples.
+        cell["quality_std"] = round(statistics.pstdev(q), 2) if len(q) >= 2 else None
+        cell["trajectory_std"] = round(statistics.pstdev(t), 2) if len(t) >= 2 else None
+        cell["human_std"] = round(statistics.pstdev(h), 1) if len(h) >= 2 else None
+        cell["dim_means"] = _top_bottom(dims)
+        cell["axis_means"] = _top_bottom(axes)
         matrix.append(cell)
     return {
         **serialize(exp),
