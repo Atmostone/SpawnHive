@@ -1349,6 +1349,10 @@ export interface ExperimentMatrixCell {
   // Toolathlon executable verdict tally for the cell (gold.external_eval).
   external_pass?: number
   external_total?: number
+  // E-05 human annotation aggregate for the cell (the third oracle).
+  human_mean?: number | null
+  human_rated?: number
+  human_approve?: number
 }
 
 export interface ExperimentDetail extends Experiment {
