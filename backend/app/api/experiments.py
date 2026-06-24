@@ -47,6 +47,11 @@ class ExperimentCreate(BaseModel):
     n_runs_per_cell: int = Field(default=1, ge=1, le=service.MAX_N_RUNS)
     budget_limit_usd: Optional[float] = Field(default=None, gt=0)
     max_parallel: Optional[int] = Field(default=None, ge=1, le=10)
+    # SPA-69: isolated Toolathlon PG lanes for parallel runs (None → serial on the
+    # shared toolathlon_pg). Capped at the number of provisioned lane containers.
+    n_toolathlon_lanes: Optional[int] = Field(
+        default=None, ge=1, le=service.MAX_TOOLATHLON_LANES
+    )
     eval_config: dict = Field(default_factory=dict)
 
 
@@ -88,6 +93,7 @@ def serialize(exp: Experiment, *, include_details: bool = True) -> dict:
         if exp.budget_limit_usd is not None
         else None,
         "max_parallel": exp.max_parallel,
+        "n_toolathlon_lanes": exp.n_toolathlon_lanes,
         "eval_config": exp.eval_config or {},
         "accumulated_cost_usd": float(exp.accumulated_cost_usd or 0),
         "has_report": exp.report is not None,
