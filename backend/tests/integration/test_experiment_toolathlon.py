@@ -40,15 +40,18 @@ class FakeExt:
     def launch_time_pair(self):
         return ("2026-06-14 10:00:00 Saturday", "2026-06-14 10:00:00")
 
-    def start_preprocess(self, task_id, task_path, cmd, launch_time, keep_alive=False):
-        self.preprocess_calls.append((str(task_id), launch_time, keep_alive))
+    def start_preprocess(
+        self, task_id, task_path, cmd, launch_time, *, keep_alive=False, pg_host=None
+    ):
+        # pg_host: SPA-69 per-lane PG routing (None for the shared/serial path).
+        self.preprocess_calls.append((str(task_id), launch_time, keep_alive, pg_host))
         return f"pre-{str(task_id)[:8]}"
 
     def preprocess_container_name(self, task_id):
         return f"tlpre-{str(task_id)[:8]}"
 
-    def start_eval(self, task_id, task_path, cmd, gt, launch_time):
-        self.eval_calls.append((str(task_id), launch_time))
+    def start_eval(self, task_id, task_path, cmd, gt, launch_time, *, pg_host=None):
+        self.eval_calls.append((str(task_id), launch_time, pg_host))
         return f"eval-{str(task_id)[:8]}"
 
     def poll_exit(self, container_id):
@@ -116,7 +119,7 @@ def _case(key="tl-1", path="tasks/x"):
     }
 
 
-async def _make_exp(db, workspace_id, tpl, cases):
+async def _make_exp(db, workspace_id, tpl, cases, *, n_toolathlon_lanes=None, max_parallel=None):
     config = {
         "config_key": "cfg-01",
         "label": "glm",
@@ -134,6 +137,8 @@ async def _make_exp(db, workspace_id, tpl, cases):
         n_runs_per_cell=1,
         eval_config={"trajectory": False},
         status=ExperimentStatus.DRAFT.value,
+        n_toolathlon_lanes=n_toolathlon_lanes,
+        max_parallel=max_parallel,
     )
     db.add(exp)
     await db.commit()
@@ -187,7 +192,7 @@ async def test_toolathlon_full_lifecycle_pass(auth_client, db_session, monkeypat
     task = await db_session.get(Task, run.task_id)
     assert task.status == TaskStatus.BACKLOG.value  # not yet spawnable
     assert task.run_config["agent_image"] == "spawnhive-agent-toolathlon:latest"
-    assert task.run_config["max_iterations"] == 100
+    assert task.run_config["max_iterations"] == exp_mod.TOOLATHLON_MAX_ITERATIONS
     assert task.run_config["tools_override"]["enable"]  # the toolathlon-terminal id
     assert len(fake.preprocess_calls) == 1
 
@@ -385,3 +390,43 @@ async def test_toolathlon_runs_serially_one_cell_at_a_time(
         ExperimentRunStatus.PENDING.value,
         ExperimentRunStatus.PREPROCESSING.value,
     ]
+
+
+@pytest.mark.asyncio
+async def test_toolathlon_lanes_claim_parallel_cells_on_distinct_lanes(
+    auth_client, db_session, monkeypatch
+):
+    # SPA-69: with n_toolathlon_lanes=2 the scheduler claims up to TWO Toolathlon
+    # cells at once (vs one in the serial path), each pinned to a DISTINCT lane —
+    # so concurrent preprocess re-seeds target different toolathlon_pg_lane_<i>.
+    ws = uuid.UUID(auth_client.headers["X-Workspace-Id"])
+    tpl = await _template(db_session, ws)
+    await _registry(db_session, ws)
+    fake = FakeExt()  # preprocess never exits → claimed cells stay in flight
+    monkeypatch.setattr(exp_mod, "ext_eval", fake)
+
+    # Pin parallelism well above the lane count so LANES (not the ambient
+    # max_concurrent_agents, which persists across tests) are the binding cap.
+    async def _target(db, *, parallel):
+        return 1 if not parallel else 8
+
+    monkeypatch.setattr(exp_mod, "inflight_target", _target)
+
+    exp = await _make_exp(
+        db_session,
+        ws,
+        tpl,
+        [_case("tl-1", "tasks/a"), _case("tl-2", "tasks/b"), _case("tl-3", "tasks/c")],
+        n_toolathlon_lanes=2,
+    )
+    await start_experiment(db_session, exp)
+    assert len(await _runs(db_session, exp)) == 3
+
+    await advance_experiment(db_session, exp)  # claim exactly 2 (the lane cap)
+    runs = await _runs(db_session, exp)
+    inflight = [r for r in runs if r.status == ExperimentRunStatus.PREPROCESSING.value]
+    pending = [r for r in runs if r.status == ExperimentRunStatus.PENDING.value]
+    assert len(inflight) == 2
+    assert len(pending) == 1
+    # the two in-flight runs hold the two distinct lanes 0 and 1
+    assert sorted(r.lane_index for r in inflight) == [0, 1]

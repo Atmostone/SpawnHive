@@ -741,6 +741,7 @@ export interface ExperimentCreateBody {
   n_runs_per_cell: number
   budget_limit_usd?: number | null
   max_parallel?: number | null
+  n_toolathlon_lanes?: number | null
   eval_config?: Record<string, unknown>
 }
 
