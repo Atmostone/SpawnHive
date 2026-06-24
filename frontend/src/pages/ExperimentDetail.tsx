@@ -27,7 +27,9 @@ const CONFIG_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#
 function heatStyle(mean: number | null | undefined): React.CSSProperties {
   if (mean == null) return { backgroundColor: '#f3f4f6', color: '#9ca3af' }
   const hue = Math.max(0, Math.min(120, mean * 12)) // 0 → red, 10 → green
-  return { backgroundColor: `hsl(${hue}, 75%, 88%)`, color: `hsl(${hue}, 80%, 22%)` }
+  // 85% sat / 85% light — same stronger tint as cellHeat so the Report heatmaps
+  // stay legible under red-green colour-blindness; the printed number is the cue.
+  return { backgroundColor: `hsl(${hue}, 85%, 85%)`, color: `hsl(${hue}, 80%, 22%)` }
 }
 
 function fmt(v: number | null | undefined, digits = 2): string {
@@ -36,12 +38,49 @@ function fmt(v: number | null | undefined, digits = 2): string {
 
 type HeatMode = 'quality' | 'trajectory' | 'human' | 'off'
 
+// Plain-language names + one-line explanations for the Heat toggle. The internal
+// E-codes are kept (the team uses them) but always paired with what they MEAN, so a
+// non-author is not left guessing what "q" / "t" measure.
+const HEAT_LABEL: Record<HeatMode, string> = {
+  quality: 'Outcome quality (E-02)',
+  trajectory: 'Process trajectory (E-07)',
+  human: 'Human (E-05)',
+  off: 'off',
+}
+const HEAT_HELP: Record<HeatMode, string> = {
+  quality:
+    'Outcome quality — the LLM judge rubric score of the final RESULT (E-02). Red = weak result, green = strong; higher is better.',
+  trajectory:
+    'Process trajectory — the 6-axis judge score of HOW the agent worked: efficiency, tool choice, error recovery, goal alignment… (E-07). Higher = cleaner process.',
+  human:
+    'Human (E-05) — your own dimension ratings and approve/reject verdict on the run; the ground-truth oracle used for judge calibration.',
+  off: 'No cell colouring — show only the run-outcome glyphs.',
+}
+
+// Significance-table metric keys are programmatic (weighted_score / trajectory_score
+// / dim:<x>); map them to human names + which judge produced them, so a reader can
+// tell outcome (E-02) rows from process (E-07) rows at a glance.
+function metricLabel(metric: string): string {
+  if (metric === 'weighted_score') return 'Overall quality'
+  if (metric === 'trajectory_score') return 'Overall trajectory'
+  if (metric.startsWith('dim:')) return metric.slice(4).replace(/_/g, ' ')
+  return metric.replace(/_/g, ' ')
+}
+function metricJudge(metric: string): { label: string; cls: string } {
+  if (metric === 'trajectory_score')
+    return { label: 'Trajectory (E-07)', cls: 'text-purple-700 bg-purple-50' }
+  // weighted_score + every dim:* are outcome-rubric metrics from the E-02 judge.
+  return { label: 'Quality (E-02)', cls: 'text-blue-700 bg-blue-50' }
+}
+
 // Subtle red→green cell tint (0 → red, 10 → green) so it never overpowers the
-// status glyphs printed on top of it.
+// status glyphs printed on top of it. 85% sat / 85% light keeps the red↔green
+// signal distinguishable under deuteranopia; the numeric q/t/human score printed in
+// the cell stays the primary cue, colour is only an accent.
 function cellHeat(mean: number | null | undefined): React.CSSProperties {
   if (mean == null) return {}
   const hue = Math.max(0, Math.min(120, mean * 12))
-  return { backgroundColor: `hsl(${hue}, 70%, 92%)` }
+  return { backgroundColor: `hsl(${hue}, 85%, 85%)` }
 }
 
 function CloneModal({ detail, pending, onClose, onClone }: {
@@ -128,17 +167,18 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
   }
   return (
     <div className="overflow-x-auto">
-      <div className="flex items-center gap-2 mb-3 text-xs">
-        <span className="text-gray-500">Heat:</span>
+      <div className="flex items-center gap-2 mb-1 text-xs">
+        <span className="text-gray-500" title="Colour the matrix cells by a chosen score — red = low, green = high">Heat:</span>
         <div className="flex border rounded-lg overflow-hidden">
           {(['quality', 'trajectory', ...(anyHuman ? ['human'] : []), 'off'] as HeatMode[]).map((m) => (
-            <button key={m} onClick={() => setHeat(m)}
+            <button key={m} onClick={() => setHeat(m)} title={HEAT_HELP[m]}
               className={`px-2.5 py-1 ${heat === m ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {m === 'off' ? 'off' : m === 'quality' ? 'quality (E-02)' : m === 'trajectory' ? 'trajectory (E-07)' : 'human (E-05)'}
+              {HEAT_LABEL[m]}
             </button>
           ))}
         </div>
       </div>
+      <p className="text-[11px] text-gray-400 mb-3 max-w-3xl">{HEAT_HELP[heat]}</p>
       <table className="text-sm border-separate w-full" style={{ borderSpacing: 4 }}>
         <thead>
           <tr>
@@ -185,9 +225,9 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     {/* ⚖️ judge row: quality (E-02) + trajectory (E-07), always shown */}
                     {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
                       <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums">
-                        <span title="LLM judge — E-02 quality / E-07 trajectory">⚖️</span>
-                        {cell?.quality_mean != null && <span className="ml-0.5" title="quality mean (E-02)">q{cell.quality_mean}</span>}
-                        {cell?.trajectory_mean != null && <span className="ml-1" title="trajectory mean (E-07)">t{cell.trajectory_mean}</span>}
+                        <span title="LLM judge — q: outcome quality (E-02) · t: process trajectory (E-07)">⚖️</span>
+                        {cell?.quality_mean != null && <span className="ml-0.5" title="outcome quality — rubric score of the result (E-02 judge)">q{cell.quality_mean}</span>}
+                        {cell?.trajectory_mean != null && <span className="ml-1" title="process trajectory — 6-axis score of how the agent worked (E-07 judge)">t{cell.trajectory_mean}</span>}
                       </div>
                     )}
                     {/* 🧑 human row: mean dimension score + verdict (E-05) */}
@@ -208,7 +248,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q=quality E-02 · t=trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality E-02 · t = process trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) — click a cell for run details</div>
       {anyHuman && triPoints.length >= 2 && (
         <div className="mt-6 border-t pt-4">
           <div className="text-sm font-medium text-gray-700 mb-1">
@@ -304,10 +344,10 @@ function JudgeHumanCalibration({ cal }: { cal?: ExperimentReport['judge_calibrat
               <tr>
                 <th className="px-3 py-2">Dimension</th>
                 <th className="px-3 py-2">n</th>
-                <th className="px-3 py-2">κ</th>
-                <th className="px-3 py-2">Pearson</th>
-                <th className="px-3 py-2">Spearman</th>
-                <th className="px-3 py-2" title="judge − human; positive = judge over-credits">Bias</th>
+                <th className="px-3 py-2" title="Cohen's kappa — chance-corrected agreement on the verdict (0–1; ≥ threshold = reliable)">κ</th>
+                <th className="px-3 py-2" title="Pearson correlation, judge vs human scores (−1…1; 1 = perfect linear agreement)">Pearson</th>
+                <th className="px-3 py-2" title="Spearman rank correlation, judge vs human scores (−1…1)">Spearman</th>
+                <th className="px-3 py-2" title="judge − human mean; 0 = unbiased, + = judge over-credits, − = under-credits (±0.5 signals bias)">Bias</th>
                 <th className="px-3 py-2">Reliable</th>
               </tr>
             </thead>
@@ -451,7 +491,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
       ) : (
       <section>
-        <h3 className="font-semibold text-gray-900 mb-2">Quality profile heatmap</h3>
+        <h3 className="font-semibold text-gray-900 mb-2">
+          Quality profile heatmap <span className="text-xs text-gray-400 font-normal">per-dimension outcome judge (E-02), success-only</span>
+        </h3>
         {report.heatmap.dimensions.length === 0 ? (
           <p className="text-sm text-gray-500">No rubric dimension scores yet (configure a judge model to score runs).</p>
         ) : (
@@ -545,9 +587,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2">Match rate</th>
-                  <th className="px-3 py-2">Score mean</th>
-                  <th className="px-3 py-2">Scored</th>
+                  <th className="px-3 py-2" title="% of scored runs whose trajectory matches the canonical gold trajectory within threshold">Match rate</th>
+                  <th className="px-3 py-2" title="mean trajectory similarity to the gold trajectory (0–1; higher = closer)">Score mean</th>
+                  <th className="px-3 py-2" title="runs that had a canonical gold trajectory to score against">Scored</th>
                 </tr>
               </thead>
               <tbody>
@@ -644,7 +686,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost (size = time)</span></h3>
+          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · hover for values</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             {new Set(report.pareto.points.map((p) => p.cost)).size <= 1 ? (
               <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
@@ -659,11 +701,15 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <XAxis type="number" dataKey="cost" name="cost" unit="$" tick={{ fontSize: 11 }}
                   label={{ value: 'Cost ($)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Quality (E-02 — audited)' : 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <ZAxis type="number" dataKey="time" range={[60, 400]} name="time" unit="s" />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
-                  formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : String(v ?? ''))}
-                  labelFormatter={() => ''} />
+                  content={({ payload }) => (payload && payload.length ? (
+                    <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                      <div className="font-medium">{payload[0].payload.label}</div>
+                      <div>quality {fmt(payload[0].payload.quality, 1)} · ${fmt(payload[0].payload.cost, 3)} · {payload[0].payload.time != null ? `${Math.round(payload[0].payload.time)}s` : '—'}{payload[0].payload.on_frontier ? ' · frontier' : ''}</div>
+                    </div>
+                  ) : null)} />
                 <Legend />
                 <Scatter name="frontier" data={report.pareto.points.filter((p) => p.on_frontier)} fill="#16a34a">
                   <LabelList dataKey="label" position="top" offset={8} fontSize={11} fill="#15803d" />
@@ -684,7 +730,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" dataKey="outcome" name="outcome" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Outcome (E-02 — audited)' : 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }}
                   label={{ value: 'Trajectory (E-07)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} />
@@ -750,6 +796,21 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">Statistical significance <span className="text-xs text-gray-400 font-normal">Welch t-test (primary) + Mann-Whitney U (approx); ★ = p &lt; 0.05</span></h3>
+        {verifiable && (
+          <p className="text-xs text-gray-400 mb-2 -mt-1 max-w-3xl">
+            On verifiable benches the outcome judge (E-02) is the subject being audited (not the evaluator), so its metrics
+            (Overall quality + dimensions) are hidden here — only Trajectory (E-07) is shown. See <span className="font-medium">Executable pass-rate</span> above for the ground-truth outcome.
+          </p>
+        )}
+        {visibleSignificance.length > 0 && (
+          <p className="text-xs text-gray-400 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>Judge:</span>
+            <span className="px-1.5 py-0.5 rounded font-medium text-blue-700 bg-blue-50">Quality (E-02)</span>
+            <span>= outcome rubric ·</span>
+            <span className="px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50">Trajectory (E-07)</span>
+            <span>= process, 6-axis. Rows are grouped by evaluator.</span>
+          </p>
+        )}
         {visibleSignificance.length === 0 ? (
           <p className="text-sm text-gray-500">Not enough samples per cell yet (need n ≥ 3 scored runs on both sides).</p>
         ) : (
@@ -759,25 +820,37 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <tr>
                   <th className="px-3 py-2">Pair</th>
                   <th className="px-3 py-2">Metric</th>
+                  <th className="px-3 py-2" title="which evaluator produced this metric — outcome judge (E-02) or process judge (E-07)">Judge</th>
                   <th className="px-3 py-2">Welch p</th>
                   <th className="px-3 py-2">Mann-Whitney p</th>
                   <th className="px-3 py-2">Verdict</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleSignificance.map((s) => (
-                  <tr key={`${s.a}-${s.b}-${s.metric}`} className="border-t">
-                    <td className="px-3 py-2">{s.a} vs {s.b}</td>
-                    <td className="px-3 py-2 text-gray-600">{s.metric}</td>
-                    <td className="px-3 py-2">{s.welch ? s.welch.p.toFixed(4) : '—'}</td>
-                    <td className="px-3 py-2">{s.mann_whitney ? s.mann_whitney.p.toFixed(4) : '—'}</td>
-                    <td className="px-3 py-2">
-                      {s.significant
-                        ? <span className="text-green-700 font-medium">★ significant</span>
-                        : <span className="text-gray-400">not significant</span>}
-                    </td>
-                  </tr>
-                ))}
+                {[...visibleSignificance]
+                  .sort((x, y) =>
+                    metricJudge(x.metric).label.localeCompare(metricJudge(y.metric).label) ||
+                    metricLabel(x.metric).localeCompare(metricLabel(y.metric)) ||
+                    `${x.a}${x.b}`.localeCompare(`${y.a}${y.b}`))
+                  .map((s) => {
+                    const judge = metricJudge(s.metric)
+                    return (
+                      <tr key={`${s.a}-${s.b}-${s.metric}`} className="border-t">
+                        <td className="px-3 py-2">{s.a} vs {s.b}</td>
+                        <td className="px-3 py-2 text-gray-700">{metricLabel(s.metric)}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${judge.cls}`}>{judge.label}</span>
+                        </td>
+                        <td className="px-3 py-2">{s.welch ? s.welch.p.toFixed(4) : '—'}</td>
+                        <td className="px-3 py-2">{s.mann_whitney ? s.mann_whitney.p.toFixed(4) : '—'}</td>
+                        <td className="px-3 py-2">
+                          {s.significant
+                            ? <span className="text-green-700 font-medium">★ significant</span>
+                            : <span className="text-gray-400">not significant</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
               </tbody>
             </table>
           </div>
