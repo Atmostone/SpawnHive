@@ -100,6 +100,7 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
   const [nRuns, setNRuns] = useState(3)
   const [budget, setBudget] = useState('')
   const [maxParallel, setMaxParallel] = useState('')
+  const [lanes, setLanes] = useState('')
   // Evaluation mode: 'checker' = run the executable checker where a case has one
   // (Toolathlon ground truth). 'judge' = skip the checker and let the E-02 outcome
   // judge be the evaluator — turns a verifiable bench into an open-result one so
@@ -155,9 +156,10 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
       n_runs_per_cell: nRuns,
       budget_limit_usd: budget !== '' ? Number(budget) : null,
       max_parallel: maxParallel !== '' ? Number(maxParallel) : null,
+      n_toolathlon_lanes: lanes !== '' ? Number(lanes) : null,
       eval_config: { eval_mode: evalMode },
     }),
-    [name, description, dataset, configMode, configs, axes, nRuns, budget, maxParallel, evalMode],
+    [name, description, dataset, configMode, configs, axes, nRuns, budget, maxParallel, lanes, evalMode],
   )
 
   const datasetReady =
@@ -471,6 +473,13 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
               <label className="block text-sm font-medium text-gray-700 mb-1">Max parallel</label>
               <input type="number" min={1} max={10} value={maxParallel} placeholder="auto"
                 onChange={(e) => setMaxParallel(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Toolathlon lanes</label>
+              <input type="number" min={1} max={4} value={lanes} placeholder="serial"
+                title="Isolated Postgres lanes for PARALLEL Toolathlon runs (max 4). Each lane is its own DB so concurrent cases can't clobber each other's seed. Blank = serial on the shared toolathlon_pg. No effect on non-Toolathlon datasets."
+                onChange={(e) => setLanes(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
           </div>
