@@ -686,7 +686,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · hover for values</span></h3>
+          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · hover for values{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             {new Set(report.pareto.points.map((p) => p.cost)).size <= 1 ? (
               <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
@@ -701,7 +701,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <XAxis type="number" dataKey="cost" name="cost" unit="$" tick={{ fontSize: 11 }}
                   label={{ value: 'Cost ($)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: verifiable ? 'Quality (E-02 — audited)' : 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Quality (E-02)*' : 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <ZAxis type="number" dataKey="time" range={[60, 400]} name="time" unit="s" />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => (payload && payload.length ? (
@@ -724,13 +724,13 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
 
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Outcome × Trajectory <span className="text-xs text-gray-400 font-normal">per run</span></h3>
+          <h3 className="font-semibold text-gray-900 mb-2">Outcome × Trajectory <span className="text-xs text-gray-400 font-normal">per run{verifiable ? ' · *outcome E-02 audited, not evaluator' : ''}</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" dataKey="outcome" name="outcome" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: verifiable ? 'Outcome (E-02 — audited)' : 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Outcome (E-02)*' : 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }}
                   label={{ value: 'Trajectory (E-07)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} />
