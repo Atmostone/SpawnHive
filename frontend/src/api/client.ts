@@ -256,7 +256,7 @@ export const workspaceApi = {
 }
 
 // Quality Rubric Engine (E-02)
-import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, FailureAggregate, HallucinationProfile, HallucinationAggregate, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus } from '../types'
+import type { Rubric, QualityProfile, HumanFeedback, CalibrationQueue, ReviewContext, CleanedTrace, TrajectoryProfile, TrajectoryEvidenceProfile, TrajectoryMatchProfile, CapabilityProfile, CapabilityAggregate, FailureProfile, FailureAggregate, HallucinationProfile, HallucinationAggregate, CalibrationProfile, CalibrationAggregate, JudgeCalibration, JudgeCalibrationBadge, BiasReport, RankingReport, RankingBadge, ExperimentSnapshot, SnapshotDiff, ReplayResult, PairwiseComparison, PairwiseListResponse, PairwiseVerdict, ComparisonSubject, ComparisonStatus, ExternalCheckerLogs } from '../types'
 
 type RubricInput = Pick<Rubric, 'name' | 'description' | 'applies_to' | 'is_default' | 'dimensions'>
 
@@ -315,6 +315,8 @@ export const qualityApi = {
     request<{ task_id: string; trajectory_profile: TrajectoryProfile | null }>(
       `/quality/records/${taskId}/trajectory`,
     ),
+  getExternalCheckerLogs: (taskId: string) =>
+    request<ExternalCheckerLogs>(`/quality/records/${taskId}/external-checker`),
   evaluateTrajectory: (taskId: string) =>
     request<{ task_id: string; trajectory_profile: TrajectoryProfile | null; skipped: boolean; detail?: string }>(
       `/quality/records/${taskId}/evaluate-trajectory`,
