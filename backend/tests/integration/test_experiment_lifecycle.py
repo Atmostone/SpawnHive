@@ -293,3 +293,38 @@ async def test_clone_copies_frozen_dataset_and_applies_changes(
 
     with pytest.raises(ValueError, match="unknown clone changes"):
         await clone_experiment(db_session, exp, changes={"bogus": 1})
+
+
+@pytest.mark.asyncio
+async def test_n_toolathlon_lanes_persisted_validated_and_cloned(auth_client, db_session):
+    # SPA-69: the lane count is stored on create, bounded at both ends, and
+    # carried through a clone (it used to be silently dropped / rejected).
+    workspace_id = uuid.UUID(auth_client.headers["X-Workspace-Id"])
+    tpl = await _template(db_session, workspace_id)
+
+    exp = await create_experiment(
+        db_session,
+        workspace_id=workspace_id,
+        payload=_payload(tpl.id, n_toolathlon_lanes=3),
+    )
+    assert exp.n_toolathlon_lanes == 3
+
+    with pytest.raises(ValueError, match="n_toolathlon_lanes must be >= 1"):
+        await create_experiment(
+            db_session,
+            workspace_id=workspace_id,
+            payload=_payload(tpl.id, n_toolathlon_lanes=0),
+        )
+    with pytest.raises(ValueError, match="n_toolathlon_lanes must be <="):
+        await create_experiment(
+            db_session,
+            workspace_id=workspace_id,
+            payload=_payload(tpl.id, n_toolathlon_lanes=99),
+        )
+
+    # clone copies the source's lanes by default …
+    clone = await clone_experiment(db_session, exp)
+    assert clone.n_toolathlon_lanes == 3
+    # … and an explicit override is accepted (not an "unknown clone changes" error)
+    clone2 = await clone_experiment(db_session, exp, changes={"n_toolathlon_lanes": 1})
+    assert clone2.n_toolathlon_lanes == 1

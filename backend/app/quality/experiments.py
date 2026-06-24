@@ -90,6 +90,11 @@ MAX_CONFIGS = 24
 MAX_CASES = 300
 MAX_N_RUNS = 20
 MAX_TOTAL_RUNS = 1000
+# SPA-69: upper bound on parallel Toolathlon PG lanes — matches the number of
+# ``toolathlon_pg_lane_<i>`` containers provisioned in docker-compose (profile
+# "toolathlon-lanes"). Asking for more lanes than containers would pin a run to a
+# non-existent host, so reject it at create time.
+MAX_TOOLATHLON_LANES = 4
 
 
 # --- configuration matrix ---------------------------------------------------
@@ -493,6 +498,11 @@ async def create_experiment(
     n_lanes = payload.get("n_toolathlon_lanes")
     if n_lanes is not None and int(n_lanes) < 1:
         raise ValueError("n_toolathlon_lanes must be >= 1")
+    if n_lanes is not None and int(n_lanes) > MAX_TOOLATHLON_LANES:
+        raise ValueError(
+            f"n_toolathlon_lanes must be <= {MAX_TOOLATHLON_LANES} "
+            f"(only {MAX_TOOLATHLON_LANES} lane containers are provisioned)"
+        )
     budget = payload.get("budget_limit_usd")
     if budget is not None and Decimal(str(budget)) <= 0:
         raise ValueError("budget_limit_usd must be positive")
@@ -1703,6 +1713,9 @@ async def clone_experiment(
             float(exp.budget_limit_usd) if exp.budget_limit_usd is not None else None,
         ),
         "max_parallel": changes.pop("max_parallel", exp.max_parallel),
+        "n_toolathlon_lanes": changes.pop(
+            "n_toolathlon_lanes", exp.n_toolathlon_lanes
+        ),
         "eval_config": changes.pop("eval_config", exp.eval_config or {}),
     }
     new_dataset = changes.pop("dataset", None)
