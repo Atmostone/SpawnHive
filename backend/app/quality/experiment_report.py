@@ -29,7 +29,8 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 5  # v5: loop_detection + quality_gate per config, failure reasons,
+SCHEMA_VERSION = 6  # v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
+# v5: loop_detection + quality_gate per config, failure reasons,
 # quality-heatmap dimension_labels
 # v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
 # v3: external (executable pass-rate) + rq2 (verdict × judge 2×2)
@@ -351,6 +352,75 @@ def build_report(
             }
         )
     loop_detection = {"available": any_loop, "per_config": loop_per_config}
+
+    # --- cleaned-trace stats (E-06) per config --------------------------------
+    # trajectory_profile.trace_stats = {original_tokens, cleaned_tokens, steps_total}
+    # — the trace cleaner's output, present on every trajectory-scored run but never
+    # aggregated. Per config: mean steps the agent took + how far the trace
+    # compressed (cleaned/original tokens). Over trajectory-scored runs (success or
+    # failed); a verbose, low-compression, many-step trace is a process smell.
+    def _trace_row(group: list[ExperimentRun]) -> dict:
+        steps: list[float] = []
+        cleaned: list[float] = []
+        original: list[float] = []
+        for r in group:
+            rec = records_by_task.get(r.task_id)
+            tprof = (rec.trajectory_profile or {}) if rec is not None else {}
+            ts = tprof.get("trace_stats") or {}
+            if ts.get("steps_total") is not None:
+                steps.append(float(ts["steps_total"]))
+            if ts.get("cleaned_tokens") is not None:
+                cleaned.append(float(ts["cleaned_tokens"]))
+            if ts.get("original_tokens") is not None:
+                original.append(float(ts["original_tokens"]))
+        comp = (
+            round(sum(cleaned) / sum(original), 4)
+            if cleaned and original and sum(original) > 0
+            else None
+        )
+        return {
+            "n": len(steps),
+            "steps_mean": _mean(steps),
+            "cleaned_tokens_mean": _mean(cleaned),
+            "original_tokens_mean": _mean(original),
+            "compression": comp,
+        }
+
+    any_trace = False
+    trace_per_config = []
+    for key in sorted(configs):
+        row = _trace_row(by_config[key])
+        if row["n"] > 0:
+            any_trace = True
+        trace_per_config.append(
+            {"config_key": key, "label": labels.get(key, key), **row}
+        )
+    trace_stats = {"available": any_trace, "per_config": trace_per_config}
+
+    # --- longitudinal: quality / cost across the repetition index (E-22) -------
+    # Do later repetitions of a cell drift from earlier ones (caching, rate-limit
+    # degradation, non-determinism)? Aggregate every settled run by its run_index
+    # (0-based repetition) across all configs/cases — a coarse reproducibility
+    # trend. Quality/trajectory are success-only (unscored failures carry no score);
+    # cost is over all settled runs.
+    by_index: dict[int, list[ExperimentRun]] = {}
+    for r in runs:
+        if r.status in _SETTLED and r.run_index is not None:
+            by_index.setdefault(r.run_index, []).append(r)
+    longitudinal_points = []
+    for idx in sorted(by_index):
+        grp = by_index[idx]
+        succ = [r for r in grp if r.status == ExperimentRunStatus.SUCCESS.value]
+        longitudinal_points.append(
+            {
+                "run_index": idx,
+                "n": len(grp),
+                "quality_mean": _mean([r.weighted_score for r in succ]),
+                "trajectory_mean": _mean([r.trajectory_score for r in succ]),
+                "cost_mean": _mean([float(r.cost_usd or 0) for r in grp]),
+            }
+        )
+    longitudinal = {"available": len(longitudinal_points) > 1, "points": longitudinal_points}
 
     # --- human feedback (E-05) per config -------------------------------------
     # The third oracle aggregated like the judge heatmaps, BUT over ALL runs that
@@ -714,6 +784,8 @@ def build_report(
         "quality_gate": quality_gate,
         "trajectory_heatmap": trajectory_heatmap,
         "loop_detection": loop_detection,
+        "trace_stats": trace_stats,
+        "longitudinal": longitudinal,
         "human_feedback": human_feedback,
         "cost_breakdown": cost_breakdown,
         "trajectory_match": trajectory_match,

@@ -749,6 +749,70 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
       )}
 
+      {report.trace_stats?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Cleaned-trace stats <span className="text-xs text-gray-400 font-normal">trace cleaner (E-06) per config · mean agent steps + how far the trace compressed</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2" title="mean number of agent steps in the trace (lower = more direct)">Steps avg</th>
+                  <th className="px-3 py-2" title="cleaned ÷ original tokens — how much the trace cleaner compressed the raw trace (lower = noisier raw trace)">Compression</th>
+                  <th className="px-3 py-2" title="mean cleaned-trace tokens fed to the trajectory judge">Cleaned tok</th>
+                  <th className="px-3 py-2">Scored</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.trace_stats.per_config.map((c) => (
+                  <tr key={c.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className="px-3 py-2">{c.steps_mean != null ? c.steps_mean.toFixed(1) : '—'}</td>
+                    <td className="px-3 py-2">{c.compression != null ? `${(c.compression * 100).toFixed(0)}%` : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{c.cleaned_tokens_mean != null ? Math.round(c.cleaned_tokens_mean).toLocaleString() : '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{c.n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {report.longitudinal?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Longitudinal <span className="text-xs text-gray-400 font-normal">quality / cost across the repetition index (E-22) — do later repeats of a cell drift?</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2" title="0-based repetition index of each cell">Run #</th>
+                  <th className="px-3 py-2">Runs</th>
+                  {!verifiable && <th className="px-3 py-2">Quality avg</th>}
+                  <th className="px-3 py-2">Trajectory avg</th>
+                  <th className="px-3 py-2">Cost avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.longitudinal.points.map((p) => (
+                  <tr key={p.run_index} className="border-t">
+                    <td className="px-3 py-2 font-medium">#{p.run_index + 1}</td>
+                    <td className="px-3 py-2 text-gray-500">{p.n}</td>
+                    {!verifiable && <td className="px-3 py-2">{fmt(p.quality_mean)}</td>}
+                    <td className="px-3 py-2">{fmt(p.trajectory_mean)}</td>
+                    <td className="px-3 py-2">${fmt(p.cost_mean, 3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {report.human_feedback?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
