@@ -33,6 +33,20 @@ const ACCENT: Record<FeedbackBand, string> = {
   good: 'accent-green-500',
 }
 
+// When the judge produced no score for a dimension there is nothing to calibrate
+// against; explain WHY so the annotator can decide whether to add an independent
+// rating rather than being handed a pre-filled (fabricated) value.
+function judgeNote(judgeScore: number | null, status?: string): string | null {
+  if (judgeScore != null) return null
+  switch (status) {
+    case 'deferred': return 'judge deferred'
+    case 'skipped': return 'judge skipped'
+    case 'error': return 'judge errored'
+    case 'not_applicable': return 'not applicable'
+    default: return 'judge did not score'
+  }
+}
+
 interface Props {
   taskId: string
   profile: QualityProfile | null
@@ -49,10 +63,16 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
   const [open, setOpen] = useState(defaultOpen)
 
   // Dimensions to rate: the quality (E-02) axes + the process/trajectory (E-07)
-  // axes the judges evaluated. Seed from existing human feedback, else default to
-  // the judge's score (one-click agreement). Keys never collide across the two.
-  const qDims = (profile?.dimensions ?? []).map((d) => ({ key: d.key, name: d.name, score: d.score ?? null }))
-  const tDims = (trajectoryProfile?.axes ?? []).map((a) => ({ key: a.key, name: a.name, score: a.score ?? null }))
+  // axes the judges evaluated. Keys never collide across the two. ``judgeScore`` is
+  // null when the judge produced no score for a dimension (deferred / skipped /
+  // errored / not-applicable) — those carry a ``status`` for the badge.
+  const qDims = (profile?.dimensions ?? []).map((d) => ({
+    key: d.key, name: d.name, judgeScore: d.score ?? null, status: d.status as string | undefined,
+  }))
+  const tDims = (trajectoryProfile?.axes ?? []).map((a) => ({
+    key: a.key, name: a.name, judgeScore: a.score ?? null,
+    status: (a as { status?: string }).status,
+  }))
   const groups = [
     { label: 'Quality · outcome (E-02)', dims: qDims },
     { label: 'Process · trajectory (E-07)', dims: tDims },
@@ -62,13 +82,18 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
   // is skipped (no quality dims) but the trajectory judge ran. Don't show/solicit
   // an outcome rating — only the process is human-rateable. (SPA-68)
   const verifiable = qDims.length === 0 && tDims.length > 0
-  const seedScore = (key: string, judge: number | null) => {
+  // Seed from existing human feedback, else the judge's score (one-click
+  // agreement). CRUCIALLY: when the judge produced NO score, seed null (unrated) —
+  // never a fabricated 5. A human-5 paired against a judge-null dimension pollutes
+  // the human-feedback aggregate and manufactures a calibration pair the judge
+  // never earned (E-17). The human must explicitly opt in to rate such a dimension.
+  const seedScore = (key: string, judge: number | null): number | null => {
     const prev = existing?.dimensions.find((d) => d.key === key)
     if (prev) return prev.score
-    return judge ?? 5
+    return judge
   }
-  const [scores, setScores] = useState<Record<string, number>>(() =>
-    Object.fromEntries(dims.map((d) => [d.key, seedScore(d.key, d.score)])),
+  const [scores, setScores] = useState<Record<string, number | null>>(() =>
+    Object.fromEntries(dims.map((d) => [d.key, seedScore(d.key, d.judgeScore)])),
   )
   const [comments, setComments] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -81,12 +106,16 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
     mutationFn: () =>
       qualityApi.saveFeedback(taskId, {
         overall_comment: overall.trim() || null,
-        dimensions: dims.map((d) => ({
-          key: d.key,
-          name: d.name,
-          score: scores[d.key],
-          comment: comments[d.key]?.trim() || null,
-        })),
+        // Only dimensions the human actually rated — never the unrated (null) ones,
+        // so we don't fabricate a score the annotator didn't give (calibration hygiene).
+        dimensions: dims
+          .filter((d) => scores[d.key] != null)
+          .map((d) => ({
+            key: d.key,
+            name: d.name,
+            score: scores[d.key] as number,
+            comment: comments[d.key]?.trim() || null,
+          })),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['human-feedback', taskId] })
@@ -132,43 +161,83 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
               <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{g.label}</div>
               {g.dims.map((d) => {
             const score = scores[d.key]
-            const b = band(score)
+            const rated = score != null
+            const b = rated ? band(score) : null
+            const note = judgeNote(d.judgeScore, d.status)
             return (
               <div key={d.key} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700">{d.name}</span>
+                  <span className="text-gray-700 flex items-center gap-2">
+                    {d.name}
+                    {note && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600"
+                        title="The judge produced no score for this dimension, so there is nothing to calibrate against. Rate it only if you want to add an independent human score."
+                      >
+                        {note}
+                      </span>
+                    )}
+                  </span>
                   <span className="flex items-center gap-2">
-                    <span className={cn('font-medium', BAND_STYLE[b])}>
-                      {score}/10 · {BAND_LABEL[b]}
-                    </span>
-                    {d.score != null && (
+                    {rated ? (
+                      <span className={cn('font-medium', BAND_STYLE[b!])}>
+                        {score}/10 · {BAND_LABEL[b!]}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">not rated</span>
+                    )}
+                    {d.judgeScore != null && (
                       <button
                         type="button"
-                        onClick={() => setScores((s) => ({ ...s, [d.key]: d.score as number }))}
+                        onClick={() => setScores((s) => ({ ...s, [d.key]: d.judgeScore as number }))}
                         title="Agree with the judge's score"
                         className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-0.5"
                       >
-                        <Check className="h-3 w-3" /> judge {d.score}
+                        <Check className="h-3 w-3" /> judge {d.judgeScore}
                       </button>
                     )}
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={10}
-                  step={1}
-                  value={score}
-                  onChange={(e) => setScores((s) => ({ ...s, [d.key]: Number(e.target.value) }))}
-                  className={cn('w-full', ACCENT[b])}
-                />
-                <input
-                  type="text"
-                  value={comments[d.key]}
-                  onChange={(e) => setComments((c) => ({ ...c, [d.key]: e.target.value }))}
-                  placeholder="comment (optional)"
-                  className="w-full px-2 py-1 border rounded text-xs bg-white"
-                />
+                {rated ? (
+                  <>
+                    <input
+                      type="range"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={score}
+                      onChange={(e) => setScores((s) => ({ ...s, [d.key]: Number(e.target.value) }))}
+                      className={cn('w-full', ACCENT[b!])}
+                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={comments[d.key]}
+                        onChange={(e) => setComments((c) => ({ ...c, [d.key]: e.target.value }))}
+                        placeholder="comment (optional)"
+                        className="flex-1 px-2 py-1 border rounded text-xs bg-white"
+                      />
+                      {d.judgeScore == null && (
+                        <button
+                          type="button"
+                          onClick={() => setScores((s) => ({ ...s, [d.key]: null }))}
+                          title="Clear your rating — leave this judge-unscored dimension unrated"
+                          className="text-[11px] text-gray-400 hover:text-red-600 whitespace-nowrap"
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setScores((s) => ({ ...s, [d.key]: d.judgeScore ?? 5 }))}
+                    className="text-xs px-2 py-1 border border-dashed rounded text-gray-500 hover:text-blue-600 hover:border-blue-400"
+                  >
+                    + rate this dimension
+                  </button>
+                )}
               </div>
             )
               })}
