@@ -110,7 +110,7 @@ export default function RunAnalysis({
           </>
         )}
         {tab === 'annotate' && (
-          <AnnotationPanel taskId={taskId} profile={profile ?? null} onSaved={onSaved} />
+          <AnnotationPanel taskId={taskId} profile={profile ?? null} verifiable={verifiable} onSaved={onSaved} />
         )}
       </div>
     </div>
