@@ -170,7 +170,26 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
     configMode === 'axes'
       ? axTemplates.length > 0 // template axis is required (combos run orchestrator-off)
       : configs.every((c) => c.orchestrator || c.template_id)
-  const ready = name.trim() !== '' && datasetReady && configsReady && nRuns >= 1
+  // What's still missing, in plain language — surfaced next to the disabled Create
+  // button so it never just sits greyed-out with no reason why. (SPA-74)
+  const blockers: string[] = []
+  if (name.trim() === '') blockers.push('a name')
+  if (!datasetReady) {
+    if (source === 'upload') {
+      blockers.push(uploadErrors.length ? 'a valid JSONL dataset (fix the errors above)' : 'at least one dataset case')
+    } else if (source === 'benchmark_suite') {
+      blockers.push('a benchmark suite')
+    } else {
+      blockers.push('at least one task ID')
+    }
+  }
+  if (!configsReady) {
+    blockers.push(configMode === 'axes'
+      ? 'a template in the axes grid'
+      : 'a template for every manual config (or orchestrator on)')
+  }
+  if (nRuns < 1) blockers.push('runs per cell ≥ 1')
+  const ready = blockers.length === 0
 
   const { data: preview, error: previewError } = useQuery({
     queryKey: ['exp-preview', JSON.stringify(body)],
@@ -204,20 +223,27 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)}
+              <label htmlFor="exp-name" className="block text-sm font-medium text-gray-700 mb-1">
+                Name <span className="text-red-500" title="required">*</span>
+              </label>
+              <input id="exp-name" value={name} onChange={(e) => setName(e.target.value)}
+                aria-required="true"
                 className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="MiniMax vs DeepSeek on Researcher" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input value={description} onChange={(e) => setDescription(e.target.value)}
+              <label htmlFor="exp-description" className="block text-sm font-medium text-gray-700 mb-1">
+                Description <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input id="exp-description" value={description} onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="optional" />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Dataset</label>
-            <div className="flex gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Dataset <span className="text-red-500" title="required">*</span>
+            </label>
+            <div className="flex gap-2 mb-2" role="group" aria-label="Dataset source">
               {(['upload', 'benchmark_suite', 'tasks'] as DatasetSource[]).map((s) => (
                 <button key={s} type="button" onClick={() => setSource(s)}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${source === s ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-gray-50'}`}>
@@ -281,7 +307,9 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">Configurations (A/B matrix)</label>
+              <label className="text-sm font-medium text-gray-700">
+                Configurations (A/B matrix) <span className="text-red-500" title="required">*</span>
+              </label>
               <div className="flex items-center gap-2">
                 <div className="flex border rounded-lg overflow-hidden text-xs">
                   {(['manual', 'axes'] as const).map((m) => (
@@ -458,26 +486,28 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Runs per cell (N)</label>
-              <input type="number" min={1} max={20} value={nRuns}
+              <label htmlFor="exp-nruns" className="block text-sm font-medium text-gray-700 mb-1">
+                Runs per cell (N) <span className="text-red-500" title="required">*</span>
+              </label>
+              <input id="exp-nruns" type="number" min={1} max={20} value={nRuns} aria-required="true"
                 onChange={(e) => setNRuns(Number(e.target.value))}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Budget limit (USD)</label>
-              <input type="number" step="0.01" min={0} value={budget} placeholder="no limit"
+              <label htmlFor="exp-budget" className="block text-sm font-medium text-gray-700 mb-1">Budget limit (USD)</label>
+              <input id="exp-budget" type="number" step="0.01" min={0} value={budget} placeholder="no limit"
                 onChange={(e) => setBudget(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Max parallel</label>
-              <input type="number" min={1} max={10} value={maxParallel} placeholder="auto"
+              <label htmlFor="exp-maxparallel" className="block text-sm font-medium text-gray-700 mb-1">Max parallel</label>
+              <input id="exp-maxparallel" type="number" min={1} max={10} value={maxParallel} placeholder="auto"
                 onChange={(e) => setMaxParallel(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Toolathlon lanes</label>
-              <input type="number" min={1} max={4} value={lanes} placeholder="serial"
+              <label htmlFor="exp-lanes" className="block text-sm font-medium text-gray-700 mb-1">Toolathlon lanes</label>
+              <input id="exp-lanes" type="number" min={1} max={4} value={lanes} placeholder="serial"
                 title="Isolated Postgres lanes for PARALLEL Toolathlon runs (max 4). Each lane is its own DB so concurrent cases can't clobber each other's seed. Blank = serial on the shared toolathlon_pg. No effect on non-Toolathlon datasets."
                 onChange={(e) => setLanes(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm" />
@@ -512,14 +542,22 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {ready && previewError != null && (
-            <div className="text-red-500 text-xs">{(previewError as Error).message}</div>
+            <div className="text-red-700 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              ⚠ Preview failed: {(previewError as Error).message} — you can still create the draft, but double-check the configuration.
+            </div>
           )}
           {submitError && <div className="text-red-500 text-xs whitespace-pre-wrap">{submitError}</div>}
 
+          {!ready && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              To create, add: {blockers.join(' · ')}.
+            </div>
+          )}
           <button onClick={() => { setSubmitError(''); createMutation.mutate() }}
             disabled={!ready || createMutation.isPending}
+            title={ready ? undefined : `Missing: ${blockers.join(', ')}`}
             className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
-            Create Experiment (draft)
+            {createMutation.isPending ? 'Creating…' : 'Create Experiment (draft)'}
           </button>
         </div>
       </div>
