@@ -93,20 +93,22 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
 
 def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
             human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0,
-            gate=None, loop_detected=False):
+            gate=None, loop_detected=False, trace_stats=None):
     quality_profile = None
     if dimensions or quality_cost or gate:
         quality_profile = {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
         if gate is not None:
             quality_profile["gate"] = gate
     trajectory_profile = None
-    if trajectory_axes is not None or loop_detected:
+    if trajectory_axes is not None or loop_detected or trace_stats:
         trajectory_profile = {
             "status": "scored",
             "axes": trajectory_axes or [],
             "judge_cost_usd": trajectory_cost,
             "loop_detected": loop_detected,
         }
+        if trace_stats is not None:
+            trajectory_profile["trace_stats"] = trace_stats
     return SimpleNamespace(
         cost_usd=Decimal(str(cost_usd)),
         quality_profile=quality_profile,
@@ -154,7 +156,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -180,6 +182,10 @@ def test_build_report_full_shape():
     # No gate in these profiles; cfg-01 trajectory-scored so loop_detection is live
     assert report["quality_gate"]["available"] is False
     assert report["loop_detection"]["available"] is True
+    # No trace_stats in these profiles; longitudinal has >1 repetition (idx 0/1/2/3)
+    assert report["trace_stats"]["available"] is False
+    assert report["longitudinal"]["available"] is True
+    assert [p["run_index"] for p in report["longitudinal"]["points"]] == [0, 1, 2, 3]
     row1 = next(r for r in heatmap["rows"] if r["config_key"] == "cfg-01")
     assert row1["cells"]["correctness"]["n"] == 6
     assert row1["cells"]["correctness"]["mean"] == 8.1
@@ -249,7 +255,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
 
     ext = report["external"]
     assert ext["available"] is True
@@ -352,6 +358,49 @@ def test_build_report_no_human_no_cost():
     assert report["quality_gate"]["available"] is False
     assert report["loop_detection"]["available"] is False
     assert report["heatmap"]["dimension_labels"] == {}
+    assert report["trace_stats"]["available"] is False
+    assert report["longitudinal"]["available"] is False
+    assert report["longitudinal"]["points"] == []
+
+
+def test_build_report_trace_stats():
+    r1 = _run("cfg-01", "case-a", 0, status="success", traj=7.0)
+    r2 = _run("cfg-01", "case-a", 1, status="success", traj=7.0)
+    r3 = _run("cfg-02", "case-a", 0, status="success", traj=6.0)
+    runs = [r1, r2, r3]
+    records = {
+        r1.task_id: _record(trace_stats={"steps_total": 10, "cleaned_tokens": 200, "original_tokens": 1000}),
+        r2.task_id: _record(trace_stats={"steps_total": 20, "cleaned_tokens": 300, "original_tokens": 1000}),
+        r3.task_id: _record(),  # no trace stats
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ts = report["trace_stats"]
+    assert ts["available"] is True
+    by = {c["config_key"]: c for c in ts["per_config"]}
+    assert by["cfg-01"]["n"] == 2
+    assert by["cfg-01"]["steps_mean"] == 15.0
+    # compression = sum(cleaned)/sum(original) = 500/2000 = 0.25
+    assert by["cfg-01"]["compression"] == 0.25
+    assert by["cfg-02"]["n"] == 0
+    assert by["cfg-02"]["compression"] is None
+
+
+def test_build_report_longitudinal():
+    # Three repetitions of one cell; quality climbs with the run index.
+    runs = [
+        _run("cfg-01", "case-a", 0, status="success", score=6.0, traj=7.0, cost="0.01"),
+        _run("cfg-01", "case-a", 1, status="success", score=7.0, traj=7.0, cost="0.02"),
+        _run("cfg-01", "case-a", 2, status="failed", score=None, cost="0.03"),
+    ]
+    report = build_report(_exp(CONFIGS), runs, {}, partial=False)
+    lng = report["longitudinal"]
+    assert lng["available"] is True
+    pts = {p["run_index"]: p for p in lng["points"]}
+    assert pts[0]["quality_mean"] == 6.0 and pts[0]["n"] == 1
+    assert pts[1]["quality_mean"] == 7.0
+    # the failed run carries no score → quality_mean None, but still counts + costs
+    assert pts[2]["quality_mean"] is None
+    assert pts[2]["cost_mean"] == 0.03
 
 
 def test_build_report_quality_gate():
