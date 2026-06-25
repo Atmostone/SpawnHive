@@ -1515,6 +1515,30 @@ export interface ExperimentReport {
       loop_rate?: number | null
     }[]
   } | null
+  // E-06 cleaned-trace stats per config (SPA-74): mean steps + trace compression.
+  trace_stats?: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n: number
+      steps_mean?: number | null
+      cleaned_tokens_mean?: number | null
+      original_tokens_mean?: number | null
+      compression?: number | null
+    }[]
+  } | null
+  // E-22 longitudinal: quality/cost across the repetition index (SPA-74).
+  longitudinal?: {
+    available: boolean
+    points: {
+      run_index: number
+      n: number
+      quality_mean?: number | null
+      trajectory_mean?: number | null
+      cost_mean?: number | null
+    }[]
+  } | null
   // E-05 human feedback aggregated per config (SPA-73): the third oracle, shown
   // alongside the judge heatmaps. Over ALL rated runs (not success-only) so the
   // verdict distribution keeps the rejected runs it is about.
