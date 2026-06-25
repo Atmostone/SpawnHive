@@ -175,7 +175,20 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
       }
     })
   if (detail.matrix.length === 0) {
-    return <div className="text-sm text-gray-500 p-4">No runs yet — the matrix materializes when the experiment starts.</div>
+    return (
+      <div className="text-sm text-gray-500 p-4 max-w-2xl space-y-1">
+        <p className="font-medium text-gray-700">No runs yet.</p>
+        <p>
+          The matrix materializes when the experiment starts — one row per dataset case, one column per
+          configuration, each cell holding the N runs of that case under that config.
+        </p>
+        <p className="text-gray-400">
+          {detail.status === 'draft'
+            ? 'This experiment is a draft — press Run (top right) to launch it.'
+            : 'Cells will fill in as runs are scheduled and scored.'}
+        </p>
+      </div>
+    )
   }
   return (
     <div className="overflow-x-auto">
@@ -190,11 +203,16 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </div>
       </div>
-      <p className="text-[11px] text-gray-400 mb-3 max-w-3xl">{HEAT_HELP[heat]}</p>
+      <p className="text-[11px] text-gray-400 mb-3 max-w-3xl">
+        {HEAT_HELP[heat]}
+        {detail.configurations.length > 4 && (
+          <span className="text-gray-400"> · {detail.configurations.length} configs — scroll horizontally to see them all →</span>
+        )}
+      </p>
       <table className="text-sm border-separate w-full" style={{ borderSpacing: 4 }}>
         <thead>
           <tr>
-            <th className="text-left text-xs text-gray-500 px-2 sticky top-0 bg-white z-10">case \ config</th>
+            <th className="text-left text-xs text-gray-500 px-2 sticky top-0 left-0 bg-white z-20">case \ config</th>
             {detail.configurations.map((cfg) => (
               <th key={cfg.config_key} className="text-xs text-gray-500 font-normal px-2 whitespace-nowrap sticky top-0 bg-white z-10" title={cfg.label}>
                 {cfg.config_key} <span className="text-gray-400">{cfg.label}</span>
@@ -205,7 +223,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
         <tbody>
           {cases.map((c) => (
             <tr key={c.case_key}>
-              <td className="text-xs text-gray-700 font-medium px-2 max-w-[16rem] truncate" title={c.title}>
+              <td className="text-xs text-gray-700 font-medium px-2 max-w-[16rem] truncate sticky left-0 z-10 bg-white" title={c.title}>
                 {c.case_key}
               </td>
               {detail.configurations.map((cfg) => {
@@ -869,7 +887,11 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <div className="bg-amber-50 text-amber-700 font-semibold py-3 rounded" title="judge scored high but checker failed — judge over-credits">{report.rq2.overall.cells.fail_high}</div>
               <div className="bg-red-50 text-red-700 font-semibold py-3 rounded" title="checker failed & judge low — agree">{report.rq2.overall.cells.fail_low}</div>
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.</p>
+            <p className="text-[11px] text-gray-400 mt-2">
+              Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.
+              The <span className="text-amber-700">fail × judge-high</span> cell is the over-credit signal — the judge rewarding a
+              result the checker rejected. This is the outcome-judge analogue of the human-calibrated κ in <span className="font-medium">Judge ↔ human</span> below (E-17).
+            </p>
           </div>
         </section>
       )}
@@ -897,7 +919,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · hover for values{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
+          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · <span className="text-green-700">green</span> = on the frontier (no config beats it on all of quality/cost/time), grey = dominated{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             {new Set(report.pareto.points.map((p) => p.cost)).size <= 1 ? (
               <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
@@ -944,7 +966,16 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   label={{ value: verifiable ? 'Outcome (E-02)*' : 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }}
                   label={{ value: 'Trajectory (E-07)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                <Tooltip cursor={{ strokeDasharray: '3 3' }}
+                  content={({ payload }) => (payload && payload.length ? (
+                    <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                      <div className="font-medium">{payload[0].payload.label} · {payload[0].payload.case_key} · #{(payload[0].payload.run_index ?? 0) + 1}</div>
+                      <div>
+                        {verifiable ? 'outcome*' : 'outcome'} {fmt(payload[0].payload.outcome, 1)} · trajectory {fmt(payload[0].payload.trajectory, 1)} ·{' '}
+                        <span className={payload[0].payload.status === 'failed' ? 'text-red-600' : 'text-gray-500'}>{payload[0].payload.status}</span>
+                      </div>
+                    </div>
+                  ) : null)} />
                 <Legend />
                 {report.summary.per_config.map((c) => (
                   <Scatter key={c.config_key} name={c.config_key}
