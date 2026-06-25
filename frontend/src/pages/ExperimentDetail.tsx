@@ -584,7 +584,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <tr>
                   <th className="text-left text-xs text-gray-500 px-2">config</th>
                   {report.heatmap.dimensions.map((d) => (
-                    <th key={d} className="text-xs text-gray-500 font-normal px-2">{d}</th>
+                    <th key={d} className="text-xs text-gray-500 font-normal px-2" title={report.heatmap.dimension_labels?.[d]}>
+                      {(report.heatmap.dimension_labels?.[d] || d).replace(/_/g, ' ')}
+                    </th>
                   ))}
                   <th className="text-xs text-gray-700 font-medium px-2">weighted</th>
                 </tr>
@@ -612,6 +614,45 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
+      )}
+
+      {!verifiable && report.quality_gate?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Quality gate <span className="text-xs text-gray-400 font-normal">share of outcome-scored runs that cleared the E-02 critical rubric thresholds · success or failed</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2" title="share of scored runs whose result passed every CRITICAL rubric dimension (higher is better)">Gate pass</th>
+                  <th className="px-3 py-2">Passed</th>
+                  <th className="px-3 py-2">Scored</th>
+                  <th className="px-3 py-2" title="rubric dimensions that most often fail the gate (count of runs)">Top failing dimensions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.quality_gate.per_config.map((c) => {
+                  const failed = Object.entries(c.failed_dimensions).sort((a, b) => b[1] - a[1])
+                  return (
+                    <tr key={c.config_key} className="border-t align-top">
+                      <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                      <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
+                      <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
+                      <td className="px-3 py-2 text-gray-500">{c.n}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {failed.length
+                          ? failed.map(([d, n]) => `${(report.heatmap.dimension_labels?.[d] || d).replace(/_/g, ' ')}: ${n}`).join(' · ')
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       <section>
@@ -657,6 +698,38 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
+
+      {report.loop_detection?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Loop detection <span className="text-xs text-gray-400 font-normal">share of trajectory-scored runs the process judge flagged as looping (E-07) · success or failed · lower is better</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2" title="share of trajectory-scored runs flagged as looping — the agent repeating the same call until it caps (lower is better)">Loop rate</th>
+                  <th className="px-3 py-2">Looped</th>
+                  <th className="px-3 py-2">Scored</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.loop_detection.per_config.map((c) => (
+                  <tr key={c.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className={`px-3 py-2 font-semibold ${(c.loop_rate ?? 0) > 0 ? 'text-amber-600' : 'text-gray-700'}`}>
+                      {c.loop_rate != null ? `${(c.loop_rate * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{c.n_loop}</td>
+                    <td className="px-3 py-2 text-gray-500">{c.n_scored}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {report.human_feedback?.available && (
         <section>
@@ -807,7 +880,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             title="Quality profile"
             subtitle="overlay · per-config E-02 dimensions (success-only) — toggle configs"
             axes={report.heatmap.dimensions}
-            axisLabel={(k) => k.replace(/_/g, ' ')}
+            axisLabel={(k) => report.heatmap.dimension_labels?.[k] ?? k.replace(/_/g, ' ')}
             rows={report.heatmap.rows}
             colorOf={(k) => colorByConfig.get(k)}
           />
@@ -1017,9 +1090,23 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                       {Object.entries(f.statuses).map(([s, n]) => `${s}: ${n}`).join(' · ') || '—'}
                     </td>
                     <td className="px-3 py-2 text-gray-600">
-                      {Object.keys(f.classes).length
-                        ? Object.entries(f.classes).map(([c, n]) => `${c}: ${n}`).join(' · ')
-                        : '—'}
+                      {Object.keys(f.classes).length === 0 ? '—' : (
+                        <ul className="space-y-1">
+                          {Object.entries(f.classes).sort((a, b) => b[1] - a[1]).map(([c, n]) => (
+                            <li key={c}>
+                              <span className="font-medium text-gray-700">{c.replace(/_/g, ' ')}</span>
+                              <span className="text-gray-400"> ×{n}</span>
+                              {f.class_reasons?.[c]?.length ? (
+                                <ul className="ml-3 mt-0.5 list-disc list-inside text-xs text-gray-500 space-y-0.5">
+                                  {f.class_reasons[c].map((r, i) => (
+                                    <li key={i} title={r.confidence != null ? `confidence ${r.confidence}` : undefined}>{r.reason}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                   </tr>
                 ))}

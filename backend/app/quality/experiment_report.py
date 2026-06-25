@@ -29,7 +29,9 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 4  # v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
+SCHEMA_VERSION = 5  # v5: loop_detection + quality_gate per config, failure reasons,
+# quality-heatmap dimension_labels
+# v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
 # v3: external (executable pass-rate) + rq2 (verdict × judge 2×2)
 SIGNIFICANCE_ALPHA = 0.05
 # Outcome-judge threshold splitting "high" vs "low" in the RQ2 verdict×judge 2×2.
@@ -181,6 +183,7 @@ def build_report(
 
     # --- heatmap: configs × rubric dimensions ---------------------------------
     dim_order: list[str] = []
+    dim_labels: dict[str, str] = {}
     dim_samples: dict[str, dict[str, list[float]]] = {k: {} for k in configs}
     for r in success_runs:
         rec = records_by_task.get(r.task_id)
@@ -191,6 +194,7 @@ def build_report(
                 continue
             if key not in dim_order:
                 dim_order.append(key)
+                dim_labels[key] = dim.get("name") or key
             dim_samples.setdefault(r.config_key, {}).setdefault(key, []).append(
                 float(score)
             )
@@ -224,7 +228,50 @@ def build_report(
                 "weighted_score": {"mean": _mean(scores), "n": len(scores)},
             }
         )
-    heatmap = {"dimensions": dim_order, "rows": heatmap_rows}
+    heatmap = {
+        "dimensions": dim_order,
+        "dimension_labels": dim_labels,
+        "rows": heatmap_rows,
+    }
+
+    # --- quality gate (E-02 critical-threshold pass-rate) per config ----------
+    # Every E-02 run carries quality_profile.gate = {passed, failed_dimensions}
+    # — the outcome judge's verdict on whether the result cleared its CRITICAL
+    # rubric thresholds. build_report never aggregated it; surfaced here as a
+    # per-config pass-rate + the dimensions that most often fail the gate. Over
+    # all runs that were outcome-scored (success or failed — a failed run can
+    # still carry a gate verdict), since the gate is about the result, not the
+    # run's terminal status. Hidden by the frontend on verifiable benches (E-02
+    # is the audited subject there, not the evaluator).
+    gate_per_config = []
+    any_gate = False
+    for key in sorted(configs):
+        n_gated = 0
+        n_pass = 0
+        gate_failed_dims: dict[str, int] = {}
+        for r in by_config[key]:
+            rec = records_by_task.get(r.task_id)
+            qprof = (rec.quality_profile or {}) if rec is not None else {}
+            gate = qprof.get("gate")
+            if not isinstance(gate, dict):
+                continue
+            n_gated += 1
+            any_gate = True
+            if gate.get("passed"):
+                n_pass += 1
+            for d in gate.get("failed_dimensions") or []:
+                gate_failed_dims[d] = gate_failed_dims.get(d, 0) + 1
+        gate_per_config.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "n": n_gated,
+                "n_pass": n_pass,
+                "pass_rate": round(n_pass / n_gated, 4) if n_gated else None,
+                "failed_dimensions": gate_failed_dims,
+            }
+        )
+    quality_gate = {"available": any_gate, "per_config": gate_per_config}
 
     # --- trajectory heatmap: configs × E-07 axes ------------------------------
     # The process-judging analogue of the quality heatmap: per-config mean of each
@@ -272,6 +319,38 @@ def build_report(
         "axis_labels": axis_labels,
         "rows": trajectory_heatmap_rows,
     }
+
+    # --- loop-detection rate (E-07) per config --------------------------------
+    # trajectory_profile.loop_detected (the loop_detection axis scoring < 5) is on
+    # EVERY trajectory-scored run but was never aggregated — looping is the single
+    # most actionable process pathology (agent repeats the same call until it caps).
+    # Counted over all trajectory-scored runs, success OR failed: looping is often
+    # exactly what *causes* a failure, so restricting to success would hide the
+    # signal where it matters most (unlike the success-only axis heatmap above).
+    loop_per_config = []
+    any_loop = False
+    for key in sorted(configs):
+        n_scored = 0
+        n_loop = 0
+        for r in by_config[key]:
+            rec = records_by_task.get(r.task_id)
+            tprof = (rec.trajectory_profile or {}) if rec is not None else {}
+            if tprof.get("status") != "scored":
+                continue
+            n_scored += 1
+            any_loop = True
+            if tprof.get("loop_detected"):
+                n_loop += 1
+        loop_per_config.append(
+            {
+                "config_key": key,
+                "label": labels.get(key, key),
+                "n_scored": n_scored,
+                "n_loop": n_loop,
+                "loop_rate": round(n_loop / n_scored, 4) if n_scored else None,
+            }
+        )
+    loop_detection = {"available": any_loop, "per_config": loop_per_config}
 
     # --- human feedback (E-05) per config -------------------------------------
     # The third oracle aggregated like the judge heatmaps, BUT over ALL runs that
@@ -559,17 +638,38 @@ def build_report(
     significance = significance_matrix(samples)
 
     # --- failure modes -------------------------------------------------------------
+    # E-14 detects failure CLASSES (tool_confusion / loop / premature_stop / …),
+    # each with a free-text ``reason`` and confidence. The report counted classes
+    # but threw the reasons away — so "loop ×3" gave no clue WHAT looped. Keep the
+    # class counts (back-compat) and add ``class_reasons``: up to 3 representative
+    # reasons per class, highest-confidence first, deduped by text.
+    _REASONS_PER_CLASS = 3
     failure_per_config = []
     for key in sorted(configs):
         group = by_config[key]
         classes: dict[str, int] = {}
+        reasons: dict[str, list[dict]] = {}
         for r in group:
             rec = records_by_task.get(r.task_id)
             profile = (rec.failure_profile or {}) if rec is not None else {}
             for failure in profile.get("failures") or []:
                 cls = failure.get("class")
-                if cls:
-                    classes[cls] = classes.get(cls, 0) + 1
+                if not cls:
+                    continue
+                classes[cls] = classes.get(cls, 0) + 1
+                reason = (failure.get("reason") or "").strip()
+                if reason:
+                    reasons.setdefault(cls, []).append(
+                        {"reason": reason, "confidence": failure.get("confidence")}
+                    )
+        class_reasons: dict[str, list[dict]] = {}
+        for cls, items in reasons.items():
+            seen: dict[str, dict] = {}
+            for it in sorted(
+                items, key=lambda x: x.get("confidence") or 0.0, reverse=True
+            ):
+                seen.setdefault(it["reason"], it)
+            class_reasons[cls] = list(seen.values())[:_REASONS_PER_CLASS]
         failure_per_config.append(
             {
                 "config_key": key,
@@ -579,6 +679,7 @@ def build_report(
                     for status in sorted({r.status for r in group})
                 },
                 "classes": classes,
+                "class_reasons": class_reasons,
             }
         )
     failure_modes = {"per_config": failure_per_config}
@@ -610,7 +711,9 @@ def build_report(
         "n_terminal_runs": n_terminal,
         "summary": summary,
         "heatmap": heatmap,
+        "quality_gate": quality_gate,
         "trajectory_heatmap": trajectory_heatmap,
+        "loop_detection": loop_detection,
         "human_feedback": human_feedback,
         "cost_breakdown": cost_breakdown,
         "trajectory_match": trajectory_match,
