@@ -12,10 +12,15 @@ import type { QualityProfile, ReviewFile } from '@/types'
 export default function AnnotationPanel({
   taskId,
   profile: profileProp,
+  verifiable = false,
   onSaved,
 }: {
   taskId: string
   profile?: QualityProfile | null
+  /** Verifiable bench (executable checker = outcome ground truth): surface a
+   *  top-level "rate the process only" banner so the annotator knows there is no
+   *  human outcome rating here. (SPA-74) */
+  verifiable?: boolean
   onSaved?: () => void
 }) {
   const profileQuery = useQuery({
@@ -48,6 +53,12 @@ export default function AnnotationPanel({
 
   return (
     <div className="space-y-3">
+      {verifiable && (
+        <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          Verifiable bench — the executable checker is the outcome ground truth (E-02 off). Rate the{' '}
+          <span className="font-medium">process (trajectory)</span> only; there's no human outcome rating here.
+        </div>
+      )}
       {review && (
         <div className="space-y-3 text-sm">
           {review.description && (
