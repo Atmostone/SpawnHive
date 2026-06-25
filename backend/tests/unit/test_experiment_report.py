@@ -92,18 +92,26 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
 
 
 def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
-            human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0):
+            human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0,
+            gate=None, loop_detected=False):
+    quality_profile = None
+    if dimensions or quality_cost or gate:
+        quality_profile = {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
+        if gate is not None:
+            quality_profile["gate"] = gate
+    trajectory_profile = None
+    if trajectory_axes is not None or loop_detected:
+        trajectory_profile = {
+            "status": "scored",
+            "axes": trajectory_axes or [],
+            "judge_cost_usd": trajectory_cost,
+            "loop_detected": loop_detected,
+        }
     return SimpleNamespace(
         cost_usd=Decimal(str(cost_usd)),
-        quality_profile=(
-            {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
-            if (dimensions or quality_cost) else None
-        ),
+        quality_profile=quality_profile,
         failure_profile={"failures": failures} if failures else None,
-        trajectory_profile=(
-            {"status": "scored", "axes": trajectory_axes, "judge_cost_usd": trajectory_cost}
-            if trajectory_axes else None
-        ),
+        trajectory_profile=trajectory_profile,
         trajectory_match_profile=trajectory_match,
         trajectory_evidence_profile=None,
         hallucination_profile=None,
@@ -146,7 +154,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -167,6 +175,11 @@ def test_build_report_full_shape():
 
     heatmap = report["heatmap"]
     assert heatmap["dimensions"] == ["correctness", "completeness"]
+    # dimension_labels falls back to the key when the profile carries no name
+    assert heatmap["dimension_labels"]["correctness"] == "correctness"
+    # No gate in these profiles; cfg-01 trajectory-scored so loop_detection is live
+    assert report["quality_gate"]["available"] is False
+    assert report["loop_detection"]["available"] is True
     row1 = next(r for r in heatmap["rows"] if r["config_key"] == "cfg-01")
     assert row1["cells"]["correctness"]["n"] == 6
     assert row1["cells"]["correctness"]["mean"] == 8.1
@@ -201,6 +214,7 @@ def test_build_report_full_shape():
     failure = report["failure_modes"]["per_config"]
     cfg2 = next(f for f in failure if f["config_key"] == "cfg-02")
     assert cfg2["classes"] == {"tool_misuse": 1}
+    assert cfg2["class_reasons"] == {}  # failure carried no reason text
     assert cfg2["statuses"]["failed"] == 1
 
     orch = report["orchestrator"]
@@ -235,7 +249,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
 
     ext = report["external"]
     assert ext["available"] is True
@@ -334,3 +348,93 @@ def test_build_report_no_human_no_cost():
     assert report["human_feedback"]["rows"][0]["n_rated"] == 0
     assert report["cost_breakdown"]["available"] is False
     assert report["cost_breakdown"]["totals"]["total"] == 0
+    # New Tier-1 aggregates degrade to empty-state, not absent.
+    assert report["quality_gate"]["available"] is False
+    assert report["loop_detection"]["available"] is False
+    assert report["heatmap"]["dimension_labels"] == {}
+
+
+def test_build_report_quality_gate():
+    # The gate verdict is carried by BOTH the success and the failed run (it is a
+    # verdict on the RESULT, not the run status), so both count toward the rate.
+    r1 = _run("cfg-01", "case-a", 0, status="success", score=8.0)
+    r2 = _run("cfg-01", "case-a", 1, status="failed", score=3.0)
+    r3 = _run("cfg-02", "case-a", 0, status="success", score=6.0)
+    runs = [r1, r2, r3]
+    records = {
+        r1.task_id: _record(
+            dimensions=[{"key": "correctness", "score": 8}],
+            gate={"passed": True, "failed_dimensions": []},
+        ),
+        r2.task_id: _record(
+            dimensions=[{"key": "correctness", "score": 3}],
+            gate={"passed": False, "failed_dimensions": ["correctness"]},
+        ),
+        r3.task_id: _record(
+            dimensions=[{"key": "correctness", "score": 6}],
+            gate={"passed": True, "failed_dimensions": []},
+        ),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    qg = report["quality_gate"]
+    assert qg["available"] is True
+    by = {c["config_key"]: c for c in qg["per_config"]}
+    assert (by["cfg-01"]["n"], by["cfg-01"]["n_pass"], by["cfg-01"]["pass_rate"]) == (2, 1, 0.5)
+    assert by["cfg-01"]["failed_dimensions"] == {"correctness": 1}
+    assert (by["cfg-02"]["n"], by["cfg-02"]["n_pass"], by["cfg-02"]["pass_rate"]) == (1, 1, 1.0)
+    assert by["cfg-02"]["failed_dimensions"] == {}
+
+
+def test_build_report_loop_detection():
+    # A FAILED run that looped must still count — looping is often what caused the
+    # failure, so a success-only rate would hide the signal where it matters.
+    r1 = _run("cfg-01", "case-a", 0, status="success", traj=7.0)
+    r2 = _run("cfg-01", "case-a", 1, status="failed", traj=2.0)
+    r3 = _run("cfg-02", "case-a", 0, status="success", traj=8.0)
+    runs = [r1, r2, r3]
+    records = {
+        r1.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 7}],
+            loop_detected=False,
+        ),
+        r2.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 2}],
+            loop_detected=True,
+        ),
+        r3.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 8}],
+            loop_detected=False,
+        ),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ld = report["loop_detection"]
+    assert ld["available"] is True
+    by = {c["config_key"]: c for c in ld["per_config"]}
+    assert (by["cfg-01"]["n_scored"], by["cfg-01"]["n_loop"], by["cfg-01"]["loop_rate"]) == (2, 1, 0.5)
+    assert (by["cfg-02"]["n_scored"], by["cfg-02"]["n_loop"], by["cfg-02"]["loop_rate"]) == (1, 0, 0.0)
+
+
+def test_build_report_failure_reasons():
+    # E-14 reasons are surfaced (top-3 per class, highest-confidence first, deduped).
+    r1 = _run("cfg-01", "case-a", 0, status="failed")
+    r2 = _run("cfg-01", "case-b", 0, status="failed")
+    runs = [r1, r2]
+    records = {
+        r1.task_id: _record(failures=[
+            {"class": "loop", "confidence": 0.9, "reason": "repeated the same search 5x"},
+        ]),
+        r2.task_id: _record(failures=[
+            {"class": "loop", "confidence": 0.6, "reason": "stuck refreshing the page"},
+            {"class": "premature_stop", "confidence": 0.7, "reason": "stopped before writing the file"},
+        ]),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    fm = next(f for f in report["failure_modes"]["per_config"] if f["config_key"] == "cfg-01")
+    assert fm["classes"] == {"loop": 2, "premature_stop": 1}
+    loop_reasons = fm["class_reasons"]["loop"]
+    assert [x["reason"] for x in loop_reasons] == [
+        "repeated the same search 5x",
+        "stuck refreshing the page",
+    ]
+    assert loop_reasons[0]["confidence"] == 0.9
+    assert fm["class_reasons"]["premature_stop"][0]["reason"] == "stopped before writing the file"

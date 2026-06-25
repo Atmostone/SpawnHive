@@ -1470,6 +1470,7 @@ export interface ExperimentReport {
   }
   heatmap: {
     dimensions: string[]
+    dimension_labels: Record<string, string>
     rows: {
       config_key: string
       label: string
@@ -1477,6 +1478,20 @@ export interface ExperimentReport {
       weighted_score: { mean?: number | null; n: number }
     }[]
   }
+  // E-02 quality-gate pass-rate per config (SPA-74): did the result clear its
+  // CRITICAL rubric thresholds. Over all outcome-scored runs (success or failed).
+  // Hidden on verifiable benches (E-02 is the audited subject there).
+  quality_gate?: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n: number
+      n_pass: number
+      pass_rate?: number | null
+      failed_dimensions: Record<string, number>
+    }[]
+  } | null
   trajectory_heatmap: {
     axes: string[]
     axis_labels: Record<string, string>
@@ -1487,6 +1502,19 @@ export interface ExperimentReport {
       overall_score: { mean?: number | null; n: number }
     }[]
   }
+  // E-07 loop-detection rate per config (SPA-74): share of trajectory-scored runs
+  // (success OR failed) the process judge flagged as looping — the most actionable
+  // process pathology. Counted across failures too (looping often causes them).
+  loop_detection?: {
+    available: boolean
+    per_config: {
+      config_key: string
+      label: string
+      n_scored: number
+      n_loop: number
+      loop_rate?: number | null
+    }[]
+  } | null
   // E-05 human feedback aggregated per config (SPA-73): the third oracle, shown
   // alongside the judge heatmaps. Over ALL rated runs (not success-only) so the
   // verdict distribution keeps the rejected runs it is about.
@@ -1591,6 +1619,8 @@ export interface ExperimentReport {
       label: string
       statuses: Record<string, number>
       classes: Record<string, number>
+      // Up to 3 representative E-14 reasons per class (highest-confidence first).
+      class_reasons?: Record<string, { reason: string; confidence?: number | null }[]>
     }[]
   }
   orchestrator: {
