@@ -73,6 +73,57 @@ function metricJudge(metric: string): { label: string; cls: string } {
   return { label: 'Quality (E-02)', cls: 'text-blue-700 bg-blue-50' }
 }
 
+// --- SPA-76 reliability gate ------------------------------------------------
+// Per-axis trustworthiness of the E-07 process judge, from REAL calibration only
+// (judge↔human κ, or the loop anchor). Surfaced as a small badge that quarantines
+// below-threshold axes so an unreliable axis can't silently imply a process "win".
+type AxisReliability = NonNullable<ExperimentReport['axis_reliability']>['axes'][string]
+type ReliabilityStatus = AxisReliability['status']
+
+const RELIABILITY_META: Record<ReliabilityStatus, { glyph: string; cls: string; word: string }> = {
+  reliable: { glyph: '✓', cls: 'text-green-700', word: 'reliable' },
+  directional: { glyph: '~', cls: 'text-amber-600', word: 'directional only' },
+  unreliable: { glyph: '⚠', cls: 'text-red-600', word: 'unreliable' },
+  not_calibrated: { glyph: 'n/a', cls: 'text-gray-400', word: 'not calibrated' },
+}
+
+function reliabilitySource(source?: string): string {
+  if (source === 'human') return 'a human rater (E-17)'
+  if (source === 'structural') return 'the deterministic loop counter (SPA-75)'
+  return 'no reference'
+}
+
+function reliabilityTooltip(a?: AxisReliability): string {
+  if (!a) return ''
+  if (a.status === 'not_calibrated')
+    return 'Reliability: not calibrated — no human rating or structural anchor for this axis. The judge score is shown but unverified.'
+  const k = a.kappa != null ? `κ ${a.kappa.toFixed(2)}` : 'κ undefined'
+  return `Reliability: ${RELIABILITY_META[a.status].word} — judge vs ${reliabilitySource(a.source)} (${k}, n=${a.n}). Bar: κ≥0.6 reliable · 0.4–0.6 directional · <0.4 unreliable.`
+}
+
+function ReliabilityBadge({ a }: { a?: AxisReliability }) {
+  if (!a) return null
+  const m = RELIABILITY_META[a.status]
+  return (
+    <span className={`ml-1 text-[10px] font-semibold ${m.cls}`} title={reliabilityTooltip(a)}>
+      {m.glyph}
+    </span>
+  )
+}
+
+// The overall trajectory metric is an aggregate of the 6 axes — only as reliable as
+// its weakest calibrated axis. Worst-case status drives the warning (honest: an
+// aggregate that folds in an axis the judge gets wrong is itself suspect).
+function trajectoryAggregateStatus(report: ExperimentReport): ReliabilityStatus | null {
+  const axes = report.axis_reliability?.axes
+  if (!axes) return null
+  const sourced = Object.values(axes).filter((v) => v.source !== 'none')
+  if (sourced.length === 0) return 'not_calibrated'
+  if (sourced.some((v) => v.status === 'unreliable')) return 'unreliable'
+  if (sourced.some((v) => v.status === 'directional')) return 'directional'
+  return 'reliable'
+}
+
 // Per-cell dimension/axis means (sorted worst-first by the backend) → a compact
 // "low→high" line for the cell tooltip, so a reader can see which axis drags the
 // score down without opening the run. (SPA-73)
@@ -680,17 +731,39 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         {report.trajectory_heatmap.axes.length === 0 ? (
           <p className="text-sm text-gray-500">No trajectory scores yet (the 6-axis process judge runs on settled runs with a trace).</p>
         ) : (
+          <>
           <div className="bg-white border rounded-lg overflow-x-auto p-3">
             <table className="text-sm border-separate" style={{ borderSpacing: 3 }}>
               <thead>
                 <tr>
                   <th className="text-left text-xs text-gray-500 px-2">config</th>
-                  {report.trajectory_heatmap.axes.map((a) => (
-                    <th key={a} className="text-xs text-gray-500 font-normal px-2" title={report.trajectory_heatmap.axis_labels[a]}>
-                      {(report.trajectory_heatmap.axis_labels[a] || a).replace(/_/g, ' ')}
-                    </th>
-                  ))}
-                  <th className="text-xs text-gray-700 font-medium px-2">overall</th>
+                  {report.trajectory_heatmap.axes.map((a) => {
+                    const rel = report.axis_reliability?.axes?.[a]
+                    const q = rel?.status === 'unreliable'
+                    const dim = q || rel?.status === 'not_calibrated'
+                    return (
+                      <th key={a} className={`text-xs font-normal px-2 ${dim ? 'text-gray-400' : 'text-gray-500'}`}
+                        title={report.trajectory_heatmap.axis_labels[a]}>
+                        <span className={q ? 'line-through' : ''}>
+                          {(report.trajectory_heatmap.axis_labels[a] || a).replace(/_/g, ' ')}
+                        </span>
+                        <ReliabilityBadge a={rel} />
+                      </th>
+                    )
+                  })}
+                  {(() => {
+                    const agg = trajectoryAggregateStatus(report)
+                    const q = agg === 'unreliable'
+                    return (
+                      <th className={`text-xs font-medium px-2 ${q ? 'text-gray-400' : 'text-gray-700'}`}
+                        title={agg ? `Aggregate of the 6 axes — only as reliable as its weakest calibrated axis (${RELIABILITY_META[agg].word}).` : undefined}>
+                        <span className={q ? 'line-through' : ''}>overall</span>
+                        {agg && (
+                          <span className={`ml-1 text-[10px] font-semibold ${RELIABILITY_META[agg].cls}`}>{RELIABILITY_META[agg].glyph}</span>
+                        )}
+                      </th>
+                    )
+                  })()}
                 </tr>
               </thead>
               <tbody>
@@ -699,14 +772,19 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                     <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
                     {report.trajectory_heatmap.axes.map((a) => {
                       const cell = row.cells[a]
+                      const q = report.axis_reliability?.axes?.[a]?.status === 'unreliable'
                       return (
-                        <td key={a} className="rounded px-3 py-2 text-center text-sm font-medium" style={heatStyle(cell?.mean)}
-                          title={cell ? `n=${cell.n}${cell.std != null ? ` · std=${cell.std}` : ''}` : ''}>
+                        <td key={a} className="rounded px-3 py-2 text-center text-sm font-medium"
+                          style={q ? { backgroundColor: '#f3f4f6', color: '#9ca3af' } : heatStyle(cell?.mean)}
+                          title={cell ? `n=${cell.n}${cell.std != null ? ` · std=${cell.std}` : ''}${q ? ' · axis quarantined: process judge unreliable here' : ''}` : ''}>
                           {fmt(cell?.mean, 1)}
                         </td>
                       )
                     })}
-                    <td className="rounded px-3 py-2 text-center text-sm font-bold" style={heatStyle(row.overall_score.mean)}>
+                    <td className="rounded px-3 py-2 text-center text-sm font-bold"
+                      style={trajectoryAggregateStatus(report) === 'unreliable'
+                        ? { backgroundColor: '#f3f4f6', color: '#9ca3af' }
+                        : heatStyle(row.overall_score.mean)}>
                       {fmt(row.overall_score.mean, 1)}
                     </td>
                   </tr>
@@ -714,6 +792,23 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               </tbody>
             </table>
           </div>
+          {report.axis_reliability?.available ? (
+            <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+              <span className="font-medium">Reliability gate (SPA-76):</span> each axis is badged by how far the process judge (E-07) can be
+              trusted — <span className="text-green-700 font-semibold">✓</span> reliable (κ≥{report.axis_reliability.reliable_kappa}),{' '}
+              <span className="text-amber-600 font-semibold">~</span> directional ({report.axis_reliability.directional_kappa}–{report.axis_reliability.reliable_kappa}),{' '}
+              <span className="text-red-600 font-semibold">⚠</span> unreliable (κ&lt;{report.axis_reliability.directional_kappa}),{' '}
+              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ is chance-corrected agreement with a human (E-17) or
+              the loop counter (SPA-75). <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
+              completeness, not weighed in conclusions.</span>
+            </p>
+          ) : report.axis_reliability ? (
+            <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+              <span className="font-medium">Reliability gate (SPA-76):</span> no calibration source for these axes yet (no human axis ratings;
+              the structural loop anchor needs trajectory-scored runs) — process scores are shown but <span className="font-medium">unverified</span> (n/a).
+            </p>
+          ) : null}
+          </>
         )}
       </section>
 
@@ -721,10 +816,12 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         const ld = report.loop_detection!
         const struct = !!ld.structural_available
         const k = ld.kappa
+        const loopRel = report.axis_reliability?.axes?.loop_detection
         return (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
             Loop detection <span className="text-xs text-gray-400 font-normal">share of trajectory-scored runs that loop · success or failed · lower is better{struct && k != null ? ` · judge↔counter κ ${k.toFixed(2)}` : ''}</span>
+            <ReliabilityBadge a={loopRel} />
           </h3>
           <div className="bg-white border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
@@ -1005,9 +1102,10 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         )}
         <SummaryRadarPanel
           title="Trajectory profile"
-          subtitle="overlay · per-config E-07 axes (success-only) — toggle configs"
+          subtitle="overlay · per-config E-07 axes (success-only) — toggle configs · ⚠ greyed axis = process judge below the reliability bar (SPA-76)"
           axes={report.trajectory_heatmap.axes}
           axisLabel={(k) => report.trajectory_heatmap.axis_labels?.[k] ?? k.replace(/_/g, ' ')}
+          axisStatus={(k) => report.axis_reliability?.axes?.[k]?.status}
           rows={report.trajectory_heatmap.rows}
           colorOf={(k) => colorByConfig.get(k)}
         />
@@ -1172,10 +1270,19 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                     `${x.a}${x.b}`.localeCompare(`${y.a}${y.b}`))
                   .map((s) => {
                     const judge = metricJudge(s.metric)
+                    const agg = s.metric === 'trajectory_score' ? trajectoryAggregateStatus(report) : null
                     return (
-                      <tr key={`${s.a}-${s.b}-${s.metric}`} className="border-t">
+                      <tr key={`${s.a}-${s.b}-${s.metric}`} className={`border-t ${agg === 'unreliable' ? 'opacity-60' : ''}`}>
                         <td className="px-3 py-2">{s.a} vs {s.b}</td>
-                        <td className="px-3 py-2 text-gray-700">{metricLabel(s.metric)}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {metricLabel(s.metric)}
+                          {agg && agg !== 'reliable' && (
+                            <span className={`ml-1 text-[10px] font-semibold ${RELIABILITY_META[agg].cls}`}
+                              title={`Aggregate of the 6 E-07 axes — ${RELIABILITY_META[agg].word}; only as reliable as its weakest calibrated axis. See the Trajectory profile heatmap reliability gate.`}>
+                              {RELIABILITY_META[agg].glyph}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2">
                           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${judge.cls}`}>{judge.label}</span>
                         </td>

@@ -158,7 +158,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -202,6 +202,15 @@ def test_build_report_full_shape():
     assert row1t["cells"]["efficiency"]["n"] == 6
     assert row1t["cells"]["efficiency"]["mean"] == 7.0
     assert row1t["overall_score"]["mean"] is not None
+
+    # SPA-76: no human calibration passed and no deterministic loop_analysis on
+    # these records → every axis is an honest 'not_calibrated' (never fabricated).
+    ar = report["axis_reliability"]
+    assert ar["available"] is False
+    assert set(ar["axes"]) == {"efficiency", "tool_selection", "parameter_quality",
+                               "error_recovery", "goal_alignment", "loop_detection"}
+    assert all(a["status"] == "not_calibrated" and a["source"] == "none"
+               for a in ar["axes"].values())
 
     pareto = report["pareto"]
     assert pareto["frontier"] == ["cfg-01"]  # better quality AND cheaper AND faster
@@ -259,7 +268,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
 
     ext = report["external"]
     assert ext["available"] is True
@@ -507,6 +516,72 @@ def test_build_report_loop_detection_structural_anchor():
     assert ld["agreement"] == 0.5
     assert ld["n_counter_only"] == 1 and ld["n_judge_only"] == 0
     assert ld["kappa"] == 0.0
+    assert ld["n_structural"] == 2
+    # SPA-76: with no human calibration, the loop axis is anchored by the SPA-75
+    # structural counter; here n_structural=2 < MIN_SAMPLES → 'directional' (a hint).
+    ar = report["axis_reliability"]
+    assert ar["available"] is True
+    assert ar["axes"]["loop_detection"]["source"] == "structural"
+    assert ar["axes"]["loop_detection"]["status"] == "directional"
+    assert ar["axes"]["efficiency"]["status"] == "not_calibrated"
+
+
+def test_classify_reliability_buckets():
+    from app.quality.experiment_report import _classify_reliability
+
+    assert _classify_reliability(0.7, 10, has_source=True) == "reliable"
+    assert _classify_reliability(0.6, 10, has_source=True) == "reliable"  # boundary
+    assert _classify_reliability(0.5, 10, has_source=True) == "directional"
+    assert _classify_reliability(0.4, 10, has_source=True) == "directional"  # boundary
+    assert _classify_reliability(0.39, 10, has_source=True) == "unreliable"
+    assert _classify_reliability(-0.1, 10, has_source=True) == "unreliable"
+    assert _classify_reliability(0.9, 2, has_source=True) == "directional"  # too few pairs
+    assert _classify_reliability(None, 10, has_source=True) == "directional"  # undefined κ
+    assert _classify_reliability(0.9, 10, has_source=False) == "not_calibrated"
+
+
+def test_axis_reliability_sources_and_priority():
+    from app.quality.experiment_report import _axis_reliability
+
+    calibration = {
+        "available": True,
+        "dimensions": [
+            {"key": "efficiency", "name": "Efficiency", "n": 10, "cohen_kappa": 0.72},
+            {"key": "tool_selection", "name": "Tool selection", "n": 10, "cohen_kappa": 0.45},
+            {"key": "parameter_quality", "name": "Parameter quality", "n": 10, "cohen_kappa": 0.10},
+            {"key": "error_recovery", "name": "Error recovery", "n": 2, "cohen_kappa": None},
+            # goal_alignment absent → no human source
+            {"key": "loop_detection", "name": "Loop detection", "n": 12, "cohen_kappa": 0.05},
+        ],
+    }
+    loop_detection = {"structural_available": True, "kappa": 0.33, "n_structural": 50}
+    ar = _axis_reliability(calibration, loop_detection, {})
+    ax = ar["axes"]
+    assert ar["available"] is True
+    assert (ax["efficiency"]["status"], ax["efficiency"]["source"]) == ("reliable", "human")
+    assert (ax["tool_selection"]["status"], ax["tool_selection"]["source"]) == ("directional", "human")
+    assert (ax["parameter_quality"]["status"], ax["parameter_quality"]["source"]) == ("unreliable", "human")
+    # human dim exists but n=2 < MIN_SAMPLES → directional (insufficient), still human-sourced
+    assert (ax["error_recovery"]["status"], ax["error_recovery"]["source"]) == ("directional", "human")
+    assert (ax["goal_alignment"]["status"], ax["goal_alignment"]["source"]) == ("not_calibrated", "none")
+    # a human rated the loop axis with enough data → human WINS over the structural anchor
+    assert (ax["loop_detection"]["status"], ax["loop_detection"]["source"]) == ("unreliable", "human")
+    assert ax["loop_detection"]["kappa"] == 0.05
+
+    # No human on the loop axis → fall back to the SPA-75 structural anchor.
+    cal2 = {"available": True, "dimensions": [
+        {"key": "efficiency", "name": "Efficiency", "n": 10, "cohen_kappa": 0.72}]}
+    ar2 = _axis_reliability(cal2, loop_detection, {})
+    assert (ar2["axes"]["loop_detection"]["status"], ar2["axes"]["loop_detection"]["source"]) == (
+        "unreliable", "structural")
+    assert ar2["axes"]["loop_detection"]["kappa"] == 0.33
+    # a non-loop axis with no human source stays not_calibrated even when a loop anchor exists
+    assert ar2["axes"]["goal_alignment"]["status"] == "not_calibrated"
+
+    # Nothing at all → honest empty state.
+    ar3 = _axis_reliability(None, {"structural_available": False}, {})
+    assert ar3["available"] is False
+    assert all(a["status"] == "not_calibrated" for a in ar3["axes"].values())
 
 
 def test_build_report_failure_reasons():
