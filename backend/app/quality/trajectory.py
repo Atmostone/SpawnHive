@@ -34,11 +34,12 @@ from app.models.task import Task
 from app.plugins.llm import get_llm_provider
 from app.quality.judge import _judge_cost, _resolve_judge_model, _tokens_from_response
 from app.quality.trace_cleaner import _count_tokens, _truncate_to_tokens, build_cleaned_trace
+from app.quality.trace_loops import detect_loops
 from app.utils.events import log_event
 
 logger = logging.getLogger(__name__)
 
-TRAJECTORY_SCHEMA_VERSION = 1
+TRAJECTORY_SCHEMA_VERSION = 2  # v2: loop_analysis (deterministic loop detector, E-07 anchor)
 _MAX_SCALE = 10
 # Default cap on the judge's input (cleaned trace) tokens per task; overridable
 # via the `trajectory_judge_max_input_tokens` setting (acceptance: cost cap).
@@ -386,6 +387,13 @@ async def evaluate_task_trajectory(
 
     result = await _judge_trajectory(cleaned_trace, judge_llm, max_input_tokens=max_input_tokens)
 
+    # Deterministic loop detector (SPA-75): counts repeated tool-calls structurally
+    # over the full, untrimmed step LIST (no step dropped — unlike the judge, which
+    # scores the budget-trimmed trace; per-step content may be output-capped by E-06,
+    # which doesn't affect duplicate detection). An LLM-free anchor for the LLM's
+    # `loop_detected` axis; runs even when the judge errors, so it is always present.
+    loop_analysis = detect_loops(cleaned_trace.get("steps") or [])
+
     stats = cleaned_trace.get("stats") or {}
     profile = {
         "schema_version": TRAJECTORY_SCHEMA_VERSION,
@@ -393,6 +401,7 @@ async def evaluate_task_trajectory(
         "axes": result.get("axes", []),
         "overall_score": result.get("overall_score"),
         "loop_detected": result.get("loop_detected", False),
+        "loop_analysis": loop_analysis,
         "summary": result.get("summary", ""),
         "judge_model": judge_llm.model.api_name,
         "judge_input_tokens": result.get("judge_input_tokens", 0),
