@@ -1517,6 +1517,7 @@ export interface ExperimentReport {
     kappa?: number | null
     n_judge_only?: number
     n_counter_only?: number
+    n_structural?: number
     per_config: {
       config_key: string
       label: string
@@ -1531,6 +1532,28 @@ export interface ExperimentReport {
       agreement?: number | null
       kappa?: number | null
     }[]
+  } | null
+  // SPA-76 reliability gate: per-axis trustworthiness of the E-07 process judge,
+  // from REAL calibration only — judge↔human Cohen's κ (E-17) where a human rated
+  // the axis, else the judge↔counter loop anchor (SPA-75) for the loop axis, else
+  // an honest 'not_calibrated'. Below-threshold axes are quarantined in the UI so
+  // an unreliable axis can't silently imply a process "win".
+  axis_reliability?: {
+    available: boolean
+    reliable_kappa: number
+    directional_kappa: number
+    min_samples: number
+    axes: Record<
+      string,
+      {
+        key: string
+        name: string
+        source: 'human' | 'structural' | 'none'
+        kappa?: number | null
+        n: number
+        status: 'reliable' | 'directional' | 'unreliable' | 'not_calibrated'
+      }
+    >
   } | null
   // E-06 cleaned-trace stats per config (SPA-74): mean steps + trace compression.
   trace_stats?: {
