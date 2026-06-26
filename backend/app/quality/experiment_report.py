@@ -27,9 +27,11 @@ from app.models.experiment import Experiment, ExperimentRun, ExperimentRunStatus
 from app.models.quality_record import QualityRecord
 from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
-from app.quality.stats import mann_whitney_u, welch_t_test
+from app.quality.stats import MIN_SAMPLES, mann_whitney_u, welch_t_test
+from app.quality.trajectory import AXES as TRAJECTORY_AXES
 
-SCHEMA_VERSION = 8  # v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
+SCHEMA_VERSION = 9  # v9: per-axis reliability gate (SPA-76) — E-17/loop-anchor κ badge
+# v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
 # v7: deterministic loop anchor (structural_loop_rate + judge↔counted agreement)
 # v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
 # v5: loop_detection + quality_gate per config, failure reasons,
@@ -73,6 +75,99 @@ def _binary_kappa(both_yes: int, a_only: int, b_only: int, both_no: int) -> Opti
     if pe >= 1.0:
         return None
     return round((po - pe) / (1 - pe), 4)
+
+
+# --- SPA-76 reliability gate ------------------------------------------------ #
+# κ here is the chance-corrected agreement between the LLM process-judge (E-07)
+# and a ground-truth-ish reference for that axis: a human (E-17 judge↔human), or
+# — for the loop axis only — the deterministic SPA-75 counter (judge↔counter).
+# Above the bar the judge can drive a conclusion; below it the axis is
+# quarantined (shown for completeness, not weighed). Never fabricated.
+RELIABILITY_RELIABLE_KAPPA = 0.6     # judge agrees with the reference → trust it
+RELIABILITY_DIRECTIONAL_KAPPA = 0.4  # weak-but-directional floor
+
+
+def _classify_reliability(kappa: Optional[float], n: int, *, has_source: bool) -> str:
+    """Bucket a process-judge axis. No calibration source → 'not_calibrated'
+    (unknown, not known-bad). A live source with too little data or an undefined
+    κ → 'directional' (a hint, not a verdict). Otherwise threshold on κ."""
+    if not has_source:
+        return "not_calibrated"
+    if kappa is None or n < MIN_SAMPLES:
+        return "directional"
+    if kappa >= RELIABILITY_RELIABLE_KAPPA:
+        return "reliable"
+    if kappa >= RELIABILITY_DIRECTIONAL_KAPPA:
+        return "directional"
+    return "unreliable"
+
+
+def _axis_reliability(
+    calibration: Optional[dict],
+    loop_detection: dict,
+    axis_labels: dict[str, str],
+) -> dict:
+    """Per-axis reliability badge for the six E-07 trajectory axes, from REAL
+    calibration only:
+      • judge↔human (E-17) per-axis Cohen's κ — the gold standard, used whenever a
+        human rated that axis on these runs (n ≥ MIN_SAMPLES);
+      • judge↔counter (SPA-75) structural κ — the loop axis only, available on
+        every trajectory-scored run with no humans needed.
+    Human wins when it has enough data; the loop axis falls back to the structural
+    anchor; everything else with no source is an honest 'not_calibrated'. (A future
+    hook: back off to the workspace-global E-17 calibration when the per-experiment
+    human sample is thin — skipped in v1 as the current global snapshot predates the
+    trajectory-axis fold-in.)"""
+    human_dims: dict[str, dict] = {}
+    if isinstance(calibration, dict) and calibration.get("available"):
+        for d in calibration.get("dimensions") or []:
+            if d.get("key"):
+                human_dims[d["key"]] = d
+
+    struct_kappa = None
+    struct_n = 0
+    if isinstance(loop_detection, dict) and loop_detection.get("structural_available"):
+        struct_kappa = loop_detection.get("kappa")
+        struct_n = int(loop_detection.get("n_structural") or 0)
+
+    axes_out: dict[str, dict] = {}
+    any_source = False
+    for key, name, _desc in TRAJECTORY_AXES:
+        label = axis_labels.get(key) or name
+        hd = human_dims.get(key)
+        h_n = int(hd.get("n") or 0) if hd else 0
+        h_kappa = hd.get("cohen_kappa") if hd else None
+        struct_ok = key == "loop_detection" and struct_n > 0
+
+        if hd is not None and h_n >= MIN_SAMPLES:
+            source, kappa, n = "human", h_kappa, h_n
+        elif struct_ok and struct_n >= MIN_SAMPLES:
+            source, kappa, n = "structural", struct_kappa, struct_n
+        elif hd is not None:  # human source exists but too few pairs
+            source, kappa, n = "human", h_kappa, h_n
+        elif struct_ok:  # structural ran but very few runs
+            source, kappa, n = "structural", struct_kappa, struct_n
+        else:
+            source, kappa, n = "none", None, 0
+
+        has_source = source != "none"
+        any_source = any_source or has_source
+        axes_out[key] = {
+            "key": key,
+            "name": label,
+            "source": source,
+            "kappa": kappa,
+            "n": n,
+            "status": _classify_reliability(kappa, n, has_source=has_source),
+        }
+
+    return {
+        "available": any_source,
+        "reliable_kappa": RELIABILITY_RELIABLE_KAPPA,
+        "directional_kappa": RELIABILITY_DIRECTIONAL_KAPPA,
+        "min_samples": MIN_SAMPLES,
+        "axes": axes_out,
+    }
 
 
 def pareto_frontier(points: list[dict]) -> list[str]:
@@ -419,8 +514,12 @@ def build_report(
         "kappa": _binary_kappa(tot_both_loop, tot_judge_only, tot_counter_only, tot_both_clean),
         "n_judge_only": tot_judge_only,
         "n_counter_only": tot_counter_only,
+        "n_structural": tot_struct,
         "per_config": loop_per_config,
     }
+    # SPA-76: per-axis reliability gate — badge each E-07 trajectory axis by how far
+    # the judge can be trusted (E-17 human κ, or the loop anchor for the loop axis).
+    axis_reliability = _axis_reliability(calibration, loop_detection, axis_labels)
 
     # --- cleaned-trace stats (E-06) per config --------------------------------
     # trajectory_profile.trace_stats = {original_tokens, cleaned_tokens, steps_total}
@@ -853,6 +952,7 @@ def build_report(
         "quality_gate": quality_gate,
         "trajectory_heatmap": trajectory_heatmap,
         "loop_detection": loop_detection,
+        "axis_reliability": axis_reliability,
         "trace_stats": trace_stats,
         "longitudinal": longitudinal,
         "human_feedback": human_feedback,
