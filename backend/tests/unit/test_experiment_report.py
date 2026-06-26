@@ -93,14 +93,14 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
 
 def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
             human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0,
-            gate=None, loop_detected=False, trace_stats=None):
+            gate=None, loop_detected=False, trace_stats=None, loop_analysis=None):
     quality_profile = None
     if dimensions or quality_cost or gate:
         quality_profile = {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
         if gate is not None:
             quality_profile["gate"] = gate
     trajectory_profile = None
-    if trajectory_axes is not None or loop_detected or trace_stats:
+    if trajectory_axes is not None or loop_detected or trace_stats or loop_analysis:
         trajectory_profile = {
             "status": "scored",
             "axes": trajectory_axes or [],
@@ -109,6 +109,8 @@ def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_mat
         }
         if trace_stats is not None:
             trajectory_profile["trace_stats"] = trace_stats
+        if loop_analysis is not None:
+            trajectory_profile["loop_analysis"] = loop_analysis
     return SimpleNamespace(
         cost_usd=Decimal(str(cost_usd)),
         quality_profile=quality_profile,
@@ -156,7 +158,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 8
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -182,6 +184,8 @@ def test_build_report_full_shape():
     # No gate in these profiles; cfg-01 trajectory-scored so loop_detection is live
     assert report["quality_gate"]["available"] is False
     assert report["loop_detection"]["available"] is True
+    # LLM loop signal present, but no deterministic loop_analysis on these records
+    assert report["loop_detection"]["structural_available"] is False
     # No trace_stats in these profiles; longitudinal has >1 repetition (idx 0/1/2/3)
     assert report["trace_stats"]["available"] is False
     assert report["longitudinal"]["available"] is True
@@ -255,7 +259,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 8
 
     ext = report["external"]
     assert ext["available"] is True
@@ -458,9 +462,51 @@ def test_build_report_loop_detection():
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
     ld = report["loop_detection"]
     assert ld["available"] is True
+    assert ld["structural_available"] is False  # no loop_analysis on these records
     by = {c["config_key"]: c for c in ld["per_config"]}
     assert (by["cfg-01"]["n_scored"], by["cfg-01"]["n_loop"], by["cfg-01"]["loop_rate"]) == (2, 1, 0.5)
     assert (by["cfg-02"]["n_scored"], by["cfg-02"]["n_loop"], by["cfg-02"]["loop_rate"]) == (1, 0, 0.0)
+
+
+def test_build_report_loop_detection_structural_anchor():
+    # Two trajectory-scored runs carry BOTH the LLM loop badge and the deterministic
+    # loop_analysis. The deterministic rate sits next to the judge rate, and the
+    # agreement is the judge↔counted match.
+    r1 = _run("cfg-01", "case-a", 0, status="success", traj=7.0)
+    r2 = _run("cfg-01", "case-a", 1, status="failed", traj=2.0)
+    runs = [r1, r2]
+    records = {
+        # judge says no loop, counter agrees (no loop) → agree
+        r1.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 7}],
+            loop_detected=False,
+            loop_analysis={"loop_detected": False, "max_repeat_run": 1},
+        ),
+        # judge says no loop, but the counter FOUND a real loop → judge under-called
+        r2.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 6}],
+            loop_detected=False,
+            loop_analysis={"loop_detected": True, "max_repeat_run": 5},
+        ),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ld = report["loop_detection"]
+    assert ld["structural_available"] is True
+    by = {c["config_key"]: c for c in ld["per_config"]}
+    cfg1 = by["cfg-01"]
+    # LLM badge: 0/2 looped; deterministic: 1/2 looped (caught the one the judge missed)
+    assert (cfg1["n_loop"], cfg1["loop_rate"]) == (0, 0.0)
+    assert (cfg1["n_structural"], cfg1["n_structural_loop"], cfg1["structural_loop_rate"]) == (2, 1, 0.5)
+    # directional split: judge never over-called; counter found 1 the judge missed
+    assert cfg1["n_judge_only"] == 0
+    assert cfg1["n_counter_only"] == 1
+    # agreement: 1 of 2 runs agree (the no-loop one) → 0.5
+    assert cfg1["agreement"] == 0.5
+    # κ on {both_loop=0, judge_only=0, counter_only=1, both_clean=1}: po=.5, pe=.5 → 0
+    assert cfg1["kappa"] == 0.0
+    assert ld["agreement"] == 0.5
+    assert ld["n_counter_only"] == 1 and ld["n_judge_only"] == 0
+    assert ld["kappa"] == 0.0
 
 
 def test_build_report_failure_reasons():
