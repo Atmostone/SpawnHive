@@ -29,7 +29,9 @@ from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
 from app.quality.stats import mann_whitney_u, welch_t_test
 
-SCHEMA_VERSION = 6  # v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
+SCHEMA_VERSION = 8  # v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
+# v7: deterministic loop anchor (structural_loop_rate + judge↔counted agreement)
+# v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
 # v5: loop_detection + quality_gate per config, failure reasons,
 # quality-heatmap dimension_labels
 # v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
@@ -55,6 +57,22 @@ def _std(values: list[float]) -> Optional[float]:
     if len(vals) < 2:
         return None
     return round(statistics.pstdev(vals), 4)
+
+
+def _binary_kappa(both_yes: int, a_only: int, b_only: int, both_no: int) -> Optional[float]:
+    """Cohen's κ for two binary raters on a 2×2 (chance-corrected agreement). None
+    when undefined — no data, or perfect-by-base-rate where p_e == 1 (e.g. every
+    run agrees and all-negative): κ is 0/0 there, which a raw agreement % hides."""
+    n = both_yes + a_only + b_only + both_no
+    if n == 0:
+        return None
+    po = (both_yes + both_no) / n
+    p_a_yes = (both_yes + a_only) / n
+    p_b_yes = (both_yes + b_only) / n
+    pe = p_a_yes * p_b_yes + (1 - p_a_yes) * (1 - p_b_yes)
+    if pe >= 1.0:
+        return None
+    return round((po - pe) / (1 - pe), 4)
 
 
 def pareto_frontier(points: list[dict]) -> list[str]:
@@ -321,18 +339,32 @@ def build_report(
         "rows": trajectory_heatmap_rows,
     }
 
-    # --- loop-detection rate (E-07) per config --------------------------------
-    # trajectory_profile.loop_detected (the loop_detection axis scoring < 5) is on
-    # EVERY trajectory-scored run but was never aggregated — looping is the single
-    # most actionable process pathology (agent repeats the same call until it caps).
-    # Counted over all trajectory-scored runs, success OR failed: looping is often
-    # exactly what *causes* a failure, so restricting to success would hide the
-    # signal where it matters most (unlike the success-only axis heatmap above).
+    # --- loop-detection rate (E-07 judge + deterministic anchor) per config ----
+    # Two loop signals side by side, over all trajectory-scored runs (success OR
+    # failed — looping is often exactly what *causes* a failure):
+    #   • loop_rate — the LLM judge's loop_detected (loop_detection axis < 5),
+    #     scored over the budget-TRIMMED trace, holistically (reasoning + tools).
+    #   • structural_loop_rate — the deterministic detector (SPA-75,
+    #     trajectory_profile.loop_analysis): COUNTS repeated tool-calls over the
+    #     FULL, untrimmed trace. LLM-free, reproducible — a precision-oriented
+    #     structural lower bound (may under-count semantic loops).
+    # The two see DIFFERENT inputs (trimmed vs full) and DIFFERENT scopes (holistic
+    # vs tool-only), so their gap is part definitional/input divergence and part
+    # judge error — NOT pure miscalibration. We therefore surface the DIRECTIONAL
+    # split, not just a symmetric %: n_judge_only (judge flagged, counter didn't)
+    # vs n_counter_only (counter found a repetition the judge missed — often in the
+    # trimmed-away middle steps), plus Cohen's κ (chance-corrected) so a high
+    # base-rate agreement doesn't masquerade as concordance.
     loop_per_config = []
     any_loop = False
+    any_structural = False
+    tot_both_loop = tot_judge_only = tot_counter_only = tot_both_clean = 0
     for key in sorted(configs):
         n_scored = 0
         n_loop = 0
+        n_struct = 0
+        n_struct_loop = 0
+        both_loop = judge_only = counter_only = both_clean = 0
         for r in by_config[key]:
             rec = records_by_task.get(r.task_id)
             tprof = (rec.trajectory_profile or {}) if rec is not None else {}
@@ -340,8 +372,29 @@ def build_report(
                 continue
             n_scored += 1
             any_loop = True
-            if tprof.get("loop_detected"):
+            llm_loop = bool(tprof.get("loop_detected"))
+            if llm_loop:
                 n_loop += 1
+            la = tprof.get("loop_analysis")
+            if isinstance(la, dict):
+                any_structural = True
+                n_struct += 1
+                struct_loop = bool(la.get("loop_detected"))
+                if struct_loop:
+                    n_struct_loop += 1
+                if struct_loop and llm_loop:
+                    both_loop += 1
+                elif llm_loop:
+                    judge_only += 1
+                elif struct_loop:
+                    counter_only += 1
+                else:
+                    both_clean += 1
+        tot_both_loop += both_loop
+        tot_judge_only += judge_only
+        tot_counter_only += counter_only
+        tot_both_clean += both_clean
+        n_agree = both_loop + both_clean
         loop_per_config.append(
             {
                 "config_key": key,
@@ -349,9 +402,25 @@ def build_report(
                 "n_scored": n_scored,
                 "n_loop": n_loop,
                 "loop_rate": round(n_loop / n_scored, 4) if n_scored else None,
+                "n_structural": n_struct,
+                "n_structural_loop": n_struct_loop,
+                "structural_loop_rate": round(n_struct_loop / n_struct, 4) if n_struct else None,
+                "n_judge_only": judge_only,
+                "n_counter_only": counter_only,
+                "agreement": round(n_agree / n_struct, 4) if n_struct else None,
+                "kappa": _binary_kappa(both_loop, judge_only, counter_only, both_clean),
             }
         )
-    loop_detection = {"available": any_loop, "per_config": loop_per_config}
+    tot_struct = tot_both_loop + tot_judge_only + tot_counter_only + tot_both_clean
+    loop_detection = {
+        "available": any_loop,
+        "structural_available": any_structural,
+        "agreement": round((tot_both_loop + tot_both_clean) / tot_struct, 4) if tot_struct else None,
+        "kappa": _binary_kappa(tot_both_loop, tot_judge_only, tot_counter_only, tot_both_clean),
+        "n_judge_only": tot_judge_only,
+        "n_counter_only": tot_counter_only,
+        "per_config": loop_per_config,
+    }
 
     # --- cleaned-trace stats (E-06) per config --------------------------------
     # trajectory_profile.trace_stats = {original_tokens, cleaned_tokens, steps_total}

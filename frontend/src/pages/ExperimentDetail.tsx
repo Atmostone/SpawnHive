@@ -717,37 +717,69 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         )}
       </section>
 
-      {report.loop_detection?.available && (
+      {report.loop_detection?.available && (() => {
+        const ld = report.loop_detection!
+        const struct = !!ld.structural_available
+        const k = ld.kappa
+        return (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
-            Loop detection <span className="text-xs text-gray-400 font-normal">share of trajectory-scored runs the process judge flagged as looping (E-07) · success or failed · lower is better</span>
+            Loop detection <span className="text-xs text-gray-400 font-normal">share of trajectory-scored runs that loop · success or failed · lower is better{struct && k != null ? ` · judge↔counter κ ${k.toFixed(2)}` : ''}</span>
           </h3>
-          <div className="bg-white border rounded-lg overflow-hidden">
+          <div className="bg-white border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2" title="share of trajectory-scored runs flagged as looping — the agent repeating the same call until it caps (lower is better)">Loop rate</th>
-                  <th className="px-3 py-2">Looped</th>
+                  <th className="px-3 py-2" title="LLM judge's loop_detection axis (E-07), holistic over the budget-TRIMMED trace (reasoning + tools)">Loop rate (judge)</th>
+                  {struct && <th className="px-3 py-2" title="deterministic counter (SPA-75): repeated tool-calls counted over the FULL untrimmed trace — LLM-free; a precision-oriented structural lower bound (may miss semantic loops)">Loop rate (counted)</th>}
+                  {struct && <th className="px-3 py-2" title="judge flagged a loop the counter did NOT find (a structural repetition was absent — possible judge over-call, or a reasoning-only loop out of the counter's tool-call scope)">Judge-only</th>}
+                  {struct && <th className="px-3 py-2" title="counter found a repetition the judge MISSED — often in the trimmed-away middle steps the judge never saw">Counter-only</th>}
+                  {struct && <th className="px-3 py-2" title="Cohen's κ between the judge and the counter (chance-corrected; raw % agreement is inflated by the common both-clean case)">κ</th>}
                   <th className="px-3 py-2">Scored</th>
                 </tr>
               </thead>
               <tbody>
-                {report.loop_detection.per_config.map((c) => (
+                {ld.per_config.map((c) => (
                   <tr key={c.config_key} className="border-t">
                     <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
-                    <td className={`px-3 py-2 font-semibold ${(c.loop_rate ?? 0) > 0 ? 'text-amber-600' : 'text-gray-700'}`}>
+                    <td className={`px-3 py-2 font-semibold ${(c.loop_rate ?? 0) > 0 ? 'text-amber-600' : 'text-gray-700'}`}
+                      title={`${c.n_loop} of ${c.n_scored} runs`}>
                       {c.loop_rate != null ? `${(c.loop_rate * 100).toFixed(0)}%` : '—'}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{c.n_loop}</td>
+                    {struct && (
+                      <td className={`px-3 py-2 font-semibold ${(c.structural_loop_rate ?? 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}
+                        title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
+                        {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
+                      </td>
+                    )}
+                    {struct && <td className="px-3 py-2 text-gray-500" title="judge said loop, counter did not">{c.n_judge_only ?? 0}</td>}
+                    {struct && <td className="px-3 py-2 text-gray-500" title="counter found a loop the judge missed">{c.n_counter_only ?? 0}</td>}
+                    {struct && (
+                      <td className={`px-3 py-2 ${(c.kappa ?? 1) < 0.4 ? 'text-red-600' : (c.kappa ?? 1) < 0.6 ? 'text-amber-600' : 'text-gray-500'}`}>
+                        {c.kappa != null ? c.kappa.toFixed(2) : '—'}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-gray-500">{c.n_scored}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {struct && (
+            <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+              <span className="font-medium">Loop rate (counted)</span> is a deterministic, LLM-free detector (SPA-75): it counts repeated
+              tool-calls — consecutive identical actions or repeated multi-step tool cycles — over the FULL untrimmed trace. It is a
+              precision-oriented structural lower bound (tool-calls only; may miss semantic loops that vary their wording). The two signals
+              see <span className="font-medium">different inputs</span> (judge = trimmed + holistic, counter = full + tool-only), so their
+              gap is partly definitional, not pure judge error: <span className="font-medium">Counter-only</span> are loops the judge
+              structurally could not see (trimmed-away middle steps) — the clearest evidence the trimming hurts the judge — while{' '}
+              <span className="font-medium">Judge-only</span> are loops the judge called without a structural repetition behind them.
+            </p>
+          )}
         </section>
-      )}
+        )
+      })()}
 
       {report.trace_stats?.available && (
         <section>

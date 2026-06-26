@@ -1505,14 +1505,31 @@ export interface ExperimentReport {
   // E-07 loop-detection rate per config (SPA-74): share of trajectory-scored runs
   // (success OR failed) the process judge flagged as looping — the most actionable
   // process pathology. Counted across failures too (looping often causes them).
+  // …plus a deterministic loop anchor (SPA-75): structural_loop_rate COUNTS
+  // repeated tool-calls over the full untrimmed trace (LLM-free, a precision-
+  // oriented lower bound) next to the judge rate. The two see different inputs/
+  // scopes, so we surface the DIRECTIONAL split (judge-only vs counter-only) +
+  // Cohen's κ, not just a symmetric agreement %.
   loop_detection?: {
     available: boolean
+    structural_available?: boolean
+    agreement?: number | null
+    kappa?: number | null
+    n_judge_only?: number
+    n_counter_only?: number
     per_config: {
       config_key: string
       label: string
       n_scored: number
       n_loop: number
       loop_rate?: number | null
+      n_structural?: number
+      n_structural_loop?: number
+      structural_loop_rate?: number | null
+      n_judge_only?: number
+      n_counter_only?: number
+      agreement?: number | null
+      kappa?: number | null
     }[]
   } | null
   // E-06 cleaned-trace stats per config (SPA-74): mean steps + trace compression.
