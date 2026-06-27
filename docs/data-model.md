@@ -1,6 +1,6 @@
 # Data Model
 
-> Schema snapshot as of 2026-05-04 (after migration `d0e1f2a3b4c5`).
+> Schema snapshot as of 2026-06-27 (after migration `e9f0a1b2c3d4`).
 > Whenever the model changes, update this file in the same PR.
 
 ## Migrations
@@ -71,6 +71,12 @@ f4a5b6c7d8e9  pairwise_comparisons — Pairwise Comparison Framework (E-21)
 a5b6c7d8e9f0  registry_entries — Tool & MCP Registry (SPA-41); templates.tools/mcp_servers → tool_ids
      ↓
 b6c7d8e9f0a1  experiments + experiment_runs — Experiment Runner (SPA-40); tasks.origin
+     ↓
+c7d8e9f0a1b2  providers.max_concurrency — per-provider LLM concurrency cap (SPA-47)
+     ↓
+d8e9f0a1b2c3  experiment_runs executable-eval columns — Toolathlon external eval (external_verdict, launch_time, preprocess/eval container ids + logs, etc.)
+     ↓
+e9f0a1b2c3d4  experiments.n_toolathlon_lanes + experiment_runs.lane_index — parallel Toolathlon PG lanes (SPA-69)
 ```
 
 (E-20 Reproducibility Snapshot added no migration — it reuses the
@@ -169,6 +175,7 @@ an expanded configuration matrix × `n_runs_per_cell`, driven by the
 | n_runs_per_cell | INT | 1 | 1–20; configs × cases × n ≤ 1000 |
 | budget_limit_usd | NUMERIC(10,6) | NULL | hard cap; reached → remaining cells `skipped`, status `capped` |
 | max_parallel | INT | NULL | caps the tick's claim target (also bounded by `max_concurrent_agents`) |
+| n_toolathlon_lanes | INT | NULL | number of isolated Toolathlon PG lanes to run in parallel (SPA-69; migration `e9f0a1b2c3d4`). NULL/0 → serial (one Toolathlon cell at a time, since all cases share one mock postgres); >1 lets the scheduler claim up to that many Toolathlon cells at once, each pinned to its own `toolathlon_pg_lane_<i>` instance so preprocess re-seeding can't clobber another |
 | eval_config | JSONB | {} | `{trajectory: bool=true, failure_modes: bool=false}`; E-02 always runs |
 | accumulated_cost_usd | NUMERIC(10,6) | 0 | agent + judge spend, updated by the tick |
 | report | JSONB | NULL | cached assembled report (see `experiment_report.py`), written once terminal |
@@ -189,10 +196,19 @@ report do not).
 | experiment_id | UUID FK→experiments.id ON DELETE CASCADE | | UNIQUE `(experiment_id, config_key, case_key, run_index)` |
 | config_key / case_key / run_index | VARCHAR(64) / VARCHAR(128) / INT | | cell coordinates |
 | task_id | UUID FK→tasks.id ON DELETE SET NULL | NULL | the child task executing this cell |
-| status | VARCHAR(20) | 'pending' | `pending → running → success \| failed`; `skipped` on budget cap / cancel |
+| status | VARCHAR(20) | 'pending' | `ExperimentRunStatus`: `pending → running → success \| failed`; `skipped` on budget cap / cancel. Toolathlon executable cases (`gold.external_eval`) pass through two extra states — `pending → preprocessing → running → evaluating → success \| failed` (seed/preprocess container before the agent, external eval container after it settles); plain cases never enter them |
 | cost_usd | NUMERIC(10,6) | 0 | task + judge cost (denormalized) |
 | weighted_score / trajectory_score | FLOAT | NULL | from `quality_profile.weighted_score` / `trajectory_profile.overall_score` |
 | duration_seconds | INT | NULL | |
+| external_verdict | BOOLEAN | NULL | Toolathlon executable checker's pass/fail (migration `d8e9f0a1b2c3`), kept SEPARATE from `status`: a run can be `status=success` (agent finished, eval ran) with `external_verdict=False` (the checker failed it) — the crux of RQ2. NULL = no executable verdict (plain case, or eval infra error) |
+| launch_time | VARCHAR(64) | NULL | reused for preprocess + eval (date-relative checks) |
+| preprocess_container_id | VARCHAR(128) | NULL | lets a later tick re-inspect the detached preprocess container |
+| eval_container_id | VARCHAR(128) | NULL | lets a later tick re-inspect the detached external-eval container |
+| preprocess_retried | BOOLEAN | NULL | preprocess was retried once |
+| preprocess_started_at | TIMESTAMP | NULL | |
+| preprocess_log | TEXT | NULL | captured preprocess-container output |
+| eval_log | TEXT | NULL | captured external-eval-container output |
+| lane_index | INT | NULL | which isolated PG lane (`0..n_toolathlon_lanes-1`) this Toolathlon run is pinned to while in flight (SPA-69; migration `e9f0a1b2c3d4`) — its preprocess/eval/agent all target `toolathlon_pg_lane_<lane_index>`. NULL for plain runs and once settled (lane freed for the next claim) |
 | created_at / completed_at | TIMESTAMP | now() / NULL | |
 
 Indexes: `(experiment_id, status)`, `task_id`.
