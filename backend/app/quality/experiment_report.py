@@ -30,7 +30,9 @@ from app.quality.ranking import build_matches
 from app.quality.stats import MIN_SAMPLES, mann_whitney_u, welch_t_test
 from app.quality.trajectory import AXES as TRAJECTORY_AXES
 
-SCHEMA_VERSION = 9  # v9: per-axis reliability gate (SPA-76) — E-17/loop-anchor κ badge
+SCHEMA_VERSION = 10  # v10: confound-controlled effort (SPA-77) — token/$ effort,
+# difficulty-normalized per case; wall-clock demoted to a caveated secondary
+# v9: per-axis reliability gate (SPA-76) — E-17/loop-anchor κ badge
 # v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
 # v7: deterministic loop anchor (structural_loop_rate + judge↔counted agreement)
 # v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
@@ -59,6 +61,41 @@ def _std(values: list[float]) -> Optional[float]:
     if len(vals) < 2:
         return None
     return round(statistics.pstdev(vals), 4)
+
+
+def _median(values) -> Optional[float]:
+    vals = [float(v) for v in values if v is not None]
+    return round(statistics.median(vals), 4) if vals else None
+
+
+# --- SPA-77 effort accessors (confound-controlled) --------------------------- #
+# Effort is measured by LLM tokens (deterministic) — NOT wall-clock, which is
+# polluted by provider throttling + sleep/wait. Tokens live on the QualityRecord
+# (denormalized from task.token_usage), not on ExperimentRun; cost is sparse
+# ($0 for un-metered providers — ~74% of runs), so tokens are the primary signal
+# and cost is the priced secondary.
+def _run_effort_tokens(rec) -> Optional[float]:
+    """Total LLM tokens (input + output) for a run, or None when unrecorded."""
+    if rec is None:
+        return None
+    it = getattr(rec, "input_tokens", None)
+    ot = getattr(rec, "output_tokens", None)
+    if it is None and ot is None:
+        return None
+    return float((it or 0) + (ot or 0))
+
+
+def _run_steps(rec) -> Optional[float]:
+    """Agent step count — tool_call_count (near-100% populated), else the E-06
+    trace steps_total fallback."""
+    if rec is None:
+        return None
+    tcc = getattr(rec, "tool_call_count", None)
+    if tcc is not None:
+        return float(tcc)
+    ts = (getattr(rec, "trajectory_profile", None) or {}).get("trace_stats") or {}
+    st = ts.get("steps_total")
+    return float(st) if st is not None else None
 
 
 def _binary_kappa(both_yes: int, a_only: int, b_only: int, both_no: int) -> Optional[float]:
@@ -173,19 +210,20 @@ def _axis_reliability(
 def pareto_frontier(points: list[dict]) -> list[str]:
     """Config keys on the non-dominated frontier.
 
-    ``points``: ``[{config_key, quality, cost, time}]`` — quality higher-better,
-    cost/time lower-better. A point dominates another iff it is at least as
-    good on all three and strictly better on one. Points without a quality
-    value are excluded (nothing to trade off)."""
+    ``points``: ``[{config_key, quality, cost, effort}]`` — quality higher-better,
+    cost/effort lower-better. ``effort`` is token-based (SPA-77), not wall-clock.
+    A point dominates another iff it is at least as good on all three and strictly
+    better on one. Points without a quality value are excluded (nothing to trade
+    off)."""
     valid = [p for p in points if p.get("quality") is not None]
     frontier: list[str] = []
     for p in valid:
-        pq, pc, pt = p["quality"], p.get("cost") or 0.0, p.get("time") or 0.0
+        pq, pc, pt = p["quality"], p.get("cost") or 0.0, p.get("effort") or 0.0
         dominated = False
         for q in valid:
             if q is p:
                 continue
-            qq, qc, qt = q["quality"], q.get("cost") or 0.0, q.get("time") or 0.0
+            qq, qc, qt = q["quality"], q.get("cost") or 0.0, q.get("effort") or 0.0
             if qq >= pq and qc <= pc and qt <= pt and (qq > pq or qc < pc or qt < pt):
                 dominated = True
                 break
@@ -232,6 +270,7 @@ def significance_matrix(
 
 def _group_means(
     runs: list[ExperimentRun],
+    records_by_task: dict,
 ) -> dict:
     settled = [
         r
@@ -240,6 +279,18 @@ def _group_means(
         in (ExperimentRunStatus.SUCCESS.value, ExperimentRunStatus.FAILED.value)
     ]
     success = [r for r in runs if r.status == ExperimentRunStatus.SUCCESS.value]
+    # SPA-77: token effort (primary) + steps; cost stays (sparse) and wall-clock
+    # (duration) is retained only as a caveated secondary in the UI.
+    tokens = [
+        t
+        for r in settled
+        if (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+    ]
+    steps = [
+        s
+        for r in settled
+        if (s := _run_steps(records_by_task.get(r.task_id))) is not None
+    ]
     return {
         "n_runs": len(settled),
         "success_rate": round(len(success) / len(settled), 3) if settled else None,
@@ -247,6 +298,9 @@ def _group_means(
         "trajectory_mean": _mean([r.trajectory_score for r in success]),
         "cost_mean": _mean([float(r.cost_usd or 0) for r in settled]),
         "duration_mean": _mean([r.duration_seconds for r in settled]),
+        "tokens_mean": _mean(tokens),
+        "n_tokens": len(tokens),
+        "steps_mean": _mean(steps),
     }
 
 
@@ -277,7 +331,7 @@ def build_report(
     per_config = []
     for key in sorted(by_config):
         group = by_config[key]
-        stats = _group_means(group)
+        stats = _group_means(group, records_by_task)
         per_config.append({"config_key": key, "label": labels.get(key, key), **stats})
     summary = {
         "total_runs": len(runs),
@@ -293,6 +347,59 @@ def build_report(
         if exp.budget_limit_usd is not None
         else None,
         "per_config": per_config,
+    }
+
+    # --- effort (SPA-77): confound-controlled efficiency ----------------------
+    # Wall-clock (duration_seconds) is polluted — provider throttling + sleep/wait
+    # inflate it for reasons unrelated to agent skill — so "config A is more
+    # efficient" from time mixes infra noise into a quality claim. Instead the
+    # PRIMARY effort metric is TOKENS (deterministic), with $ as a priced secondary
+    # (sparse: $0 for un-metered providers) and steps as a third. We also
+    # DIFFICULTY-NORMALISE: each run's tokens ÷ the per-CASE median across configs,
+    # so harder cases don't make a config look inefficient — rel_effort ≈ 1.0 means
+    # "typical effort for the cases it ran", >1 heavier, <1 lighter.
+    _SETTLED_OK = (ExperimentRunStatus.SUCCESS.value, ExperimentRunStatus.FAILED.value)
+    case_tokens: dict[str, list[float]] = {}
+    for r in runs:
+        if r.status in _SETTLED_OK:
+            t = _run_effort_tokens(records_by_task.get(r.task_id))
+            if t is not None:
+                case_tokens.setdefault(r.case_key, []).append(t)
+    case_median = {ck: statistics.median(v) for ck, v in case_tokens.items() if v}
+    effort_per_config = []
+    any_tokens = any_cost = False
+    for entry in per_config:
+        key = entry["config_key"]
+        ratios = [
+            t / m
+            for r in by_config.get(key, [])
+            if r.status in _SETTLED_OK
+            and (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+            and (m := case_median.get(r.case_key))
+        ]
+        rel = _mean(ratios)
+        entry["rel_effort"] = rel  # surface in the Summary table too
+        if entry.get("tokens_mean") is not None:
+            any_tokens = True
+        if (entry.get("cost_mean") or 0) > 0:
+            any_cost = True
+        effort_per_config.append(
+            {
+                "config_key": key,
+                "label": entry["label"],
+                "tokens_mean": entry.get("tokens_mean"),
+                "steps_mean": entry.get("steps_mean"),
+                "cost_mean": entry.get("cost_mean"),
+                "duration_mean": entry.get("duration_mean"),  # caveated secondary
+                "rel_effort": rel,
+                "n": entry.get("n_tokens", 0),
+            }
+        )
+    effort = {
+        "available": any_tokens,
+        "cost_available": any_cost,
+        "primary": "tokens",
+        "per_config": effort_per_config,
     }
 
     # --- heatmap: configs × rubric dimensions ---------------------------------
@@ -579,6 +686,11 @@ def build_report(
     for idx in sorted(by_index):
         grp = by_index[idx]
         succ = [r for r in grp if r.status == ExperimentRunStatus.SUCCESS.value]
+        toks = [
+            t
+            for r in grp
+            if (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+        ]
         longitudinal_points.append(
             {
                 "run_index": idx,
@@ -586,6 +698,7 @@ def build_report(
                 "quality_mean": _mean([r.weighted_score for r in succ]),
                 "trajectory_mean": _mean([r.trajectory_score for r in succ]),
                 "cost_mean": _mean([float(r.cost_usd or 0) for r in grp]),
+                "tokens_mean": _mean(toks),  # SPA-77: token effort across repetitions
             }
         )
     longitudinal = {"available": len(longitudinal_points) > 1, "points": longitudinal_points}
@@ -799,7 +912,8 @@ def build_report(
                 "label": entry["label"],
                 "quality": entry["quality_mean"],
                 "cost": entry["cost_mean"],
-                "time": entry["duration_mean"],
+                "effort": entry["tokens_mean"],  # SPA-77: token effort (bubble + frontier)
+                "time": entry["duration_mean"],  # caveated reference only (wall-clock)
             }
         )
     frontier = pareto_frontier(points)
@@ -823,6 +937,7 @@ def build_report(
             "trajectory": r.trajectory_score,
             "cost": float(r.cost_usd or 0),
             "duration": r.duration_seconds,
+            "tokens": _run_effort_tokens(records_by_task.get(r.task_id)),
             "task_id": str(r.task_id) if r.task_id else None,
         }
         for r in runs
@@ -930,14 +1045,14 @@ def build_report(
         group = [r for k in keys for r in by_config.get(k, [])]
         if not group:
             return None
-        return {"configs": sorted(keys), **_group_means(group)}
+        return {"configs": sorted(keys), **_group_means(group, records_by_task)}
 
     on_side, off_side = _side(on_keys), _side(off_keys)
     orchestrator: dict = {"on": on_side, "off": off_side, "delta": None}
     if on_side and off_side:
         delta = {}
         for metric in ("quality_mean", "trajectory_mean", "cost_mean",
-                       "duration_mean", "success_rate"):
+                       "tokens_mean", "duration_mean", "success_rate"):
             a, b = on_side.get(metric), off_side.get(metric)
             delta[metric] = round(a - b, 4) if (a is not None and b is not None) else None
         orchestrator["delta"] = delta  # on minus off
@@ -948,6 +1063,7 @@ def build_report(
         "partial": partial,
         "n_terminal_runs": n_terminal,
         "summary": summary,
+        "effort": effort,
         "heatmap": heatmap,
         "quality_gate": quality_gate,
         "trajectory_heatmap": trajectory_heatmap,
