@@ -136,6 +136,23 @@ function fmtUsd(v: number | null | undefined, digits = 3): string {
   return v == null ? '—' : `$${v.toFixed(digits)}`
 }
 
+// Compact token count (effort metric, SPA-77): 1.67M / 760k / 540.
+function fmtTokens(v: number | null | undefined): string {
+  if (v == null) return '—'
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}k`
+  return `${Math.round(v)}`
+}
+
+// SPA-77: difficulty-normalized relative effort (×median). 1.0 = typical effort
+// for the cases a config ran; >1 heavier (amber), <1 lighter (green).
+function relEffortStyle(v: number | null | undefined): string {
+  if (v == null) return 'text-gray-400'
+  if (v > 1.15) return 'text-amber-700'
+  if (v < 0.85) return 'text-green-700'
+  return 'text-gray-600'
+}
+
 // Subtle red→green cell tint (0 → red, 10 → green) so it never overpowers the
 // status glyphs printed on top of it. 85% sat / 85% light keeps the red↔green
 // signal distinguishable under deuteranopia; the numeric q/t/human score printed in
@@ -565,8 +582,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <th className="px-3 py-2">Success</th>
                 {!verifiable && <th className="px-3 py-2">Quality</th>}
                 <th className="px-3 py-2">Trajectory</th>
+                <th className="px-3 py-2" title="Effort = total LLM tokens (input+output) per run — the confound-free effort signal (SPA-77). See the Effort section for difficulty-normalized ×median.">Effort (tok)</th>
                 <th className="px-3 py-2">Cost avg</th>
-                <th className="px-3 py-2">Time avg</th>
+                <th className="px-3 py-2" title="Wall-clock seconds — POLLUTED by provider throttling + sleep/waits; not a clean effort signal. Use Effort (tokens) instead (SPA-77).">Wall-clock ⚠</th>
               </tr>
             </thead>
             <tbody>
@@ -579,14 +597,61 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   <td className="px-3 py-2">{c.success_rate != null ? `${(c.success_rate * 100).toFixed(0)}%` : '—'}</td>
                   {!verifiable && <td className="px-3 py-2">{fmt(c.quality_mean)}</td>}
                   <td className="px-3 py-2">{fmt(c.trajectory_mean)}</td>
+                  <td className="px-3 py-2 font-medium">{fmtTokens(c.tokens_mean)}
+                    {c.rel_effort != null && <span className={`ml-1 text-xs ${relEffortStyle(c.rel_effort)}`}>×{c.rel_effort.toFixed(2)}</span>}
+                  </td>
                   <td className="px-3 py-2">${fmt(c.cost_mean, 3)}</td>
-                  <td className="px-3 py-2">{c.duration_mean != null ? `${Math.round(c.duration_mean)}s` : '—'}</td>
+                  <td className="px-3 py-2 text-gray-400">{c.duration_mean != null ? `${Math.round(c.duration_mean)}s` : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
+
+      {report.effort?.available && (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Effort <span className="text-xs text-gray-400 font-normal">confound-controlled efficiency (SPA-77) — tokens (primary), difficulty-normalized per case; wall-clock demoted (throttling/waits)</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2" title="Total LLM tokens (input+output) per run, averaged — the primary, deterministic effort metric">Tokens (avg)</th>
+                  <th className="px-3 py-2" title="Difficulty-normalized: tokens ÷ per-case median across configs. 1.0 = typical effort for the cases it ran; >1 heavier, <1 lighter. Controls for hard cases.">×median</th>
+                  <th className="px-3 py-2" title="Agent step count (tool calls)">Steps</th>
+                  <th className="px-3 py-2" title="USD where the provider prices per token; — when un-metered ($0)">Cost</th>
+                  <th className="px-3 py-2" title="Wall-clock seconds — POLLUTED by throttling/waits; reference only, NOT a clean effort signal">Wall-clock ⚠</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.effort.per_config.map((e) => (
+                  <tr key={e.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium" style={{ color: colorByConfig.get(e.config_key) }}>
+                      {e.config_key} <span className="text-gray-500 font-normal">{e.label}</span>
+                    </td>
+                    <td className="px-3 py-2 font-semibold">{fmtTokens(e.tokens_mean)}</td>
+                    <td className={`px-3 py-2 font-medium ${relEffortStyle(e.rel_effort)}`}>{e.rel_effort != null ? `×${e.rel_effort.toFixed(2)}` : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{e.steps_mean != null ? Math.round(e.steps_mean) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{(e.cost_mean ?? 0) > 0 ? fmtUsd(e.cost_mean) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-400">{e.duration_mean != null ? `${Math.round(e.duration_mean)}s` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+            <span className="font-medium">Effort = tokens, not wall-clock.</span> Time is polluted by provider throttling and sleep/wait, so it can't compare agent skill;
+            tokens are deterministic. <span className="font-medium">×median</span> divides each run's tokens by the per-case median across configs, so a config that only ran
+            hard cases isn't penalised — <span className="text-amber-700">{'>'}1</span> = heavier than typical, <span className="text-green-700">{'<'}1</span> = lighter.
+            {report.effort.cost_available
+              ? ' Cost ($) is shown where the provider prices per token.'
+              : ' No per-token pricing here ($0) — tokens are the only honest effort signal.'}
+          </p>
+        </section>
+      )}
 
       {cb?.available && activeCostCols.length > 0 && (
         <section>
@@ -923,6 +988,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   <th className="px-3 py-2">Runs</th>
                   {!verifiable && <th className="px-3 py-2">Quality avg</th>}
                   <th className="px-3 py-2">Trajectory avg</th>
+                  <th className="px-3 py-2" title="Token effort across repetitions (SPA-77)">Tokens avg</th>
                   <th className="px-3 py-2">Cost avg</th>
                 </tr>
               </thead>
@@ -933,6 +999,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                     <td className="px-3 py-2 text-gray-500">{p.n}</td>
                     {!verifiable && <td className="px-3 py-2">{fmt(p.quality_mean)}</td>}
                     <td className="px-3 py-2">{fmt(p.trajectory_mean)}</td>
+                    <td className="px-3 py-2">{fmtTokens(p.tokens_mean)}</td>
                     <td className="px-3 py-2">${fmt(p.cost_mean, 3)}</td>
                   </tr>
                 ))}
@@ -1113,41 +1180,56 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × cost · bubble size = wall-clock time · <span className="text-green-700">green</span> = on the frontier (no config beats it on all of quality/cost/time), grey = dominated{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
-          <div className="bg-white border rounded-lg p-3 h-72">
-            {new Set(report.pareto.points.map((p) => p.cost)).size <= 1 ? (
+          {(() => {
+            const pts = report.pareto.points
+            const costVaries = new Set(pts.map((p) => p.cost)).size > 1
+            const effortVaries = new Set(pts.map((p) => p.effort ?? null)).size > 1
+            // SPA-77: X axis = cost when priced, else fall back to TOKEN effort so the
+            // frontier stays meaningful for un-metered ($0) providers; the bubble is
+            // token effort (or caveated wall-clock when effort is already the axis).
+            const xKey = costVaries ? 'cost' : 'effort'
+            const xLabel = costVaries ? 'Cost ($)' : 'Effort (tokens)'
+            const bubbleKey = costVaries ? 'effort' : 'time'
+            return (
+            <>
+            <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × {costVaries ? 'cost' : 'token effort'} · bubble = {costVaries ? 'token effort' : 'wall-clock ⚠'} · <span className="text-green-700">green</span> = on the frontier (quality↑ · cost↓ · effort↓), grey = dominated{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
+            <div className="bg-white border rounded-lg p-3 h-72">
+            {!(costVaries || effortVaries) ? (
               <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
-                Cost is identical across configs (${(report.pareto.points[0]?.cost ?? 0).toFixed(3)}) — these
-                providers don't expose per-token pricing, so a quality × cost frontier is degenerate. Compare
-                quality via the leaderboard and heatmap instead.
+                Neither cost nor token effort varies across configs — a quality × effort frontier is degenerate.
+                Compare quality via the leaderboard and heatmap instead.
               </div>
             ) : (
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" dataKey="cost" name="cost" unit="$" tick={{ fontSize: 11 }}
-                  label={{ value: 'Cost ($)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                <XAxis type="number" dataKey={xKey} name={xKey} tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => (costVaries ? `$${Number(v).toFixed(2)}` : fmtTokens(Number(v)))}
+                  label={{ value: xLabel, position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }}
                   label={{ value: verifiable ? 'Quality (E-02)*' : 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
-                <ZAxis type="number" dataKey="time" range={[60, 400]} name="time" unit="s" />
+                <ZAxis type="number" dataKey={bubbleKey} range={[60, 400]} name={bubbleKey} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => (payload && payload.length ? (
                     <div className="bg-white border rounded px-2 py-1 text-xs shadow">
                       <div className="font-medium">{payload[0].payload.label}</div>
-                      <div>quality {fmt(payload[0].payload.quality, 1)} · ${fmt(payload[0].payload.cost, 3)} · {payload[0].payload.time != null ? `${Math.round(payload[0].payload.time)}s` : '—'}{payload[0].payload.on_frontier ? ' · frontier' : ''}</div>
+                      <div>quality {fmt(payload[0].payload.quality, 1)} · {fmtTokens(payload[0].payload.effort)} tok · ${fmt(payload[0].payload.cost, 3)} · <span className="text-gray-400">{payload[0].payload.time != null ? `${Math.round(payload[0].payload.time)}s ⚠` : '—'}</span>{payload[0].payload.on_frontier ? ' · frontier' : ''}</div>
                     </div>
                   ) : null)} />
                 <Legend />
-                <Scatter name="frontier" data={report.pareto.points.filter((p) => p.on_frontier)} fill="#16a34a">
+                <Scatter name="frontier" data={pts.filter((p) => p.on_frontier)} fill="#16a34a">
                   <LabelList dataKey="label" position="top" offset={8} fontSize={11} fill="#15803d" />
                 </Scatter>
-                <Scatter name="dominated" data={report.pareto.points.filter((p) => !p.on_frontier)} fill="#9ca3af">
+                <Scatter name="dominated" data={pts.filter((p) => !p.on_frontier)} fill="#9ca3af">
                   <LabelList dataKey="label" position="top" offset={8} fontSize={11} fill="#6b7280" />
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
             )}
-          </div>
+            </div>
+            </>
+            )
+          })()}
         </section>
 
         <section>
@@ -1366,8 +1448,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                     ['quality_mean', 'Quality'],
                     ['trajectory_mean', 'Trajectory'],
                     ['success_rate', 'Success rate'],
+                    ['tokens_mean', 'Effort (tok)'],
                     ['cost_mean', 'Cost avg, $'],
-                    ['duration_mean', 'Time avg, s'],
+                    ['duration_mean', 'Wall-clock, s ⚠'],
                   ] as const).map(([key, label]) => (
                     <tr key={key} className="border-t">
                       <td className="py-1.5 text-gray-600">{label}</td>
