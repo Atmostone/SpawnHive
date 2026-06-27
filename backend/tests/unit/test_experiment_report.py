@@ -15,23 +15,23 @@ from app.quality.experiment_report import (
 class TestParetoFrontier:
     def test_dominated_point_excluded(self):
         points = [
-            {"config_key": "a", "quality": 8.0, "cost": 0.1, "time": 100},
-            {"config_key": "b", "quality": 7.0, "cost": 0.2, "time": 200},  # dominated by a
-            {"config_key": "c", "quality": 9.0, "cost": 0.5, "time": 300},  # better quality
+            {"config_key": "a", "quality": 8.0, "cost": 0.1, "effort": 100},
+            {"config_key": "b", "quality": 7.0, "cost": 0.2, "effort": 200},  # dominated by a
+            {"config_key": "c", "quality": 9.0, "cost": 0.5, "effort": 300},  # better quality
         ]
         assert pareto_frontier(points) == ["a", "c"]
 
     def test_identical_points_both_on_frontier(self):
         points = [
-            {"config_key": "a", "quality": 5.0, "cost": 0.1, "time": 10},
-            {"config_key": "b", "quality": 5.0, "cost": 0.1, "time": 10},
+            {"config_key": "a", "quality": 5.0, "cost": 0.1, "effort": 10},
+            {"config_key": "b", "quality": 5.0, "cost": 0.1, "effort": 10},
         ]
         assert pareto_frontier(points) == ["a", "b"]
 
     def test_missing_quality_excluded(self):
         points = [
-            {"config_key": "a", "quality": None, "cost": 0.0, "time": 0},
-            {"config_key": "b", "quality": 1.0, "cost": 9.9, "time": 999},
+            {"config_key": "a", "quality": None, "cost": 0.0, "effort": 0},
+            {"config_key": "b", "quality": 1.0, "cost": 9.9, "effort": 999},
         ]
         assert pareto_frontier(points) == ["b"]
 
@@ -93,7 +93,8 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
 
 def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
             human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0,
-            gate=None, loop_detected=False, trace_stats=None, loop_analysis=None):
+            gate=None, loop_detected=False, trace_stats=None, loop_analysis=None,
+            input_tokens=None, output_tokens=None, tool_call_count=None):
     quality_profile = None
     if dimensions or quality_cost or gate:
         quality_profile = {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
@@ -120,6 +121,9 @@ def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_mat
         trajectory_evidence_profile=None,
         hallucination_profile=None,
         human_feedback=human_feedback,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        tool_call_count=tool_call_count,
     )
 
 
@@ -158,7 +162,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 9
+    assert report["schema_version"] == 10
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -243,6 +247,41 @@ def test_build_report_full_shape():
     assert orch["delta"]["cost_mean"] > 0
 
 
+def test_build_report_effort_token_difficulty():
+    # Two cases (easy 'case-a', token-heavy 'case-b'); cfg-02 spends ~2× the tokens
+    # of cfg-01 on BOTH. SPA-77 difficulty-normalisation (tokens ÷ per-case median)
+    # exposes cfg-02 as consistently heavier (rel_effort 1.33 vs 0.67) even though
+    # 'case-b' is intrinsically token-heavy. Cost is $0 → token fallback.
+    toks = {("cfg-01", "case-a"): 100, ("cfg-01", "case-b"): 1000,
+            ("cfg-02", "case-a"): 200, ("cfg-02", "case-b"): 2000}
+    runs, records = [], {}
+    for (cfg, case), t in toks.items():
+        r = _run(cfg, case, 0, score=8.0, traj=7.0, cost="0")
+        runs.append(r)
+        records[r.task_id] = _record(input_tokens=t, output_tokens=0, tool_call_count=5)
+
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+
+    eff = report["effort"]
+    assert eff["available"] is True
+    assert eff["cost_available"] is False  # all $0 → tokens are the only effort signal
+    assert eff["primary"] == "tokens"
+    by = {e["config_key"]: e for e in eff["per_config"]}
+    assert by["cfg-01"]["tokens_mean"] == 550.0
+    assert by["cfg-02"]["tokens_mean"] == 1100.0
+    assert by["cfg-01"]["steps_mean"] == 5.0
+    # difficulty-normalised: cfg-01 below the per-case median (0.667), cfg-02 above (1.333)
+    assert by["cfg-01"]["rel_effort"] == 0.6667
+    assert by["cfg-02"]["rel_effort"] == 1.3333
+    # surfaced in the Summary table rows as well
+    sc = {c["config_key"]: c for c in report["summary"]["per_config"]}
+    assert sc["cfg-01"]["tokens_mean"] == 550.0 and sc["cfg-01"]["rel_effort"] == 0.6667
+    # Pareto bubble/frontier is token effort (not wall-clock); scatter carries tokens
+    assert all("effort" in p for p in report["pareto"]["points"])
+    assert all("tokens" in s for s in report["scatter"])
+    assert all("tokens_mean" in p for p in report["longitudinal"]["points"])
+
+
 def test_build_report_empty_runs():
     report = build_report(_exp(CONFIGS), [], {}, partial=True)
     assert report["partial"] is True
@@ -268,7 +307,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 9
+    assert report["schema_version"] == 10
 
     ext = report["external"]
     assert ext["available"] is True

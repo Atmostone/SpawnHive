@@ -1410,6 +1410,24 @@ export interface ExperimentConfigSummary {
   trajectory_mean?: number | null
   cost_mean?: number | null
   duration_mean?: number | null
+  // SPA-77: confound-controlled effort — tokens (primary), steps, and the
+  // difficulty-normalized relative effort (tokens ÷ per-case median across configs).
+  tokens_mean?: number | null
+  n_tokens?: number
+  steps_mean?: number | null
+  rel_effort?: number | null
+}
+
+// SPA-77: per-config effort row (token/$ effort, difficulty-normalized).
+export interface ExperimentEffortRow {
+  config_key: string
+  label: string
+  tokens_mean?: number | null
+  steps_mean?: number | null
+  cost_mean?: number | null
+  duration_mean?: number | null  // wall-clock — caveated secondary (throttling/waits)
+  rel_effort?: number | null     // ×median; 1.0 = typical difficulty-adjusted effort
+  n: number
 }
 
 // Per-config (or experiment-total) cost decomposition in USD (SPA-73).
@@ -1446,6 +1464,7 @@ export interface OrchestratorSide {
   trajectory_mean?: number | null
   cost_mean?: number | null
   duration_mean?: number | null
+  tokens_mean?: number | null
 }
 
 export interface ExperimentRq2Cell {
@@ -1468,6 +1487,15 @@ export interface ExperimentReport {
     budget_limit_usd?: number | null
     per_config: ExperimentConfigSummary[]
   }
+  // SPA-77: confound-controlled effort/efficiency. Primary metric is TOKENS
+  // (deterministic), $ secondary (sparse: cost_available=false when un-metered),
+  // difficulty-normalized per case (rel_effort). Wall-clock is demoted/caveated.
+  effort?: {
+    available: boolean
+    cost_available: boolean
+    primary: string
+    per_config: ExperimentEffortRow[]
+  } | null
   heatmap: {
     dimensions: string[]
     dimension_labels: Record<string, string>
@@ -1577,6 +1605,7 @@ export interface ExperimentReport {
       quality_mean?: number | null
       trajectory_mean?: number | null
       cost_mean?: number | null
+      tokens_mean?: number | null
     }[]
   } | null
   // E-05 human feedback aggregated per config (SPA-73): the third oracle, shown
@@ -1633,7 +1662,8 @@ export interface ExperimentReport {
       label: string
       quality?: number | null
       cost?: number | null
-      time?: number | null
+      effort?: number | null  // SPA-77: token effort (bubble + frontier 3rd dim)
+      time?: number | null     // wall-clock — caveated reference only
       on_frontier: boolean
     }[]
     frontier: string[]
@@ -1648,6 +1678,7 @@ export interface ExperimentReport {
     trajectory?: number | null
     cost: number
     duration?: number | null
+    tokens?: number | null
     task_id?: string | null
   }[]
   leaderboard: {
