@@ -98,7 +98,6 @@ export function RegistrySection({ canEdit }: { canEdit: boolean }) {
         <div>
           <h2 className="font-semibold flex items-center gap-2">
             <Wrench className="h-4 w-4" /> Tool &amp; MCP Registry
-            <span className="text-xs font-normal text-gray-400">(SPA-41)</span>
           </h2>
           <p className="text-xs text-gray-500">
             Configure tools and MCP servers once; templates reference them by id. Secrets are masked

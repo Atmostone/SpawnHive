@@ -35,7 +35,7 @@ export default function OutcomeScorePanel({ profile }: { profile: QualityProfile
     <div className="mt-2 border rounded-lg p-3 bg-gray-50 space-y-3 min-w-0">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700">
-          Outcome score (E-02){profile?.rubric_name ? ` · ${profile.rubric_name}` : ''}
+          Outcome score{profile?.rubric_name ? ` · ${profile.rubric_name}` : ''}
         </h4>
         <button onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:underline">
           close

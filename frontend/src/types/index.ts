@@ -1410,6 +1410,24 @@ export interface ExperimentConfigSummary {
   trajectory_mean?: number | null
   cost_mean?: number | null
   duration_mean?: number | null
+  // SPA-77: confound-controlled effort — tokens (primary), steps, and the
+  // difficulty-normalized relative effort (tokens ÷ per-case median across configs).
+  tokens_mean?: number | null
+  n_tokens?: number
+  steps_mean?: number | null
+  rel_effort?: number | null
+}
+
+// SPA-77: per-config effort row (token/$ effort, difficulty-normalized).
+export interface ExperimentEffortRow {
+  config_key: string
+  label: string
+  tokens_mean?: number | null
+  steps_mean?: number | null
+  cost_mean?: number | null
+  duration_mean?: number | null  // wall-clock — caveated secondary (throttling/waits)
+  rel_effort?: number | null     // ×median; 1.0 = typical difficulty-adjusted effort
+  n: number
 }
 
 // Per-config (or experiment-total) cost decomposition in USD (SPA-73).
@@ -1446,6 +1464,7 @@ export interface OrchestratorSide {
   trajectory_mean?: number | null
   cost_mean?: number | null
   duration_mean?: number | null
+  tokens_mean?: number | null
 }
 
 export interface ExperimentRq2Cell {
@@ -1468,6 +1487,15 @@ export interface ExperimentReport {
     budget_limit_usd?: number | null
     per_config: ExperimentConfigSummary[]
   }
+  // SPA-77: confound-controlled effort/efficiency. Primary metric is TOKENS
+  // (deterministic), $ secondary (sparse: cost_available=false when un-metered),
+  // difficulty-normalized per case (rel_effort). Wall-clock is demoted/caveated.
+  effort?: {
+    available: boolean
+    cost_available: boolean
+    primary: string
+    per_config: ExperimentEffortRow[]
+  } | null
   heatmap: {
     dimensions: string[]
     dimension_labels: Record<string, string>
@@ -1505,15 +1533,55 @@ export interface ExperimentReport {
   // E-07 loop-detection rate per config (SPA-74): share of trajectory-scored runs
   // (success OR failed) the process judge flagged as looping — the most actionable
   // process pathology. Counted across failures too (looping often causes them).
+  // …plus a deterministic loop anchor (SPA-75): structural_loop_rate COUNTS
+  // repeated tool-calls over the full untrimmed trace (LLM-free, a precision-
+  // oriented lower bound) next to the judge rate. The two see different inputs/
+  // scopes, so we surface the DIRECTIONAL split (judge-only vs counter-only) +
+  // Cohen's κ, not just a symmetric agreement %.
   loop_detection?: {
     available: boolean
+    structural_available?: boolean
+    agreement?: number | null
+    kappa?: number | null
+    n_judge_only?: number
+    n_counter_only?: number
+    n_structural?: number
     per_config: {
       config_key: string
       label: string
       n_scored: number
       n_loop: number
       loop_rate?: number | null
+      n_structural?: number
+      n_structural_loop?: number
+      structural_loop_rate?: number | null
+      n_judge_only?: number
+      n_counter_only?: number
+      agreement?: number | null
+      kappa?: number | null
     }[]
+  } | null
+  // SPA-76 reliability gate: per-axis trustworthiness of the E-07 process judge,
+  // from REAL calibration only — judge↔human Cohen's κ (E-17) where a human rated
+  // the axis, else the judge↔counter loop anchor (SPA-75) for the loop axis, else
+  // an honest 'not_calibrated'. Below-threshold axes are quarantined in the UI so
+  // an unreliable axis can't silently imply a process "win".
+  axis_reliability?: {
+    available: boolean
+    reliable_kappa: number
+    directional_kappa: number
+    min_samples: number
+    axes: Record<
+      string,
+      {
+        key: string
+        name: string
+        source: 'human' | 'structural' | 'none'
+        kappa?: number | null
+        n: number
+        status: 'reliable' | 'directional' | 'unreliable' | 'not_calibrated'
+      }
+    >
   } | null
   // E-06 cleaned-trace stats per config (SPA-74): mean steps + trace compression.
   trace_stats?: {
@@ -1537,6 +1605,7 @@ export interface ExperimentReport {
       quality_mean?: number | null
       trajectory_mean?: number | null
       cost_mean?: number | null
+      tokens_mean?: number | null
     }[]
   } | null
   // E-05 human feedback aggregated per config (SPA-73): the third oracle, shown
@@ -1593,7 +1662,8 @@ export interface ExperimentReport {
       label: string
       quality?: number | null
       cost?: number | null
-      time?: number | null
+      effort?: number | null  // SPA-77: token effort (bubble + frontier 3rd dim)
+      time?: number | null     // wall-clock — caveated reference only
       on_frontier: boolean
     }[]
     frontier: string[]
@@ -1608,6 +1678,7 @@ export interface ExperimentReport {
     trajectory?: number | null
     cost: number
     duration?: number | null
+    tokens?: number | null
     task_id?: string | null
   }[]
   leaderboard: {
@@ -1677,4 +1748,16 @@ export interface ExperimentReport {
       reliable: boolean
     }
   } | null
+  checker_human?: {
+    available: boolean
+    n: number
+    kappa?: number | null
+    agreement?: number | null
+    cells: {
+      pass_approve: number
+      pass_reject: number
+      fail_approve: number
+      fail_reject: number
+    }
+  }
 }
