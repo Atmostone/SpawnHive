@@ -15,23 +15,23 @@ from app.quality.experiment_report import (
 class TestParetoFrontier:
     def test_dominated_point_excluded(self):
         points = [
-            {"config_key": "a", "quality": 8.0, "cost": 0.1, "time": 100},
-            {"config_key": "b", "quality": 7.0, "cost": 0.2, "time": 200},  # dominated by a
-            {"config_key": "c", "quality": 9.0, "cost": 0.5, "time": 300},  # better quality
+            {"config_key": "a", "quality": 8.0, "cost": 0.1, "effort": 100},
+            {"config_key": "b", "quality": 7.0, "cost": 0.2, "effort": 200},  # dominated by a
+            {"config_key": "c", "quality": 9.0, "cost": 0.5, "effort": 300},  # better quality
         ]
         assert pareto_frontier(points) == ["a", "c"]
 
     def test_identical_points_both_on_frontier(self):
         points = [
-            {"config_key": "a", "quality": 5.0, "cost": 0.1, "time": 10},
-            {"config_key": "b", "quality": 5.0, "cost": 0.1, "time": 10},
+            {"config_key": "a", "quality": 5.0, "cost": 0.1, "effort": 10},
+            {"config_key": "b", "quality": 5.0, "cost": 0.1, "effort": 10},
         ]
         assert pareto_frontier(points) == ["a", "b"]
 
     def test_missing_quality_excluded(self):
         points = [
-            {"config_key": "a", "quality": None, "cost": 0.0, "time": 0},
-            {"config_key": "b", "quality": 1.0, "cost": 9.9, "time": 999},
+            {"config_key": "a", "quality": None, "cost": 0.0, "effort": 0},
+            {"config_key": "b", "quality": 1.0, "cost": 9.9, "effort": 999},
         ]
         assert pareto_frontier(points) == ["b"]
 
@@ -93,14 +93,15 @@ def _run(config_key, case_key, idx, *, status="success", score=None, traj=None,
 
 def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_match=None,
             human_feedback=None, cost_usd="0", quality_cost=0.0, trajectory_cost=0.0,
-            gate=None, loop_detected=False, trace_stats=None):
+            gate=None, loop_detected=False, trace_stats=None, loop_analysis=None,
+            input_tokens=None, output_tokens=None, tool_call_count=None):
     quality_profile = None
     if dimensions or quality_cost or gate:
         quality_profile = {"dimensions": dimensions or [], "judge_cost_usd": quality_cost}
         if gate is not None:
             quality_profile["gate"] = gate
     trajectory_profile = None
-    if trajectory_axes is not None or loop_detected or trace_stats:
+    if trajectory_axes is not None or loop_detected or trace_stats or loop_analysis:
         trajectory_profile = {
             "status": "scored",
             "axes": trajectory_axes or [],
@@ -109,6 +110,8 @@ def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_mat
         }
         if trace_stats is not None:
             trajectory_profile["trace_stats"] = trace_stats
+        if loop_analysis is not None:
+            trajectory_profile["loop_analysis"] = loop_analysis
     return SimpleNamespace(
         cost_usd=Decimal(str(cost_usd)),
         quality_profile=quality_profile,
@@ -118,6 +121,9 @@ def _record(dimensions=None, failures=None, trajectory_axes=None, trajectory_mat
         trajectory_evidence_profile=None,
         hallucination_profile=None,
         human_feedback=human_feedback,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        tool_call_count=tool_call_count,
     )
 
 
@@ -156,7 +162,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 12
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -182,6 +188,8 @@ def test_build_report_full_shape():
     # No gate in these profiles; cfg-01 trajectory-scored so loop_detection is live
     assert report["quality_gate"]["available"] is False
     assert report["loop_detection"]["available"] is True
+    # LLM loop signal present, but no deterministic loop_analysis on these records
+    assert report["loop_detection"]["structural_available"] is False
     # No trace_stats in these profiles; longitudinal has >1 repetition (idx 0/1/2/3)
     assert report["trace_stats"]["available"] is False
     assert report["longitudinal"]["available"] is True
@@ -198,6 +206,17 @@ def test_build_report_full_shape():
     assert row1t["cells"]["efficiency"]["n"] == 6
     assert row1t["cells"]["efficiency"]["mean"] == 7.0
     assert row1t["overall_score"]["mean"] is not None
+
+    # SPA-76: no human calibration passed and no deterministic loop_analysis on
+    # these records → every axis is an honest 'not_calibrated' (never fabricated).
+    # v11: the judge loop_detection axis is retired (counter SPA-75 carries it).
+    ar = report["axis_reliability"]
+    assert ar["available"] is False
+    assert set(ar["axes"]) == {"efficiency", "tool_selection", "parameter_quality",
+                               "error_recovery", "goal_alignment"}
+    assert "loop_detection" not in ar["axes"]
+    assert all(a["status"] == "not_calibrated" and a["source"] == "none"
+               for a in ar["axes"].values())
 
     pareto = report["pareto"]
     assert pareto["frontier"] == ["cfg-01"]  # better quality AND cheaper AND faster
@@ -230,6 +249,41 @@ def test_build_report_full_shape():
     assert orch["delta"]["cost_mean"] > 0
 
 
+def test_build_report_effort_token_difficulty():
+    # Two cases (easy 'case-a', token-heavy 'case-b'); cfg-02 spends ~2× the tokens
+    # of cfg-01 on BOTH. SPA-77 difficulty-normalisation (tokens ÷ per-case median)
+    # exposes cfg-02 as consistently heavier (rel_effort 1.33 vs 0.67) even though
+    # 'case-b' is intrinsically token-heavy. Cost is $0 → token fallback.
+    toks = {("cfg-01", "case-a"): 100, ("cfg-01", "case-b"): 1000,
+            ("cfg-02", "case-a"): 200, ("cfg-02", "case-b"): 2000}
+    runs, records = [], {}
+    for (cfg, case), t in toks.items():
+        r = _run(cfg, case, 0, score=8.0, traj=7.0, cost="0")
+        runs.append(r)
+        records[r.task_id] = _record(input_tokens=t, output_tokens=0, tool_call_count=5)
+
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+
+    eff = report["effort"]
+    assert eff["available"] is True
+    assert eff["cost_available"] is False  # all $0 → tokens are the only effort signal
+    assert eff["primary"] == "tokens"
+    by = {e["config_key"]: e for e in eff["per_config"]}
+    assert by["cfg-01"]["tokens_mean"] == 550.0
+    assert by["cfg-02"]["tokens_mean"] == 1100.0
+    assert by["cfg-01"]["steps_mean"] == 5.0
+    # difficulty-normalised: cfg-01 below the per-case median (0.667), cfg-02 above (1.333)
+    assert by["cfg-01"]["rel_effort"] == 0.6667
+    assert by["cfg-02"]["rel_effort"] == 1.3333
+    # surfaced in the Summary table rows as well
+    sc = {c["config_key"]: c for c in report["summary"]["per_config"]}
+    assert sc["cfg-01"]["tokens_mean"] == 550.0 and sc["cfg-01"]["rel_effort"] == 0.6667
+    # Pareto bubble/frontier is token effort (not wall-clock); scatter carries tokens
+    assert all("effort" in p for p in report["pareto"]["points"])
+    assert all("tokens" in s for s in report["scatter"])
+    assert all("tokens_mean" in p for p in report["longitudinal"]["points"])
+
+
 def test_build_report_empty_runs():
     report = build_report(_exp(CONFIGS), [], {}, partial=True)
     assert report["partial"] is True
@@ -255,7 +309,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 12
 
     ext = report["external"]
     assert ext["available"] is True
@@ -316,6 +370,34 @@ def test_build_report_human_feedback_aggregate():
     row2 = next(r for r in hf["rows"] if r["config_key"] == "cfg-02")
     assert row2["n_rated"] == 0
     assert row2["cells"]["accuracy"]["n"] == 0
+
+
+def test_build_report_checker_human_agreement():
+    # v12: pair the executable-checker verdict (external_verdict) with the human
+    # gold verdict. 4 runs cover the 2×2; a 5th has a checker verdict but no human
+    # verdict (excluded).
+    runs, records = [], {}
+    for i, (ev, hv) in enumerate(
+        [(True, "approve"), (True, "reject"), (False, "reject"), (False, "approve")]
+    ):
+        r = _run("cfg-01", f"case-{i}", 0, status="success", score=7.0, external_verdict=ev)
+        runs.append(r)
+        records[r.task_id] = _record(human_feedback={"verdict": hv, "dimensions": []})
+    r5 = _run("cfg-01", "case-x", 0, status="success", score=6.0, external_verdict=True)
+    runs.append(r5)
+    records[r5.task_id] = _record()  # checker verdict but no human → excluded
+
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ch = report["checker_human"]
+    assert ch["available"] is True
+    assert ch["n"] == 4
+    assert ch["cells"] == {
+        "pass_approve": 1, "pass_reject": 1, "fail_approve": 1, "fail_reject": 1,
+    }
+    # agreement = (pass_approve + fail_reject) / n = 2/4
+    assert ch["agreement"] == 0.5
+    # κ on {both_yes=1, a_only=1, b_only=1, both_no=1}: po=.5, pe=.5 → 0
+    assert ch["kappa"] == 0.0
 
 
 def test_build_report_cost_breakdown():
@@ -458,9 +540,115 @@ def test_build_report_loop_detection():
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
     ld = report["loop_detection"]
     assert ld["available"] is True
+    assert ld["structural_available"] is False  # no loop_analysis on these records
     by = {c["config_key"]: c for c in ld["per_config"]}
     assert (by["cfg-01"]["n_scored"], by["cfg-01"]["n_loop"], by["cfg-01"]["loop_rate"]) == (2, 1, 0.5)
     assert (by["cfg-02"]["n_scored"], by["cfg-02"]["n_loop"], by["cfg-02"]["loop_rate"]) == (1, 0, 0.0)
+
+
+def test_build_report_loop_detection_structural_anchor():
+    # Two trajectory-scored runs carry BOTH the LLM loop badge and the deterministic
+    # loop_analysis. The deterministic rate sits next to the judge rate, and the
+    # agreement is the judge↔counted match.
+    r1 = _run("cfg-01", "case-a", 0, status="success", traj=7.0)
+    r2 = _run("cfg-01", "case-a", 1, status="failed", traj=2.0)
+    runs = [r1, r2]
+    records = {
+        # judge says no loop, counter agrees (no loop) → agree
+        r1.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 7}],
+            loop_detected=False,
+            loop_analysis={"loop_detected": False, "max_repeat_run": 1},
+        ),
+        # judge says no loop, but the counter FOUND a real loop → judge under-called
+        r2.task_id: _record(
+            trajectory_axes=[{"key": "efficiency", "name": "Efficiency", "score": 6}],
+            loop_detected=False,
+            loop_analysis={"loop_detected": True, "max_repeat_run": 5},
+        ),
+    }
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ld = report["loop_detection"]
+    assert ld["structural_available"] is True
+    by = {c["config_key"]: c for c in ld["per_config"]}
+    cfg1 = by["cfg-01"]
+    # LLM badge: 0/2 looped; deterministic: 1/2 looped (caught the one the judge missed)
+    assert (cfg1["n_loop"], cfg1["loop_rate"]) == (0, 0.0)
+    assert (cfg1["n_structural"], cfg1["n_structural_loop"], cfg1["structural_loop_rate"]) == (2, 1, 0.5)
+    # directional split: judge never over-called; counter found 1 the judge missed
+    assert cfg1["n_judge_only"] == 0
+    assert cfg1["n_counter_only"] == 1
+    # agreement: 1 of 2 runs agree (the no-loop one) → 0.5
+    assert cfg1["agreement"] == 0.5
+    # κ on {both_loop=0, judge_only=0, counter_only=1, both_clean=1}: po=.5, pe=.5 → 0
+    assert cfg1["kappa"] == 0.0
+    assert ld["agreement"] == 0.5
+    assert ld["n_counter_only"] == 1 and ld["n_judge_only"] == 0
+    assert ld["kappa"] == 0.0
+    assert ld["n_structural"] == 2
+    # v11: the judge loop_detection axis is retired from axis_reliability — the SPA-75
+    # counter still carries the loop signal in the Loop detection section (asserted
+    # above), but it no longer badges a displayed E-07 axis. With no human calibration
+    # and loop gone, no real reliability source remains.
+    ar = report["axis_reliability"]
+    assert "loop_detection" not in ar["axes"]
+    assert ar["available"] is False
+    assert ar["axes"]["efficiency"]["status"] == "not_calibrated"
+
+
+def test_classify_reliability_buckets():
+    from app.quality.experiment_report import _classify_reliability
+
+    assert _classify_reliability(0.7, 10, has_source=True) == "reliable"
+    assert _classify_reliability(0.6, 10, has_source=True) == "reliable"  # boundary
+    assert _classify_reliability(0.5, 10, has_source=True) == "directional"
+    assert _classify_reliability(0.4, 10, has_source=True) == "directional"  # boundary
+    assert _classify_reliability(0.39, 10, has_source=True) == "unreliable"
+    assert _classify_reliability(-0.1, 10, has_source=True) == "unreliable"
+    assert _classify_reliability(0.9, 2, has_source=True) == "directional"  # too few pairs
+    assert _classify_reliability(None, 10, has_source=True) == "directional"  # undefined κ
+    assert _classify_reliability(0.9, 10, has_source=False) == "not_calibrated"
+
+
+def test_axis_reliability_sources_and_priority():
+    from app.quality.experiment_report import _axis_reliability
+
+    calibration = {
+        "available": True,
+        "dimensions": [
+            {"key": "efficiency", "name": "Efficiency", "n": 10, "cohen_kappa": 0.72},
+            {"key": "tool_selection", "name": "Tool selection", "n": 10, "cohen_kappa": 0.45},
+            {"key": "parameter_quality", "name": "Parameter quality", "n": 10, "cohen_kappa": 0.10},
+            {"key": "error_recovery", "name": "Error recovery", "n": 2, "cohen_kappa": None},
+            # goal_alignment absent → no human source
+            {"key": "loop_detection", "name": "Loop detection", "n": 12, "cohen_kappa": 0.05},
+        ],
+    }
+    loop_detection = {"structural_available": True, "kappa": 0.33, "n_structural": 50}
+    ar = _axis_reliability(calibration, loop_detection, {})
+    ax = ar["axes"]
+    assert ar["available"] is True
+    assert (ax["efficiency"]["status"], ax["efficiency"]["source"]) == ("reliable", "human")
+    assert (ax["tool_selection"]["status"], ax["tool_selection"]["source"]) == ("directional", "human")
+    assert (ax["parameter_quality"]["status"], ax["parameter_quality"]["source"]) == ("unreliable", "human")
+    # human dim exists but n=2 < MIN_SAMPLES → directional (insufficient), still human-sourced
+    assert (ax["error_recovery"]["status"], ax["error_recovery"]["source"]) == ("directional", "human")
+    assert (ax["goal_alignment"]["status"], ax["goal_alignment"]["source"]) == ("not_calibrated", "none")
+    # v11: the judge loop_detection axis is retired — never badged, even with a human κ.
+    assert "loop_detection" not in ax
+
+    # The structural loop anchor no longer surfaces a displayed axis (v11).
+    cal2 = {"available": True, "dimensions": [
+        {"key": "efficiency", "name": "Efficiency", "n": 10, "cohen_kappa": 0.72}]}
+    ar2 = _axis_reliability(cal2, loop_detection, {})
+    assert "loop_detection" not in ar2["axes"]
+    # a non-loop axis with no human source stays not_calibrated even when a loop anchor exists
+    assert ar2["axes"]["goal_alignment"]["status"] == "not_calibrated"
+
+    # Nothing at all → honest empty state.
+    ar3 = _axis_reliability(None, {"structural_available": False}, {})
+    assert ar3["available"] is False
+    assert all(a["status"] == "not_calibrated" for a in ar3["axes"].values())
 
 
 def test_build_report_failure_reasons():

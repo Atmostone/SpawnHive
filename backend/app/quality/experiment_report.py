@@ -27,9 +27,20 @@ from app.models.experiment import Experiment, ExperimentRun, ExperimentRunStatus
 from app.models.quality_record import QualityRecord
 from app.quality.aggregation import rank
 from app.quality.ranking import build_matches
-from app.quality.stats import mann_whitney_u, welch_t_test
+from app.quality.stats import MIN_SAMPLES, mann_whitney_u, welch_t_test
+from app.quality.trajectory import AXES as TRAJECTORY_AXES
 
-SCHEMA_VERSION = 6  # v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
+SCHEMA_VERSION = 12  # v12: checker↔human agreement (Cohen's κ + raw) — the executable
+# checker vs the human gold verdict, surfaced beside judge↔human calibration
+# v11: retire the unreliable judge loop_detection axis — drop it
+# from the displayed E-07 axes AND from the trajectory aggregate (a quarantined axis
+# must not be weighed into conclusions, SPA-76); deterministic counter (SPA-75) stays
+# v10: confound-controlled effort (SPA-77) — token/$ effort,
+# difficulty-normalized per case; wall-clock demoted to a caveated secondary
+# v9: per-axis reliability gate (SPA-76) — E-17/loop-anchor κ badge
+# v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
+# v7: deterministic loop anchor (structural_loop_rate + judge↔counted agreement)
+# v6: trace_stats (E-06) + longitudinal (E-22 across run_index)
 # v5: loop_detection + quality_gate per config, failure reasons,
 # quality-heatmap dimension_labels
 # v4: human_feedback (E-05 per-config aggregate) + cost_breakdown
@@ -57,22 +68,193 @@ def _std(values: list[float]) -> Optional[float]:
     return round(statistics.pstdev(vals), 4)
 
 
+def _median(values) -> Optional[float]:
+    vals = [float(v) for v in values if v is not None]
+    return round(statistics.median(vals), 4) if vals else None
+
+
+# --- SPA-77 effort accessors (confound-controlled) --------------------------- #
+# Effort is measured by LLM tokens (deterministic) — NOT wall-clock, which is
+# polluted by provider throttling + sleep/wait. Tokens live on the QualityRecord
+# (denormalized from task.token_usage), not on ExperimentRun; cost is sparse
+# ($0 for un-metered providers — ~74% of runs), so tokens are the primary signal
+# and cost is the priced secondary.
+def _run_effort_tokens(rec) -> Optional[float]:
+    """Total LLM tokens (input + output) for a run, or None when unrecorded."""
+    if rec is None:
+        return None
+    it = getattr(rec, "input_tokens", None)
+    ot = getattr(rec, "output_tokens", None)
+    if it is None and ot is None:
+        return None
+    return float((it or 0) + (ot or 0))
+
+
+def _run_steps(rec) -> Optional[float]:
+    """Agent step count — tool_call_count (near-100% populated), else the E-06
+    trace steps_total fallback."""
+    if rec is None:
+        return None
+    tcc = getattr(rec, "tool_call_count", None)
+    if tcc is not None:
+        return float(tcc)
+    ts = (getattr(rec, "trajectory_profile", None) or {}).get("trace_stats") or {}
+    st = ts.get("steps_total")
+    return float(st) if st is not None else None
+
+
+# The judge loop_detection axis is retired from the trajectory aggregate (v11): it is
+# unreliable vs humans (κ≈0, SPA-76) and SPA-76 promises quarantined axes are "not
+# weighed in conclusions" — yet the stored overall_score averaged it in (trajectory.py
+# overall = mean of all 6 axes). The deterministic loop counter (SPA-75) carries the
+# loop signal instead.
+_AGG_EXCLUDED_AXES = {"loop_detection"}
+
+
+def _traj_score(rec, stored: Optional[float]) -> Optional[float]:
+    """Trajectory aggregate EXCLUDING the quarantined loop_detection axis (v11).
+    Recompute the mean from the stored per-axis scores; fall back to the stored
+    6-axis overall when the per-axis breakdown is unavailable."""
+    axes = (getattr(rec, "trajectory_profile", None) or {}).get("axes") if rec is not None else None
+    if axes:
+        vals = [
+            float(a["score"])
+            for a in axes
+            if a.get("key") not in _AGG_EXCLUDED_AXES and a.get("score") is not None
+        ]
+        if vals:
+            return sum(vals) / len(vals)
+    return stored
+
+
+def _binary_kappa(both_yes: int, a_only: int, b_only: int, both_no: int) -> Optional[float]:
+    """Cohen's κ for two binary raters on a 2×2 (chance-corrected agreement). None
+    when undefined — no data, or perfect-by-base-rate where p_e == 1 (e.g. every
+    run agrees and all-negative): κ is 0/0 there, which a raw agreement % hides."""
+    n = both_yes + a_only + b_only + both_no
+    if n == 0:
+        return None
+    po = (both_yes + both_no) / n
+    p_a_yes = (both_yes + a_only) / n
+    p_b_yes = (both_yes + b_only) / n
+    pe = p_a_yes * p_b_yes + (1 - p_a_yes) * (1 - p_b_yes)
+    if pe >= 1.0:
+        return None
+    return round((po - pe) / (1 - pe), 4)
+
+
+# --- SPA-76 reliability gate ------------------------------------------------ #
+# κ here is the chance-corrected agreement between the LLM process-judge (E-07)
+# and a ground-truth-ish reference for that axis: a human (E-17 judge↔human), or
+# — for the loop axis only — the deterministic SPA-75 counter (judge↔counter).
+# Above the bar the judge can drive a conclusion; below it the axis is
+# quarantined (shown for completeness, not weighed). Never fabricated.
+RELIABILITY_RELIABLE_KAPPA = 0.6     # judge agrees with the reference → trust it
+RELIABILITY_DIRECTIONAL_KAPPA = 0.4  # weak-but-directional floor
+
+
+def _classify_reliability(kappa: Optional[float], n: int, *, has_source: bool) -> str:
+    """Bucket a process-judge axis. No calibration source → 'not_calibrated'
+    (unknown, not known-bad). A live source with too little data or an undefined
+    κ → 'directional' (a hint, not a verdict). Otherwise threshold on κ."""
+    if not has_source:
+        return "not_calibrated"
+    if kappa is None or n < MIN_SAMPLES:
+        return "directional"
+    if kappa >= RELIABILITY_RELIABLE_KAPPA:
+        return "reliable"
+    if kappa >= RELIABILITY_DIRECTIONAL_KAPPA:
+        return "directional"
+    return "unreliable"
+
+
+def _axis_reliability(
+    calibration: Optional[dict],
+    loop_detection: dict,
+    axis_labels: dict[str, str],
+) -> dict:
+    """Per-axis reliability badge for the six E-07 trajectory axes, from REAL
+    calibration only:
+      • judge↔human (E-17) per-axis Cohen's κ — the gold standard, used whenever a
+        human rated that axis on these runs (n ≥ MIN_SAMPLES);
+      • judge↔counter (SPA-75) structural κ — the loop axis only, available on
+        every trajectory-scored run with no humans needed.
+    Human wins when it has enough data; the loop axis falls back to the structural
+    anchor; everything else with no source is an honest 'not_calibrated'. (A future
+    hook: back off to the workspace-global E-17 calibration when the per-experiment
+    human sample is thin — skipped in v1 as the current global snapshot predates the
+    trajectory-axis fold-in.)"""
+    human_dims: dict[str, dict] = {}
+    if isinstance(calibration, dict) and calibration.get("available"):
+        for d in calibration.get("dimensions") or []:
+            if d.get("key"):
+                human_dims[d["key"]] = d
+
+    struct_kappa = None
+    struct_n = 0
+    if isinstance(loop_detection, dict) and loop_detection.get("structural_available"):
+        struct_kappa = loop_detection.get("kappa")
+        struct_n = int(loop_detection.get("n_structural") or 0)
+
+    axes_out: dict[str, dict] = {}
+    any_source = False
+    for key, name, _desc in TRAJECTORY_AXES:
+        if key in _AGG_EXCLUDED_AXES:
+            continue  # v11: loop axis retired — its κ no longer badges a displayed axis
+        label = axis_labels.get(key) or name
+        hd = human_dims.get(key)
+        h_n = int(hd.get("n") or 0) if hd else 0
+        h_kappa = hd.get("cohen_kappa") if hd else None
+        struct_ok = key == "loop_detection" and struct_n > 0
+
+        if hd is not None and h_n >= MIN_SAMPLES:
+            source, kappa, n = "human", h_kappa, h_n
+        elif struct_ok and struct_n >= MIN_SAMPLES:
+            source, kappa, n = "structural", struct_kappa, struct_n
+        elif hd is not None:  # human source exists but too few pairs
+            source, kappa, n = "human", h_kappa, h_n
+        elif struct_ok:  # structural ran but very few runs
+            source, kappa, n = "structural", struct_kappa, struct_n
+        else:
+            source, kappa, n = "none", None, 0
+
+        has_source = source != "none"
+        any_source = any_source or has_source
+        axes_out[key] = {
+            "key": key,
+            "name": label,
+            "source": source,
+            "kappa": kappa,
+            "n": n,
+            "status": _classify_reliability(kappa, n, has_source=has_source),
+        }
+
+    return {
+        "available": any_source,
+        "reliable_kappa": RELIABILITY_RELIABLE_KAPPA,
+        "directional_kappa": RELIABILITY_DIRECTIONAL_KAPPA,
+        "min_samples": MIN_SAMPLES,
+        "axes": axes_out,
+    }
+
+
 def pareto_frontier(points: list[dict]) -> list[str]:
     """Config keys on the non-dominated frontier.
 
-    ``points``: ``[{config_key, quality, cost, time}]`` — quality higher-better,
-    cost/time lower-better. A point dominates another iff it is at least as
-    good on all three and strictly better on one. Points without a quality
-    value are excluded (nothing to trade off)."""
+    ``points``: ``[{config_key, quality, cost, effort}]`` — quality higher-better,
+    cost/effort lower-better. ``effort`` is token-based (SPA-77), not wall-clock.
+    A point dominates another iff it is at least as good on all three and strictly
+    better on one. Points without a quality value are excluded (nothing to trade
+    off)."""
     valid = [p for p in points if p.get("quality") is not None]
     frontier: list[str] = []
     for p in valid:
-        pq, pc, pt = p["quality"], p.get("cost") or 0.0, p.get("time") or 0.0
+        pq, pc, pt = p["quality"], p.get("cost") or 0.0, p.get("effort") or 0.0
         dominated = False
         for q in valid:
             if q is p:
                 continue
-            qq, qc, qt = q["quality"], q.get("cost") or 0.0, q.get("time") or 0.0
+            qq, qc, qt = q["quality"], q.get("cost") or 0.0, q.get("effort") or 0.0
             if qq >= pq and qc <= pc and qt <= pt and (qq > pq or qc < pc or qt < pt):
                 dominated = True
                 break
@@ -119,6 +301,7 @@ def significance_matrix(
 
 def _group_means(
     runs: list[ExperimentRun],
+    records_by_task: dict,
 ) -> dict:
     settled = [
         r
@@ -127,13 +310,30 @@ def _group_means(
         in (ExperimentRunStatus.SUCCESS.value, ExperimentRunStatus.FAILED.value)
     ]
     success = [r for r in runs if r.status == ExperimentRunStatus.SUCCESS.value]
+    # SPA-77: token effort (primary) + steps; cost stays (sparse) and wall-clock
+    # (duration) is retained only as a caveated secondary in the UI.
+    tokens = [
+        t
+        for r in settled
+        if (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+    ]
+    steps = [
+        s
+        for r in settled
+        if (s := _run_steps(records_by_task.get(r.task_id))) is not None
+    ]
     return {
         "n_runs": len(settled),
         "success_rate": round(len(success) / len(settled), 3) if settled else None,
         "quality_mean": _mean([r.weighted_score for r in success]),
-        "trajectory_mean": _mean([r.trajectory_score for r in success]),
+        "trajectory_mean": _mean(
+            [_traj_score(records_by_task.get(r.task_id), r.trajectory_score) for r in success]
+        ),
         "cost_mean": _mean([float(r.cost_usd or 0) for r in settled]),
         "duration_mean": _mean([r.duration_seconds for r in settled]),
+        "tokens_mean": _mean(tokens),
+        "n_tokens": len(tokens),
+        "steps_mean": _mean(steps),
     }
 
 
@@ -164,7 +364,7 @@ def build_report(
     per_config = []
     for key in sorted(by_config):
         group = by_config[key]
-        stats = _group_means(group)
+        stats = _group_means(group, records_by_task)
         per_config.append({"config_key": key, "label": labels.get(key, key), **stats})
     summary = {
         "total_runs": len(runs),
@@ -180,6 +380,59 @@ def build_report(
         if exp.budget_limit_usd is not None
         else None,
         "per_config": per_config,
+    }
+
+    # --- effort (SPA-77): confound-controlled efficiency ----------------------
+    # Wall-clock (duration_seconds) is polluted — provider throttling + sleep/wait
+    # inflate it for reasons unrelated to agent skill — so "config A is more
+    # efficient" from time mixes infra noise into a quality claim. Instead the
+    # PRIMARY effort metric is TOKENS (deterministic), with $ as a priced secondary
+    # (sparse: $0 for un-metered providers) and steps as a third. We also
+    # DIFFICULTY-NORMALISE: each run's tokens ÷ the per-CASE median across configs,
+    # so harder cases don't make a config look inefficient — rel_effort ≈ 1.0 means
+    # "typical effort for the cases it ran", >1 heavier, <1 lighter.
+    _SETTLED_OK = (ExperimentRunStatus.SUCCESS.value, ExperimentRunStatus.FAILED.value)
+    case_tokens: dict[str, list[float]] = {}
+    for r in runs:
+        if r.status in _SETTLED_OK:
+            t = _run_effort_tokens(records_by_task.get(r.task_id))
+            if t is not None:
+                case_tokens.setdefault(r.case_key, []).append(t)
+    case_median = {ck: statistics.median(v) for ck, v in case_tokens.items() if v}
+    effort_per_config = []
+    any_tokens = any_cost = False
+    for entry in per_config:
+        key = entry["config_key"]
+        ratios = [
+            t / m
+            for r in by_config.get(key, [])
+            if r.status in _SETTLED_OK
+            and (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+            and (m := case_median.get(r.case_key))
+        ]
+        rel = _mean(ratios)
+        entry["rel_effort"] = rel  # surface in the Summary table too
+        if entry.get("tokens_mean") is not None:
+            any_tokens = True
+        if (entry.get("cost_mean") or 0) > 0:
+            any_cost = True
+        effort_per_config.append(
+            {
+                "config_key": key,
+                "label": entry["label"],
+                "tokens_mean": entry.get("tokens_mean"),
+                "steps_mean": entry.get("steps_mean"),
+                "cost_mean": entry.get("cost_mean"),
+                "duration_mean": entry.get("duration_mean"),  # caveated secondary
+                "rel_effort": rel,
+                "n": entry.get("n_tokens", 0),
+            }
+        )
+    effort = {
+        "available": any_tokens,
+        "cost_available": any_cost,
+        "primary": "tokens",
+        "per_config": effort_per_config,
     }
 
     # --- heatmap: configs × rubric dimensions ---------------------------------
@@ -289,6 +542,8 @@ def build_report(
             key, score = ax.get("key"), ax.get("score")
             if key is None or score is None:
                 continue
+            if key in _AGG_EXCLUDED_AXES:
+                continue  # v11: judge loop axis retired from the heatmap/radar (SPA-76)
             if key not in axis_order:
                 axis_order.append(key)
                 axis_labels[key] = ax.get("name") or key
@@ -300,9 +555,10 @@ def build_report(
             vals = axis_samples.get(key, {}).get(ax_key) or []
             cells[ax_key] = {"mean": _mean(vals), "std": _std(vals), "n": len(vals)}
         # Success-only, consistent with the per-axis cells (success_runs) and the
-        # Summary "trajectory" column — see the weighted_score note above.
+        # Summary "trajectory" column — see the weighted_score note above. v11: the
+        # aggregate excludes the retired loop axis (_traj_score).
         overall = [
-            r.trajectory_score
+            _traj_score(records_by_task.get(r.task_id), r.trajectory_score)
             for r in by_config[key]
             if r.status == ExperimentRunStatus.SUCCESS.value
             and r.trajectory_score is not None
@@ -321,18 +577,32 @@ def build_report(
         "rows": trajectory_heatmap_rows,
     }
 
-    # --- loop-detection rate (E-07) per config --------------------------------
-    # trajectory_profile.loop_detected (the loop_detection axis scoring < 5) is on
-    # EVERY trajectory-scored run but was never aggregated — looping is the single
-    # most actionable process pathology (agent repeats the same call until it caps).
-    # Counted over all trajectory-scored runs, success OR failed: looping is often
-    # exactly what *causes* a failure, so restricting to success would hide the
-    # signal where it matters most (unlike the success-only axis heatmap above).
+    # --- loop-detection rate (E-07 judge + deterministic anchor) per config ----
+    # Two loop signals side by side, over all trajectory-scored runs (success OR
+    # failed — looping is often exactly what *causes* a failure):
+    #   • loop_rate — the LLM judge's loop_detected (loop_detection axis < 5),
+    #     scored over the budget-TRIMMED trace, holistically (reasoning + tools).
+    #   • structural_loop_rate — the deterministic detector (SPA-75,
+    #     trajectory_profile.loop_analysis): COUNTS repeated tool-calls over the
+    #     FULL, untrimmed trace. LLM-free, reproducible — a precision-oriented
+    #     structural lower bound (may under-count semantic loops).
+    # The two see DIFFERENT inputs (trimmed vs full) and DIFFERENT scopes (holistic
+    # vs tool-only), so their gap is part definitional/input divergence and part
+    # judge error — NOT pure miscalibration. We therefore surface the DIRECTIONAL
+    # split, not just a symmetric %: n_judge_only (judge flagged, counter didn't)
+    # vs n_counter_only (counter found a repetition the judge missed — often in the
+    # trimmed-away middle steps), plus Cohen's κ (chance-corrected) so a high
+    # base-rate agreement doesn't masquerade as concordance.
     loop_per_config = []
     any_loop = False
+    any_structural = False
+    tot_both_loop = tot_judge_only = tot_counter_only = tot_both_clean = 0
     for key in sorted(configs):
         n_scored = 0
         n_loop = 0
+        n_struct = 0
+        n_struct_loop = 0
+        both_loop = judge_only = counter_only = both_clean = 0
         for r in by_config[key]:
             rec = records_by_task.get(r.task_id)
             tprof = (rec.trajectory_profile or {}) if rec is not None else {}
@@ -340,8 +610,29 @@ def build_report(
                 continue
             n_scored += 1
             any_loop = True
-            if tprof.get("loop_detected"):
+            llm_loop = bool(tprof.get("loop_detected"))
+            if llm_loop:
                 n_loop += 1
+            la = tprof.get("loop_analysis")
+            if isinstance(la, dict):
+                any_structural = True
+                n_struct += 1
+                struct_loop = bool(la.get("loop_detected"))
+                if struct_loop:
+                    n_struct_loop += 1
+                if struct_loop and llm_loop:
+                    both_loop += 1
+                elif llm_loop:
+                    judge_only += 1
+                elif struct_loop:
+                    counter_only += 1
+                else:
+                    both_clean += 1
+        tot_both_loop += both_loop
+        tot_judge_only += judge_only
+        tot_counter_only += counter_only
+        tot_both_clean += both_clean
+        n_agree = both_loop + both_clean
         loop_per_config.append(
             {
                 "config_key": key,
@@ -349,9 +640,29 @@ def build_report(
                 "n_scored": n_scored,
                 "n_loop": n_loop,
                 "loop_rate": round(n_loop / n_scored, 4) if n_scored else None,
+                "n_structural": n_struct,
+                "n_structural_loop": n_struct_loop,
+                "structural_loop_rate": round(n_struct_loop / n_struct, 4) if n_struct else None,
+                "n_judge_only": judge_only,
+                "n_counter_only": counter_only,
+                "agreement": round(n_agree / n_struct, 4) if n_struct else None,
+                "kappa": _binary_kappa(both_loop, judge_only, counter_only, both_clean),
             }
         )
-    loop_detection = {"available": any_loop, "per_config": loop_per_config}
+    tot_struct = tot_both_loop + tot_judge_only + tot_counter_only + tot_both_clean
+    loop_detection = {
+        "available": any_loop,
+        "structural_available": any_structural,
+        "agreement": round((tot_both_loop + tot_both_clean) / tot_struct, 4) if tot_struct else None,
+        "kappa": _binary_kappa(tot_both_loop, tot_judge_only, tot_counter_only, tot_both_clean),
+        "n_judge_only": tot_judge_only,
+        "n_counter_only": tot_counter_only,
+        "n_structural": tot_struct,
+        "per_config": loop_per_config,
+    }
+    # SPA-76: per-axis reliability gate — badge each E-07 trajectory axis by how far
+    # the judge can be trusted (E-17 human κ, or the loop anchor for the loop axis).
+    axis_reliability = _axis_reliability(calibration, loop_detection, axis_labels)
 
     # --- cleaned-trace stats (E-06) per config --------------------------------
     # trajectory_profile.trace_stats = {original_tokens, cleaned_tokens, steps_total}
@@ -411,13 +722,21 @@ def build_report(
     for idx in sorted(by_index):
         grp = by_index[idx]
         succ = [r for r in grp if r.status == ExperimentRunStatus.SUCCESS.value]
+        toks = [
+            t
+            for r in grp
+            if (t := _run_effort_tokens(records_by_task.get(r.task_id))) is not None
+        ]
         longitudinal_points.append(
             {
                 "run_index": idx,
                 "n": len(grp),
                 "quality_mean": _mean([r.weighted_score for r in succ]),
-                "trajectory_mean": _mean([r.trajectory_score for r in succ]),
+                "trajectory_mean": _mean(
+                    [_traj_score(records_by_task.get(r.task_id), r.trajectory_score) for r in succ]
+                ),
                 "cost_mean": _mean([float(r.cost_usd or 0) for r in grp]),
+                "tokens_mean": _mean(toks),  # SPA-77: token effort across repetitions
             }
         )
     longitudinal = {"available": len(longitudinal_points) > 1, "points": longitudinal_points}
@@ -435,9 +754,17 @@ def build_report(
     h_overall: dict[str, list[float]] = {}
     h_verdicts: dict[str, dict[str, int]] = {}
     any_human = False
+    # checker↔human (v12): the executable checker is the outcome ground truth on
+    # verifiable benches, but it is itself imperfect — pair its pass/fail verdict
+    # with the human approve/reject gold to surface where even the checker disagrees.
+    ch_cells = {"pass_approve": 0, "pass_reject": 0, "fail_approve": 0, "fail_reject": 0}
     for r in runs:
         rec = records_by_task.get(r.task_id)
         hf = (getattr(rec, "human_feedback", None) or {}) if rec is not None else {}
+        ev = getattr(r, "external_verdict", None)
+        hv = hf.get("verdict")
+        if ev is not None and hv in ("approve", "reject"):
+            ch_cells[("pass" if ev else "fail") + "_" + hv] += 1
         if not hf:
             continue
         any_human = True
@@ -483,6 +810,19 @@ def build_report(
         "dimensions": h_dim_order,
         "dimension_labels": h_dim_labels,
         "rows": human_rows,
+    }
+    # checker↔human agreement (v12): Cohen's κ + raw agreement on the verdict, where
+    # checker pass≈human approve and checker fail≈human reject.
+    ch_n = sum(ch_cells.values())
+    checker_human = {
+        "available": ch_n > 0,
+        "n": ch_n,
+        "kappa": _binary_kappa(
+            ch_cells["pass_approve"], ch_cells["pass_reject"],
+            ch_cells["fail_approve"], ch_cells["fail_reject"],
+        ),
+        "agreement": (ch_cells["pass_approve"] + ch_cells["fail_reject"]) / ch_n if ch_n else None,
+        "cells": ch_cells,
     }
 
     # --- cost breakdown per config --------------------------------------------
@@ -631,7 +971,8 @@ def build_report(
                 "label": entry["label"],
                 "quality": entry["quality_mean"],
                 "cost": entry["cost_mean"],
-                "time": entry["duration_mean"],
+                "effort": entry["tokens_mean"],  # SPA-77: token effort (bubble + frontier)
+                "time": entry["duration_mean"],  # caveated reference only (wall-clock)
             }
         )
     frontier = pareto_frontier(points)
@@ -652,9 +993,10 @@ def build_report(
             "run_index": r.run_index,
             "status": r.status,
             "outcome": r.weighted_score,
-            "trajectory": r.trajectory_score,
+            "trajectory": _traj_score(records_by_task.get(r.task_id), r.trajectory_score),
             "cost": float(r.cost_usd or 0),
             "duration": r.duration_seconds,
+            "tokens": _run_effort_tokens(records_by_task.get(r.task_id)),
             "task_id": str(r.task_id) if r.task_id else None,
         }
         for r in runs
@@ -694,7 +1036,7 @@ def build_report(
         if weighted:
             cfg_samples["weighted_score"] = weighted
         trajectory = [
-            r.trajectory_score
+            _traj_score(records_by_task.get(r.task_id), r.trajectory_score)
             for r in group_success
             if r.trajectory_score is not None
         ]
@@ -762,14 +1104,14 @@ def build_report(
         group = [r for k in keys for r in by_config.get(k, [])]
         if not group:
             return None
-        return {"configs": sorted(keys), **_group_means(group)}
+        return {"configs": sorted(keys), **_group_means(group, records_by_task)}
 
     on_side, off_side = _side(on_keys), _side(off_keys)
     orchestrator: dict = {"on": on_side, "off": off_side, "delta": None}
     if on_side and off_side:
         delta = {}
         for metric in ("quality_mean", "trajectory_mean", "cost_mean",
-                       "duration_mean", "success_rate"):
+                       "tokens_mean", "duration_mean", "success_rate"):
             a, b = on_side.get(metric), off_side.get(metric)
             delta[metric] = round(a - b, 4) if (a is not None and b is not None) else None
         orchestrator["delta"] = delta  # on minus off
@@ -780,10 +1122,12 @@ def build_report(
         "partial": partial,
         "n_terminal_runs": n_terminal,
         "summary": summary,
+        "effort": effort,
         "heatmap": heatmap,
         "quality_gate": quality_gate,
         "trajectory_heatmap": trajectory_heatmap,
         "loop_detection": loop_detection,
+        "axis_reliability": axis_reliability,
         "trace_stats": trace_stats,
         "longitudinal": longitudinal,
         "human_feedback": human_feedback,
@@ -798,6 +1142,7 @@ def build_report(
         "failure_modes": failure_modes,
         "orchestrator": orchestrator,
         "judge_calibration": calibration,
+        "checker_human": checker_human,
     }
 
 

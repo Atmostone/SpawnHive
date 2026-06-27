@@ -44,7 +44,7 @@ export default function ExternalCheckerPanel({
     <div className="mt-2 border rounded-lg p-3 bg-gray-50 space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
-          Executable checker (E-23)
+          Executable checker
           {verdict === 'pass' && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 inline-flex items-center gap-1">
               <ShieldCheck className="h-3 w-3" /> pass

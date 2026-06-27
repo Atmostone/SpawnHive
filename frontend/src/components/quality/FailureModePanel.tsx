@@ -55,7 +55,7 @@ export default function FailureModePanel({ taskId }: Props) {
   return (
     <div className="mt-2 border rounded-lg p-3 bg-gray-50 space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">Failure modes (E-14)</h4>
+        <h4 className="text-sm font-medium text-gray-700">Failure modes</h4>
         <button onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:underline">
           close
         </button>
@@ -131,8 +131,8 @@ function ProfileView({ profile }: { profile: FailureProfile }) {
         <span>
           {profile.judge_input_tokens}/{profile.judge_output_tokens} tok
         </span>
-        {profile.used_trajectory_profile && <span>+E-07</span>}
-        {profile.used_outcome_profile && <span>+E-02</span>}
+        {profile.used_trajectory_profile && <span>+trajectory judge</span>}
+        {profile.used_outcome_profile && <span>+outcome judge</span>}
         {profile.input_capped && <span className="text-amber-600">input capped</span>}
       </div>
     </>

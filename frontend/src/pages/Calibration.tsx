@@ -33,7 +33,7 @@ export default function Calibration() {
       </div>
       <p className="text-sm text-gray-500 mb-4">
         Rate task results against their rubric axes. Your feedback pairs with the judge's
-        scores to calibrate the LLM judge (E-17). Includes experiment runs, which are hidden
+        scores to calibrate the LLM judge. Includes experiment runs, which are hidden
         from the task board.
       </p>
 
