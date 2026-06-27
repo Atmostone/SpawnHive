@@ -6,6 +6,7 @@ import TaskBoard from './pages/TaskBoard'
 import Chat from './pages/Chat'
 import ActivityLog from './pages/ActivityLog'
 import Analytics from './pages/Analytics'
+import CheatSheet from './pages/CheatSheet'
 import Calibration from './pages/Calibration'
 import Experiments from './pages/Experiments'
 import ExperimentDetail from './pages/ExperimentDetail'
@@ -54,6 +55,7 @@ export default function App() {
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/activity" element={<ActivityLog />} />
                     <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/cheatsheet" element={<CheatSheet />} />
                     <Route path="/calibration" element={<Calibration />} />
                     <Route path="/experiments" element={<Experiments />} />
                     <Route path="/experiments/:id" element={<ExperimentDetail />} />
