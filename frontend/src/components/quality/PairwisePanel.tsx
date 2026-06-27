@@ -49,7 +49,7 @@ export default function PairwisePanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Swords className="h-5 w-5" />
-          Pairwise <span className="text-sm font-normal text-gray-400">(E-21)</span>
+          Pairwise
         </h2>
         {isAdmin && (
           <button
@@ -70,7 +70,7 @@ export default function PairwisePanel() {
         Compare two answers head-to-head — more reliable than pointwise scores, which cluster into
         7-8. The LLM judge judges the same pair in both orders and reconciles (agree → winner,
         disagree → tie + position-bias flag); or a human picks the winner. Judged verdicts feed the
-        ELO leaderboard via the Aggregation Engine (E-19).
+        ELO leaderboard via the Aggregation Engine.
       </p>
 
       {leaderboardMsg && <p className="text-xs text-green-700">{leaderboardMsg}</p>}

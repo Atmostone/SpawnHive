@@ -23,7 +23,7 @@ export default function ReproducibilityPanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Camera className="h-5 w-5" />
-          Reproducibility <span className="text-sm font-normal text-gray-400">(E-20)</span>
+          Reproducibility
         </h2>
         <Segmented
           value={view}

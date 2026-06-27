@@ -22,7 +22,7 @@ export default function JudgeCalibrationBadge({ className }: { className?: strin
           'inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500',
           className,
         )}
-        title="The LLM judge has not been validated against human ratings yet (E-17)."
+        title="The LLM judge has not been validated against human ratings yet."
       >
         <ShieldAlert className="h-3.5 w-3.5" />
         judge not calibrated
@@ -39,7 +39,7 @@ export default function JudgeCalibrationBadge({ className }: { className?: strin
         data.passed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
         className,
       )}
-      title={`Judge validated against ${data.n_humans ?? 0} human rater(s); overall verdict agreement κ=${kappaText} (E-17).`}
+      title={`Judge validated against ${data.n_humans ?? 0} human rater(s); overall verdict agreement κ=${kappaText}.`}
     >
       <ShieldCheck className="h-3.5 w-3.5" />
       judge calibrated against {data.n_humans ?? 0} humans, κ={kappaText}

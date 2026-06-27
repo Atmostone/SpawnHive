@@ -74,8 +74,8 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
     status: (a as { status?: string }).status,
   }))
   const groups = [
-    { label: 'Quality · outcome (E-02)', dims: qDims },
-    { label: 'Process · trajectory (E-07)', dims: tDims },
+    { label: 'Quality · outcome', dims: qDims },
+    { label: 'Process · trajectory', dims: tDims },
   ].filter((g) => g.dims.length > 0)
   const dims = [...qDims, ...tDims]
   // Verifiable run (executable checker = outcome ground truth): the outcome judge

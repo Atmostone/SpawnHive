@@ -58,7 +58,7 @@ export default function ModelCapabilityMatrix() {
       <div className="bg-white rounded-lg border p-12 text-center text-gray-500">
         <p className="text-base">Пока нет оценённых профилей capability / failure / hallucination</p>
         <p className="text-xs mt-1 text-gray-400">
-          Эти кросс-модельные агрегаты (E-13 / E-14 / E-15) заполняются по мере прогона задач с соответствующей оценкой.
+          Эти кросс-модельные агрегаты (the capability glass-box test / the failure-mode classifier / the hallucination check) заполняются по мере прогона задач с соответствующей оценкой.
         </p>
       </div>
     )
@@ -67,14 +67,14 @@ export default function ModelCapabilityMatrix() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-gray-500">
-        Сравнение моделей по матрице способностей: чистота решения (E-13), распределение режимов отказа (E-14)
-        и доля галлюцинаций (E-15) — по каждой модели воркспейса.
+        Сравнение моделей по матрице способностей: чистота решения, распределение режимов отказа
+        и доля галлюцинаций — по каждой модели воркспейса.
       </p>
 
       <section className="bg-white rounded-lg border overflow-hidden">
         <header className="px-4 py-2 border-b bg-gray-50 flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-gray-800">
-            Capability score by model <span className="text-gray-400 font-normal">(E-13 — genuine / total)</span>
+            Capability score by model <span className="text-gray-400 font-normal">(genuine / total)</span>
           </h3>
           <span className="text-xs text-gray-500">{cap?.total ?? 0} scored runs</span>
         </header>
@@ -117,7 +117,7 @@ export default function ModelCapabilityMatrix() {
       <section className="bg-white rounded-lg border overflow-hidden">
         <header className="px-4 py-2 border-b bg-gray-50 flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-gray-800">
-            Failure modes by model <span className="text-gray-400 font-normal">(E-14 — per-class rate)</span>
+            Failure modes by model <span className="text-gray-400 font-normal">(per-class rate)</span>
           </h3>
           <span className="text-xs text-gray-500">{fail?.runs_total ?? 0} runs</span>
         </header>
@@ -154,7 +154,7 @@ export default function ModelCapabilityMatrix() {
       <section className="bg-white rounded-lg border overflow-hidden">
         <header className="px-4 py-2 border-b bg-gray-50 flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-gray-800">
-            Hallucination by model <span className="text-gray-400 font-normal">(E-15 — fact-check rate)</span>
+            Hallucination by model <span className="text-gray-400 font-normal">(fact-check rate)</span>
           </h3>
           <span className="text-xs text-gray-500">{hall?.runs_total ?? 0} runs</span>
         </header>

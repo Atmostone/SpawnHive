@@ -18,7 +18,7 @@ import {
 import { experimentsApi, qualityApi } from '@/api/client'
 import RunAnalysis from '@/components/quality/RunAnalysis'
 import SummaryRadarPanel from '@/components/quality/SummaryRadarPanel'
-import type { ExperimentCostRow, ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
+import type { ExperimentDetail as ExperimentDetailType, ExperimentReport } from '@/types'
 import { StatusPill } from './Experiments'
 import { ArrowLeft, Copy, Download, Pause, Play, RefreshCw, RotateCcw, Square, Trash2, X } from 'lucide-react'
 
@@ -42,18 +42,18 @@ type HeatMode = 'quality' | 'trajectory' | 'human' | 'off'
 // E-codes are kept (the team uses them) but always paired with what they MEAN, so a
 // non-author is not left guessing what "q" / "t" measure.
 const HEAT_LABEL: Record<HeatMode, string> = {
-  quality: 'Outcome quality (E-02)',
-  trajectory: 'Process trajectory (E-07)',
-  human: 'Human (E-05)',
+  quality: 'Outcome quality',
+  trajectory: 'Process trajectory',
+  human: 'Human',
   off: 'off',
 }
 const HEAT_HELP: Record<HeatMode, string> = {
   quality:
-    'Outcome quality — the LLM judge rubric score of the final RESULT (E-02). Red = weak result, green = strong; higher is better.',
+    'Outcome quality — the LLM judge rubric score of the final RESULT. Red = weak result, green = strong; higher is better.',
   trajectory:
-    'Process trajectory — the 6-axis judge score of HOW the agent worked: efficiency, tool choice, error recovery, goal alignment… (E-07). Higher = cleaner process.',
+    'Process trajectory — the 6-axis judge score of HOW the agent worked: efficiency, tool choice, error recovery, goal alignment… Higher = cleaner process.',
   human:
-    'Human (E-05) — your own dimension ratings and approve/reject verdict on the run; the ground-truth oracle used for judge calibration.',
+    'Human — your own dimension ratings and approve/reject verdict on the run; the ground-truth oracle used for judge calibration.',
   off: 'No cell colouring — show only the run-outcome glyphs.',
 }
 
@@ -68,9 +68,9 @@ function metricLabel(metric: string): string {
 }
 function metricJudge(metric: string): { label: string; cls: string } {
   if (metric === 'trajectory_score')
-    return { label: 'Trajectory (E-07)', cls: 'text-purple-700 bg-purple-50' }
+    return { label: 'Trajectory', cls: 'text-purple-700 bg-purple-50' }
   // weighted_score + every dim:* are outcome-rubric metrics from the E-02 judge.
-  return { label: 'Quality (E-02)', cls: 'text-blue-700 bg-blue-50' }
+  return { label: 'Quality', cls: 'text-blue-700 bg-blue-50' }
 }
 
 // --- SPA-76 reliability gate ------------------------------------------------
@@ -88,8 +88,8 @@ const RELIABILITY_META: Record<ReliabilityStatus, { glyph: string; cls: string; 
 }
 
 function reliabilitySource(source?: string): string {
-  if (source === 'human') return 'a human rater (E-17)'
-  if (source === 'structural') return 'the deterministic loop counter (SPA-75)'
+  if (source === 'human') return 'a human rater'
+  if (source === 'structural') return 'the deterministic loop counter'
   return 'no reference'
 }
 
@@ -130,10 +130,6 @@ function trajectoryAggregateStatus(report: ExperimentReport): ReliabilityStatus 
 function fmtBreakdown(rows?: { name: string; mean: number }[]): string {
   if (!rows || rows.length === 0) return ''
   return rows.map((r) => `${r.name} ${r.mean}`).join(' · ')
-}
-
-function fmtUsd(v: number | null | undefined, digits = 3): string {
-  return v == null ? '—' : `$${v.toFixed(digits)}`
 }
 
 // Compact token count (effort metric, SPA-77): 1.67M / 760k / 540.
@@ -304,7 +300,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
                     {/* 🔩 mechanical row: run outcome + executable checker verdict */}
                     <div className="flex items-center justify-center gap-1 text-xs">
-                      <span title="run outcome + executable checker (E-23)">🔩</span>
+                      <span title="run outcome + executable checker">🔩</span>
                       {counts.success ? <span className="text-green-600 font-medium">{counts.success}✓</span> : null}
                       {counts.failed ? <span className="text-red-600 font-medium">{counts.failed}✗</span> : null}
                       {counts.preprocessing ? <span className="text-purple-600 font-medium" title="preprocessing (Toolathlon seed)">{counts.preprocessing}⚙</span> : null}
@@ -323,16 +319,16 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     {/* ⚖️ judge row: quality (E-02) + trajectory (E-07), always shown */}
                     {(cell?.quality_mean != null || cell?.trajectory_mean != null) && (
                       <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums">
-                        <span title="LLM judge — q: outcome quality (E-02) · t: process trajectory (E-07)">⚖️</span>
+                        <span title="LLM judge — q: outcome quality · t: process trajectory">⚖️</span>
                         {cell?.quality_mean != null && (
                           <span className="ml-0.5"
-                            title={`outcome quality — rubric score of the result (E-02 judge)${cell.quality_std != null ? ` · σ ${cell.quality_std} across runs` : ''}${fmtBreakdown(cell.dim_means) ? `\nby dimension (low→high): ${fmtBreakdown(cell.dim_means)}` : ''}`}>
+                            title={`outcome quality — rubric score of the result (the outcome judge)${cell.quality_std != null ? ` · σ ${cell.quality_std} across runs` : ''}${fmtBreakdown(cell.dim_means) ? `\nby dimension (low→high): ${fmtBreakdown(cell.dim_means)}` : ''}`}>
                             q{cell.quality_mean}{cell.quality_std != null && <span className="text-gray-400">±{cell.quality_std}</span>}
                           </span>
                         )}
                         {cell?.trajectory_mean != null && (
                           <span className="ml-1"
-                            title={`process trajectory — 6-axis score of how the agent worked (E-07 judge)${cell.trajectory_std != null ? ` · σ ${cell.trajectory_std} across runs` : ''}${fmtBreakdown(cell.axis_means) ? `\nby axis (low→high): ${fmtBreakdown(cell.axis_means)}` : ''}`}>
+                            title={`process trajectory — 6-axis score of how the agent worked (the trajectory judge)${cell.trajectory_std != null ? ` · σ ${cell.trajectory_std} across runs` : ''}${fmtBreakdown(cell.axis_means) ? `\nby axis (low→high): ${fmtBreakdown(cell.axis_means)}` : ''}`}>
                             t{cell.trajectory_mean}{cell.trajectory_std != null && <span className="text-gray-400">±{cell.trajectory_std}</span>}
                           </span>
                         )}
@@ -340,7 +336,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                     )}
                     {/* 🧑 human row: mean dimension score + verdict (E-05) */}
                     {cell?.human_rated ? (
-                      <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums" title="human annotation (E-05): mean dimension score + verdict">
+                      <div className="text-[10px] mt-0.5 text-gray-600 tabular-nums" title="human annotation: mean dimension score + verdict">
                         <span>🧑</span>
                         {cell.human_mean != null && <span className="ml-0.5">{cell.human_mean}{cell.human_std != null && <span className="text-gray-400">±{cell.human_std}</span>}</span>}
                         <span className={`ml-0.5 ${cell.human_approve === cell.human_rated ? 'text-green-600' : cell.human_approve ? 'text-amber-600' : 'text-red-600'}`}
@@ -356,20 +352,20 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           ))}
         </tbody>
       </table>
-      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality E-02 · t = process trajectory E-07) · 🧑 human (mean score + ✓/✗ verdict, E-05) · ±σ = spread across runs · hover q/t for the per-dimension/axis breakdown — click a cell for run details</div>
+      <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality · t = process trajectory) · 🧑 human (mean score + ✓/✗ verdict) · ±σ = spread across runs · hover q/t for the per-dimension/axis breakdown — click a cell for run details</div>
       {anyHuman && triPoints.length >= 2 && (
         <div className="mt-6 border-t pt-4">
           <div className="text-sm font-medium text-gray-700 mb-1">
             ⚖️ Judge ↔ 🧑 Human
-            <span className="text-xs text-gray-400 font-normal"> · per cell · E-02 quality vs E-05 human · points on the dashed diagonal = agreement</span>
+            <span className="text-xs text-gray-400 font-normal"> · per cell · quality vs human · points on the dashed diagonal = agreement</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <ScatterChart margin={{ top: 10, right: 20, bottom: 24, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" dataKey="judge" name="judge" domain={[0, 10]} tick={{ fontSize: 11 }}
-                label={{ value: '⚖️ judge quality (E-02)', position: 'insideBottom', offset: -12, fontSize: 11 }} />
+                label={{ value: '⚖️ judge quality', position: 'insideBottom', offset: -12, fontSize: 11 }} />
               <YAxis type="number" dataKey="human" name="human" domain={[0, 10]} tick={{ fontSize: 11 }}
-                label={{ value: '🧑 human (E-05)', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+                label={{ value: '🧑 human', angle: -90, position: 'insideLeft', fontSize: 11 }} />
               <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 10, y: 10 }]} stroke="#9ca3af" strokeDasharray="4 4" />
               <Tooltip cursor={{ strokeDasharray: '3 3' }}
                 content={({ payload }) => (payload && payload.length ? (
@@ -404,7 +400,7 @@ function JudgeTrustBadge() {
   if (!badge) return null
   if (!badge.calibrated) {
     return (
-      <Link to="/calibration" title="Judge not yet calibrated against human annotation (E-17)"
+      <Link to="/calibration" title="Judge not yet calibrated against human annotation"
         className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 text-gray-400 hover:text-gray-600">
         judge: not calibrated
       </Link>
@@ -414,7 +410,7 @@ function JudgeTrustBadge() {
   const tone = badge.passed ? 'border-green-300 bg-green-50 text-green-700' : 'border-amber-300 bg-amber-50 text-amber-700'
   return (
     <Link to="/calibration" className={`text-xs px-2 py-1 rounded border ${tone}`}
-      title={`Judge↔human agreement (E-17): Cohen's κ over ${badge.sample_size ?? '—'} ratings from ${badge.n_humans ?? '—'} annotator(s)`}>
+      title={`Judge↔human agreement: Cohen's κ over ${badge.sample_size ?? '—'} ratings from ${badge.n_humans ?? '—'} annotator(s)`}>
       judge κ {k == null ? '—' : k.toFixed(2)}{badge.passed ? ' ✓' : ' ⚠'}
     </Link>
   )
@@ -424,15 +420,30 @@ function JudgeTrustBadge() {
 // annotated runs — distinct from the workspace-global JudgeTrustBadge. Empty state
 // guides the user to annotate runs (Annotate tab in a run drill-down) so the κ
 // becomes about this experiment instead of prior ones.
-function JudgeHumanCalibration({ cal }: { cal?: ExperimentReport['judge_calibration'] }) {
+function JudgeHumanCalibration({ cal, checkerHuman }: {
+  cal?: ExperimentReport['judge_calibration']
+  checkerHuman?: ExperimentReport['checker_human']
+}) {
   const k = cal?.overall?.cohen_kappa
   const agree = cal?.overall?.agreement_pct
   const hasData = !!cal?.available && (cal?.sample_size ?? 0) > 0
+  const ch = checkerHuman
   return (
     <section>
       <h3 className="font-semibold text-gray-900 mb-2">
-        Judge ↔ human <span className="text-xs text-gray-400 font-normal">E-17 · agreement on this experiment's annotated runs</span>
+        Judge ↔ human <span className="text-xs text-gray-400 font-normal">agreement with the human gold on this experiment's annotated runs</span>
       </h3>
+      {ch?.available && (
+        <div className="bg-white border rounded-lg p-3 text-sm mb-2 flex flex-wrap items-center gap-x-5 gap-y-1">
+          <span className="font-medium text-gray-700">Checker ↔ human</span>
+          <span>κ <span className="font-semibold text-gray-800">{ch.kappa == null ? '—' : ch.kappa.toFixed(2)}</span></span>
+          <span className="text-gray-500">verdict agreement {ch.agreement == null ? '—' : `${(ch.agreement * 100).toFixed(0)}%`}</span>
+          <span className="text-gray-400">n={ch.n}</span>
+          {ch.cells.pass_reject > 0 && <span className="text-amber-700" title="checker passed but the human rejected — checker over-credits vs the human gold">over-credit {ch.cells.pass_reject}</span>}
+          {ch.cells.fail_approve > 0 && <span className="text-blue-700" title="checker failed but the human approved — checker false-negative vs the human gold">false-negative {ch.cells.fail_approve}</span>}
+          <span className="text-gray-400 italic">the checker is the outcome ground truth here, yet still disagrees with the human gold</span>
+        </div>
+      )}
       {!hasData ? (
         <div className="bg-white border rounded-lg p-4 text-sm text-gray-500">
           No human ratings on this experiment yet. Open a run (click a matrix cell) → <span className="font-medium">Annotate</span> tab,
@@ -517,6 +528,18 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
   const colorByConfig = new Map(
     report.summary.per_config.map((c, i) => [c.config_key, CONFIG_COLORS[i % CONFIG_COLORS.length]]),
   )
+  // Mean agent steps per config (E-06 trace cleaner). Surfaced in the Summary
+  // table; the rest of the cleaned-trace stats (compression / cleaned tokens)
+  // are deferred until the trace-compression rework.
+  const stepsByConfig = new Map(
+    (report.trace_stats?.per_config ?? []).map((c) => [c.config_key, c.steps_mean]),
+  )
+  // Executable checker pass-rate per config (ground-truth outcome on verifiable
+  // benches). Folded into the Summary next to the agent Success rate (SPA-68: the
+  // two differ — Success is run-completion, Pass rate is the checker verdict).
+  const passRateByConfig = new Map(
+    (report.external?.per_config ?? []).map((c) => [c.config_key, c.pass_rate]),
+  )
   const downloadJson = () => {
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -535,22 +558,6 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
   const visibleSignificance = verifiable
     ? report.significance.filter((s) => !isOutcomeMetric(s.metric))
     : report.significance
-  // Cost-breakdown columns: agent + the two core judges (E-02/E-07) always show —
-  // on verifiable benches a $0 agent (providers that don't price per-token) next to
-  // a non-zero hidden E-02 judge IS the point. The optional judges (E-08/E-14/E-15)
-  // appear only when they actually spent, so the table stays readable.
-  const COST_COLS: { key: keyof ExperimentCostRow; label: string; core?: boolean }[] = [
-    { key: 'agent', label: 'Agent', core: true },
-    { key: 'judge_outcome', label: 'Quality (E-02)', core: true },
-    { key: 'judge_trajectory', label: 'Trajectory (E-07)', core: true },
-    { key: 'judge_evidence', label: 'Evidence (E-08)' },
-    { key: 'judge_failure', label: 'Failure (E-14)' },
-    { key: 'judge_hallucination', label: 'Hallucination (E-15)' },
-  ]
-  const cb = report.cost_breakdown
-  const activeCostCols = cb
-    ? COST_COLS.filter((c) => c.core || (cb.totals[c.key] as number) > 0)
-    : []
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end gap-2">
@@ -579,12 +586,14 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tr>
                 <th className="px-3 py-2">Configuration</th>
                 <th className="px-3 py-2">Runs</th>
-                <th className="px-3 py-2">Success</th>
+                <th className="px-3 py-2" title="Agent run-completion rate (settled SUCCESS ÷ settled): the run finished without the harness marking it failed. NOT correctness — on verifiable benches see Pass rate (the executable checker).">Success</th>
+                {verifiable && <th className="px-3 py-2" title="Executable checker pass-rate (gold.external_eval) — the GROUND-TRUTH outcome. Differs from Success: a run can finish cleanly (Success) yet fail the checker.">Pass rate</th>}
                 {!verifiable && <th className="px-3 py-2">Quality</th>}
                 <th className="px-3 py-2">Trajectory</th>
-                <th className="px-3 py-2" title="Effort = total LLM tokens (input+output) per run — the confound-free effort signal (SPA-77). See the Effort section for difficulty-normalized ×median.">Effort (tok)</th>
+                <th className="px-3 py-2" title="Mean number of agent steps in the trace (trace cleaner; lower = more direct)">Steps avg</th>
+                <th className="px-3 py-2" title="Effort = total LLM tokens (input+output) per run — the confound-free effort signal. See the Effort section for difficulty-normalized ×median.">Effort (tok)</th>
                 <th className="px-3 py-2">Cost avg</th>
-                <th className="px-3 py-2" title="Wall-clock seconds — POLLUTED by provider throttling + sleep/waits; not a clean effort signal. Use Effort (tokens) instead (SPA-77).">Wall-clock ⚠</th>
+                <th className="px-3 py-2" title="Wall-clock seconds — POLLUTED by provider throttling + sleep/waits; not a clean effort signal. Use Effort (tokens) instead.">Wall-clock ⚠</th>
               </tr>
             </thead>
             <tbody>
@@ -595,8 +604,14 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   </td>
                   <td className="px-3 py-2">{c.n_runs}</td>
                   <td className="px-3 py-2">{c.success_rate != null ? `${(c.success_rate * 100).toFixed(0)}%` : '—'}</td>
+                  {verifiable && (
+                    <td className="px-3 py-2 font-semibold">
+                      {passRateByConfig.get(c.config_key) != null ? `${(passRateByConfig.get(c.config_key)! * 100).toFixed(0)}%` : '—'}
+                    </td>
+                  )}
                   {!verifiable && <td className="px-3 py-2">{fmt(c.quality_mean)}</td>}
                   <td className="px-3 py-2">{fmt(c.trajectory_mean)}</td>
+                  <td className="px-3 py-2">{stepsByConfig.get(c.config_key) != null ? stepsByConfig.get(c.config_key)!.toFixed(1) : '—'}</td>
                   <td className="px-3 py-2 font-medium">{fmtTokens(c.tokens_mean)}
                     {c.rel_effort != null && <span className={`ml-1 text-xs ${relEffortStyle(c.rel_effort)}`}>×{c.rel_effort.toFixed(2)}</span>}
                   </td>
@@ -607,108 +622,31 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             </tbody>
           </table>
         </div>
-      </section>
-
-      {report.effort?.available && (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">
-            Effort <span className="text-xs text-gray-400 font-normal">confound-controlled efficiency (SPA-77) — tokens (primary), difficulty-normalized per case; wall-clock demoted (throttling/waits)</span>
-          </h3>
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2" title="Total LLM tokens (input+output) per run, averaged — the primary, deterministic effort metric">Tokens (avg)</th>
-                  <th className="px-3 py-2" title="Difficulty-normalized: tokens ÷ per-case median across configs. 1.0 = typical effort for the cases it ran; >1 heavier, <1 lighter. Controls for hard cases.">×median</th>
-                  <th className="px-3 py-2" title="Agent step count (tool calls)">Steps</th>
-                  <th className="px-3 py-2" title="USD where the provider prices per token; — when un-metered ($0)">Cost</th>
-                  <th className="px-3 py-2" title="Wall-clock seconds — POLLUTED by throttling/waits; reference only, NOT a clean effort signal">Wall-clock ⚠</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.effort.per_config.map((e) => (
-                  <tr key={e.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium" style={{ color: colorByConfig.get(e.config_key) }}>
-                      {e.config_key} <span className="text-gray-500 font-normal">{e.label}</span>
-                    </td>
-                    <td className="px-3 py-2 font-semibold">{fmtTokens(e.tokens_mean)}</td>
-                    <td className={`px-3 py-2 font-medium ${relEffortStyle(e.rel_effort)}`}>{e.rel_effort != null ? `×${e.rel_effort.toFixed(2)}` : '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{e.steps_mean != null ? Math.round(e.steps_mean) : '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{(e.cost_mean ?? 0) > 0 ? fmtUsd(e.cost_mean) : '—'}</td>
-                    <td className="px-3 py-2 text-gray-400">{e.duration_mean != null ? `${Math.round(e.duration_mean)}s` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-            <span className="font-medium">Effort = tokens, not wall-clock.</span> Time is polluted by provider throttling and sleep/wait, so it can't compare agent skill;
-            tokens are deterministic. <span className="font-medium">×median</span> divides each run's tokens by the per-case median across configs, so a config that only ran
-            hard cases isn't penalised — <span className="text-amber-700">{'>'}1</span> = heavier than typical, <span className="text-green-700">{'<'}1</span> = lighter.
+        {report.effort?.available && (
+          <p className="text-[11px] text-gray-400 mt-2 max-w-4xl">
+            <span className="font-medium">Effort (tok)</span> = total LLM tokens per run — the deterministic effort signal;
+            <span className="font-medium"> ×median</span> normalizes it by the per-case median across configs
+            (<span className="text-amber-700">{'>'}1</span> heavier than typical, <span className="text-green-700">{'<'}1</span> lighter),
+            so a config that only ran hard cases isn't penalised. <span className="font-medium">Wall-clock ⚠</span> is polluted by provider
+            throttling and sleep/wait — reference only, not a skill signal. <span className="font-medium">Steps avg</span> = full agent steps
+            (reasoning + tool calls), which is why it exceeds the raw tool-call count.
             {report.effort.cost_available
-              ? ' Cost ($) is shown where the provider prices per token.'
+              ? ' Cost is shown where the provider prices per token.'
               : ' No per-token pricing here ($0) — tokens are the only honest effort signal.'}
           </p>
-        </section>
-      )}
+        )}
+      </section>
 
-      {cb?.available && activeCostCols.length > 0 && (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">
-            Cost breakdown <span className="text-xs text-gray-400 font-normal">where the eval spend went — agent execution vs each judge (USD){verifiable ? ' · the outcome judge (E-02) still costs even when its scores are hidden' : ''}</span>
-          </h3>
-          <div className="bg-white border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  {activeCostCols.map((c) => <th key={c.key} className="px-3 py-2">{c.label}</th>)}
-                  <th className="px-3 py-2">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cb.per_config.map((row) => (
-                  <tr key={row.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{row.config_key} <span className="text-gray-500 font-normal">{row.label}</span></td>
-                    {activeCostCols.map((c) => (
-                      <td key={c.key} className="px-3 py-2 text-gray-600">{fmtUsd(row[c.key] as number)}</td>
-                    ))}
-                    <td className="px-3 py-2 font-semibold">{fmtUsd(row.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t bg-gray-50">
-                  <td className="px-3 py-2 font-medium">All configs</td>
-                  {activeCostCols.map((c) => (
-                    <td key={c.key} className="px-3 py-2 font-medium">{fmtUsd(cb.totals[c.key] as number)}</td>
-                  ))}
-                  <td className="px-3 py-2 font-bold">{fmtUsd(cb.totals.total)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-            Agent execution includes orchestrator overhead when enabled (not metered separately). Judge columns are each
-            evaluator's <code>judge_cost_usd</code>; an evaluator with zero spend across all configs is hidden.
-          </p>
-        </section>
-      )}
-
-      {report.external?.available ? (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Quality profile heatmap</h3>
-          <p className="text-sm text-gray-500">
-            Outcome is verified by the executable checker (ground truth) — the outcome judge
-            (E-02) is not used on verifiable benches. See the Executable pass-rate section below.
-          </p>
-        </section>
-      ) : (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">
-          Quality profile heatmap <span className="text-xs text-gray-400 font-normal">per-dimension outcome judge (E-02), success-only</span>
+          Quality profile heatmap <span className="text-xs text-gray-400 font-normal">per-dimension outcome judge, success-only{verifiable ? ' · ⚠ audited subject, not the verdict' : ''}</span>
         </h3>
+        {verifiable && (
+          <p className="text-[11px] text-amber-700/90 mb-2 max-w-3xl">
+            ⚠ On this verifiable bench the outcome judge is the <span className="font-medium">audited subject</span>, not the source of truth — the executable checker is (see <span className="font-medium">Pass rate</span> in Summary). Shown for inspection; not weighed in conclusions.
+          </p>
+        )}
         {report.heatmap.dimensions.length === 0 ? (
           <p className="text-sm text-gray-500">No rubric dimension scores yet (configure a judge model to score runs).</p>
         ) : (
@@ -748,50 +686,10 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         )}
       </section>
-      )}
-
-      {!verifiable && report.quality_gate?.available && (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">
-            Quality gate <span className="text-xs text-gray-400 font-normal">share of outcome-scored runs that cleared the E-02 critical rubric thresholds · success or failed</span>
-          </h3>
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2" title="share of scored runs whose result passed every CRITICAL rubric dimension (higher is better)">Gate pass</th>
-                  <th className="px-3 py-2">Passed</th>
-                  <th className="px-3 py-2">Scored</th>
-                  <th className="px-3 py-2" title="rubric dimensions that most often fail the gate (count of runs)">Top failing dimensions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.quality_gate.per_config.map((c) => {
-                  const failed = Object.entries(c.failed_dimensions).sort((a, b) => b[1] - a[1])
-                  return (
-                    <tr key={c.config_key} className="border-t align-top">
-                      <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
-                      <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
-                      <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
-                      <td className="px-3 py-2 text-gray-500">{c.n}</td>
-                      <td className="px-3 py-2 text-gray-600">
-                        {failed.length
-                          ? failed.map(([d, n]) => `${(report.heatmap.dimension_labels?.[d] || d).replace(/_/g, ' ')}: ${n}`).join(' · ')
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">
-          Trajectory profile heatmap <span className="text-xs text-gray-400 font-normal">6-axis process judge (E-07) per config</span>
+          Trajectory profile heatmap <span className="text-xs text-gray-400 font-normal">6-axis process judge per config</span>
         </h3>
         {report.trajectory_heatmap.axes.length === 0 ? (
           <p className="text-sm text-gray-500">No trajectory scores yet (the 6-axis process judge runs on settled runs with a trace).</p>
@@ -859,126 +757,108 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
           {report.axis_reliability?.available ? (
             <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-              <span className="font-medium">Reliability gate (SPA-76):</span> each axis is badged by how far the process judge (E-07) can be
+              <span className="font-medium">Reliability gate:</span> each axis is badged by how far the process judge can be
               trusted — <span className="text-green-700 font-semibold">✓</span> reliable (κ≥{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-amber-600 font-semibold">~</span> directional ({report.axis_reliability.directional_kappa}–{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-red-600 font-semibold">⚠</span> unreliable (κ&lt;{report.axis_reliability.directional_kappa}),{' '}
-              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ is chance-corrected agreement with a human (E-17) or
-              the loop counter (SPA-75). <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
+              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ is chance-corrected agreement with a human or
+              the loop counter. <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
               completeness, not weighed in conclusions.</span>
             </p>
           ) : report.axis_reliability ? (
             <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-              <span className="font-medium">Reliability gate (SPA-76):</span> no calibration source for these axes yet (no human axis ratings;
+              <span className="font-medium">Reliability gate:</span> no calibration source for these axes yet (no human axis ratings;
               the structural loop anchor needs trajectory-scored runs) — process scores are shown but <span className="font-medium">unverified</span> (n/a).
             </p>
           ) : null}
           </>
         )}
       </section>
+      </div>
 
-      {report.loop_detection?.available && (() => {
-        const ld = report.loop_detection!
-        const struct = !!ld.structural_available
-        const k = ld.kappa
-        const loopRel = report.axis_reliability?.axes?.loop_detection
-        return (
+      {!verifiable && report.quality_gate?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
-            Loop detection <span className="text-xs text-gray-400 font-normal">share of trajectory-scored runs that loop · success or failed · lower is better{struct && k != null ? ` · judge↔counter κ ${k.toFixed(2)}` : ''}</span>
-            <ReliabilityBadge a={loopRel} />
-          </h3>
-          <div className="bg-white border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2" title="LLM judge's loop_detection axis (E-07), holistic over the budget-TRIMMED trace (reasoning + tools)">Loop rate (judge)</th>
-                  {struct && <th className="px-3 py-2" title="deterministic counter (SPA-75): repeated tool-calls counted over the FULL untrimmed trace — LLM-free; a precision-oriented structural lower bound (may miss semantic loops)">Loop rate (counted)</th>}
-                  {struct && <th className="px-3 py-2" title="judge flagged a loop the counter did NOT find (a structural repetition was absent — possible judge over-call, or a reasoning-only loop out of the counter's tool-call scope)">Judge-only</th>}
-                  {struct && <th className="px-3 py-2" title="counter found a repetition the judge MISSED — often in the trimmed-away middle steps the judge never saw">Counter-only</th>}
-                  {struct && <th className="px-3 py-2" title="Cohen's κ between the judge and the counter (chance-corrected; raw % agreement is inflated by the common both-clean case)">κ</th>}
-                  <th className="px-3 py-2">Scored</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ld.per_config.map((c) => (
-                  <tr key={c.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
-                    <td className={`px-3 py-2 font-semibold ${(c.loop_rate ?? 0) > 0 ? 'text-amber-600' : 'text-gray-700'}`}
-                      title={`${c.n_loop} of ${c.n_scored} runs`}>
-                      {c.loop_rate != null ? `${(c.loop_rate * 100).toFixed(0)}%` : '—'}
-                    </td>
-                    {struct && (
-                      <td className={`px-3 py-2 font-semibold ${(c.structural_loop_rate ?? 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}
-                        title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
-                        {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
-                      </td>
-                    )}
-                    {struct && <td className="px-3 py-2 text-gray-500" title="judge said loop, counter did not">{c.n_judge_only ?? 0}</td>}
-                    {struct && <td className="px-3 py-2 text-gray-500" title="counter found a loop the judge missed">{c.n_counter_only ?? 0}</td>}
-                    {struct && (
-                      <td className={`px-3 py-2 ${(c.kappa ?? 1) < 0.4 ? 'text-red-600' : (c.kappa ?? 1) < 0.6 ? 'text-amber-600' : 'text-gray-500'}`}>
-                        {c.kappa != null ? c.kappa.toFixed(2) : '—'}
-                      </td>
-                    )}
-                    <td className="px-3 py-2 text-gray-500">{c.n_scored}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {struct && (
-            <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-              <span className="font-medium">Loop rate (counted)</span> is a deterministic, LLM-free detector (SPA-75): it counts repeated
-              tool-calls — consecutive identical actions or repeated multi-step tool cycles — over the FULL untrimmed trace. It is a
-              precision-oriented structural lower bound (tool-calls only; may miss semantic loops that vary their wording). The two signals
-              see <span className="font-medium">different inputs</span> (judge = trimmed + holistic, counter = full + tool-only), so their
-              gap is partly definitional, not pure judge error: <span className="font-medium">Counter-only</span> are loops the judge
-              structurally could not see (trimmed-away middle steps) — the clearest evidence the trimming hurts the judge — while{' '}
-              <span className="font-medium">Judge-only</span> are loops the judge called without a structural repetition behind them.
-            </p>
-          )}
-        </section>
-        )
-      })()}
-
-      {report.trace_stats?.available && (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">
-            Cleaned-trace stats <span className="text-xs text-gray-400 font-normal">trace cleaner (E-06) per config · mean agent steps + how far the trace compressed</span>
+            Quality gate <span className="text-xs text-gray-400 font-normal">share of outcome-scored runs that cleared the critical rubric thresholds · success or failed</span>
           </h3>
           <div className="bg-white border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2" title="mean number of agent steps in the trace (lower = more direct)">Steps avg</th>
-                  <th className="px-3 py-2" title="cleaned ÷ original tokens — how much the trace cleaner compressed the raw trace (lower = noisier raw trace)">Compression</th>
-                  <th className="px-3 py-2" title="mean cleaned-trace tokens fed to the trajectory judge">Cleaned tok</th>
+                  <th className="px-3 py-2" title="share of scored runs whose result passed every CRITICAL rubric dimension (higher is better)">Gate pass</th>
+                  <th className="px-3 py-2">Passed</th>
                   <th className="px-3 py-2">Scored</th>
+                  <th className="px-3 py-2" title="rubric dimensions that most often fail the gate (count of runs)">Top failing dimensions</th>
                 </tr>
               </thead>
               <tbody>
-                {report.trace_stats.per_config.map((c) => (
-                  <tr key={c.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
-                    <td className="px-3 py-2">{c.steps_mean != null ? c.steps_mean.toFixed(1) : '—'}</td>
-                    <td className="px-3 py-2">{c.compression != null ? `${(c.compression * 100).toFixed(0)}%` : '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{c.cleaned_tokens_mean != null ? Math.round(c.cleaned_tokens_mean).toLocaleString() : '—'}</td>
-                    <td className="px-3 py-2 text-gray-500">{c.n}</td>
-                  </tr>
-                ))}
+                {report.quality_gate.per_config.map((c) => {
+                  const failed = Object.entries(c.failed_dimensions).sort((a, b) => b[1] - a[1])
+                  return (
+                    <tr key={c.config_key} className="border-t align-top">
+                      <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                      <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
+                      <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
+                      <td className="px-3 py-2 text-gray-500">{c.n}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {failed.length
+                          ? failed.map(([d, n]) => `${(report.heatmap.dimension_labels?.[d] || d).replace(/_/g, ' ')}: ${n}`).join(' · ')
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         </section>
       )}
 
+      {report.loop_detection?.structural_available && (() => {
+        const ld = report.loop_detection!
+        return (
+        <section>
+          <h3 className="font-semibold text-gray-900 mb-2">
+            Loop detection <span className="text-xs text-gray-400 font-normal">deterministic loop counter · repeated tool-calls over the FULL trace · success or failed · lower is better</span>
+          </h3>
+          <div className="bg-white border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                <tr>
+                  <th className="px-3 py-2">Configuration</th>
+                  <th className="px-3 py-2" title="deterministic counter: repeated tool-calls counted over the FULL untrimmed trace — LLM-free; a precision-oriented structural lower bound (may miss semantic loops)">Loop rate (counted)</th>
+                  <th className="px-3 py-2">Counted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ld.per_config.map((c) => (
+                  <tr key={c.config_key} className="border-t">
+                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className={`px-3 py-2 font-semibold ${(c.structural_loop_rate ?? 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}
+                      title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
+                      {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-gray-500">{c.n_structural ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
+            <span className="font-medium">Loop rate (counted)</span> is a deterministic, LLM-free detector: it counts repeated
+            tool-calls — consecutive identical actions or repeated multi-step tool cycles — over the FULL untrimmed trace. It is a
+            precision-oriented structural lower bound (tool-calls only; may miss semantic loops that vary their wording). The unreliable
+            judge <code>loop_detection</code> axis (κ≈0 vs humans) is retired in favour of this counter.
+          </p>
+        </section>
+        )
+      })()}
+
       {report.longitudinal?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
-            Longitudinal <span className="text-xs text-gray-400 font-normal">quality / cost across the repetition index (E-22) — do later repeats of a cell drift?</span>
+            Longitudinal <span className="text-xs text-gray-400 font-normal">quality / cost across the repetition index — do later repeats of a cell drift?</span>
           </h3>
           <div className="bg-white border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
@@ -988,7 +868,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   <th className="px-3 py-2">Runs</th>
                   {!verifiable && <th className="px-3 py-2">Quality avg</th>}
                   <th className="px-3 py-2">Trajectory avg</th>
-                  <th className="px-3 py-2" title="Token effort across repetitions (SPA-77)">Tokens avg</th>
+                  <th className="px-3 py-2" title="Token effort across repetitions">Tokens avg</th>
                   <th className="px-3 py-2">Cost avg</th>
                 </tr>
               </thead>
@@ -1012,7 +892,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       {report.human_feedback?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
-            Human feedback profile <span className="text-xs text-gray-400 font-normal">per-dimension E-05 human ratings · all rated runs · the third oracle</span>
+            Human feedback profile <span className="text-xs text-gray-400 font-normal">per-dimension human ratings · all rated runs · the third oracle</span>
           </h3>
           <div className="bg-white border rounded-lg overflow-x-auto p-3">
             <table className="text-sm border-separate" style={{ borderSpacing: 3 }}>
@@ -1060,7 +940,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             </table>
           </div>
           <p className="text-[11px] text-gray-400 mt-1 max-w-3xl">
-            Raw human signal (E-05) — independent of the judge↔human agreement (E-17) below. Aggregated over every rated
+            Raw human signal — independent of the judge↔human agreement below. Aggregated over every rated
             run (not success-only), so the verdict counts keep the rejects. Cells colour low→high like the judge heatmaps; hover for n / σ.
           </p>
         </section>
@@ -1069,7 +949,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       {report.trajectory_match.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
-            Trajectory match <span className="text-xs text-gray-400 font-normal">vs canonical gold trajectory (E-09)</span>
+            Trajectory match <span className="text-xs text-gray-400 font-normal">vs canonical gold trajectory</span>
           </h3>
           <div className="bg-white border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
@@ -1096,35 +976,6 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
       )}
 
-      {report.external?.available && (
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">
-            Executable pass-rate <span className="text-xs text-gray-400 font-normal">Toolathlon external checker (gold.external_eval) — ground-truth outcome</span>
-          </h3>
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2">Pass rate</th>
-                  <th className="px-3 py-2">Passed</th>
-                  <th className="px-3 py-2">Evaluated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.external.per_config.map((c) => (
-                  <tr key={c.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
-                    <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
-                    <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
-                    <td className="px-3 py-2 text-gray-500">{c.n_evaluated}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
       {!report.external?.available && report.rq2?.available && (
         <section>
@@ -1150,26 +1001,26 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             <p className="text-[11px] text-gray-400 mt-2">
               Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.
               The <span className="text-amber-700">fail × judge-high</span> cell is the over-credit signal — the judge rewarding a
-              result the checker rejected. This is the outcome-judge analogue of the human-calibrated κ in <span className="font-medium">Judge ↔ human</span> below (E-17).
+              result the checker rejected. This is the outcome-judge analogue of the human-calibrated κ in <span className="font-medium">Judge ↔ human</span> below.
             </p>
           </div>
         </section>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {!verifiable && (
-          <SummaryRadarPanel
-            title="Quality profile"
-            subtitle="overlay · per-config E-02 dimensions (success-only) — toggle configs"
-            axes={report.heatmap.dimensions}
-            axisLabel={(k) => report.heatmap.dimension_labels?.[k] ?? k.replace(/_/g, ' ')}
-            rows={report.heatmap.rows}
-            colorOf={(k) => colorByConfig.get(k)}
-          />
-        )}
+        <SummaryRadarPanel
+          title="Quality profile"
+          subtitle={verifiable
+            ? 'overlay · per-config dimensions (success-only) · ⚠ audited subject, not the verdict — checker is (Pass rate)'
+            : 'overlay · per-config dimensions (success-only) — toggle configs'}
+          axes={report.heatmap.dimensions}
+          axisLabel={(k) => report.heatmap.dimension_labels?.[k] ?? k.replace(/_/g, ' ')}
+          rows={report.heatmap.rows}
+          colorOf={(k) => colorByConfig.get(k)}
+        />
         <SummaryRadarPanel
           title="Trajectory profile"
-          subtitle="overlay · per-config E-07 axes (success-only) — toggle configs · ⚠ greyed axis = process judge below the reliability bar (SPA-76)"
+          subtitle="overlay · per-config axes (success-only) — toggle configs · ⚠ greyed axis = process judge below the reliability bar"
           axes={report.trajectory_heatmap.axes}
           axisLabel={(k) => report.trajectory_heatmap.axis_labels?.[k] ?? k.replace(/_/g, ' ')}
           axisStatus={(k) => report.axis_reliability?.axes?.[k]?.status}
@@ -1192,7 +1043,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             const bubbleKey = costVaries ? 'effort' : 'time'
             return (
             <>
-            <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × {costVaries ? 'cost' : 'token effort'} · bubble = {costVaries ? 'token effort' : 'wall-clock ⚠'} · <span className="text-green-700">green</span> = on the frontier (quality↑ · cost↓ · effort↓), grey = dominated{verifiable ? ' · *E-02 audited, not evaluator' : ''}</span></h3>
+            <h3 className="font-semibold text-gray-900 mb-2">Pareto frontier <span className="text-xs text-gray-400 font-normal">quality × {costVaries ? 'cost' : 'token effort'} · bubble = {costVaries ? 'token effort' : 'wall-clock ⚠'} · <span className="text-green-700">green</span> = on the frontier (quality↑ · cost↓ · effort↓), grey = dominated{verifiable ? ' · *audited, not evaluator' : ''}</span></h3>
             <div className="bg-white border rounded-lg p-3 h-72">
             {!(costVaries || effortVaries) ? (
               <div className="h-full flex items-center justify-center text-center text-xs text-gray-400 px-6">
@@ -1207,7 +1058,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   tickFormatter={(v) => (costVaries ? `$${Number(v).toFixed(2)}` : fmtTokens(Number(v)))}
                   label={{ value: xLabel, position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="quality" name="quality" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: verifiable ? 'Quality (E-02)*' : 'Quality (E-02)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Quality*' : 'Quality', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <ZAxis type="number" dataKey={bubbleKey} range={[60, 400]} name={bubbleKey} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => (payload && payload.length ? (
@@ -1233,15 +1084,15 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
 
         <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Outcome × Trajectory <span className="text-xs text-gray-400 font-normal">per run{verifiable ? ' · *outcome E-02 audited, not evaluator' : ''}</span></h3>
+          <h3 className="font-semibold text-gray-900 mb-2">Outcome × Trajectory <span className="text-xs text-gray-400 font-normal">per run{verifiable ? ' · *outcome audited, not evaluator' : ''}</span></h3>
           <div className="bg-white border rounded-lg p-3 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 10, right: 20, bottom: 28, left: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" dataKey="outcome" name="outcome" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: verifiable ? 'Outcome (E-02)*' : 'Outcome (E-02)', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: verifiable ? 'Outcome*' : 'Outcome', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#6b7280' }} />
                 <YAxis type="number" dataKey="trajectory" name="trajectory" domain={[0, 10]} tick={{ fontSize: 11 }}
-                  label={{ value: 'Trajectory (E-07)', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
+                  label={{ value: 'Trajectory', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => (payload && payload.length ? (
                     <div className="bg-white border rounded px-2 py-1 text-xs shadow">
@@ -1312,20 +1163,22 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         )}
       </section>
 
+      <JudgeHumanCalibration cal={report.judge_calibration} checkerHuman={report.checker_human} />
+
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">Statistical significance <span className="text-xs text-gray-400 font-normal">Welch t-test (primary) + Mann-Whitney U (approx); ★ = p &lt; 0.05</span></h3>
         {verifiable && (
           <p className="text-xs text-gray-400 mb-2 -mt-1 max-w-3xl">
-            On verifiable benches the outcome judge (E-02) is the subject being audited (not the evaluator), so its metrics
-            (Overall quality + dimensions) are hidden here — only Trajectory (E-07) is shown. See <span className="font-medium">Executable pass-rate</span> above for the ground-truth outcome.
+            On verifiable benches the outcome judge is the subject being audited (not the evaluator), so its metrics
+            (Overall quality + dimensions) are hidden here — only Trajectory is shown. See <span className="font-medium">Pass rate</span> in the Summary for the ground-truth outcome.
           </p>
         )}
         {visibleSignificance.length > 0 && (
           <p className="text-xs text-gray-400 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>Judge:</span>
-            <span className="px-1.5 py-0.5 rounded font-medium text-blue-700 bg-blue-50">Quality (E-02)</span>
+            <span className="px-1.5 py-0.5 rounded font-medium text-blue-700 bg-blue-50">Quality</span>
             <span>= outcome rubric ·</span>
-            <span className="px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50">Trajectory (E-07)</span>
+            <span className="px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50">Trajectory</span>
             <span>= process, 6-axis. Rows are grouped by evaluator.</span>
           </p>
         )}
@@ -1338,7 +1191,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 <tr>
                   <th className="px-3 py-2">Pair</th>
                   <th className="px-3 py-2">Metric</th>
-                  <th className="px-3 py-2" title="which evaluator produced this metric — outcome judge (E-02) or process judge (E-07)">Judge</th>
+                  <th className="px-3 py-2" title="which evaluator produced this metric — outcome judge or process judge">Judge</th>
                   <th className="px-3 py-2">Welch p</th>
                   <th className="px-3 py-2">Mann-Whitney p</th>
                   <th className="px-3 py-2">Verdict</th>
@@ -1360,7 +1213,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                           {metricLabel(s.metric)}
                           {agg && agg !== 'reliable' && (
                             <span className={`ml-1 text-[10px] font-semibold ${RELIABILITY_META[agg].cls}`}
-                              title={`Aggregate of the 6 E-07 axes — ${RELIABILITY_META[agg].word}; only as reliable as its weakest calibrated axis. See the Trajectory profile heatmap reliability gate.`}>
+                              title={`Aggregate of the trajectory judge's 6 axes — ${RELIABILITY_META[agg].word}; only as reliable as its weakest calibrated axis. See the Trajectory profile heatmap reliability gate.`}>
                               {RELIABILITY_META[agg].glyph}
                             </span>
                           )}
@@ -1384,90 +1237,6 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         )}
       </section>
 
-      <JudgeHumanCalibration cal={report.judge_calibration} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Failure modes</h3>
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2">Configuration</th>
-                  <th className="px-3 py-2">Statuses</th>
-                  <th className="px-3 py-2">Failure classes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.failure_modes.per_config.map((f) => (
-                  <tr key={f.config_key} className="border-t align-top">
-                    <td className="px-3 py-2 font-medium">{f.config_key}</td>
-                    <td className="px-3 py-2 text-gray-600">
-                      {Object.entries(f.statuses).map(([s, n]) => `${s}: ${n}`).join(' · ') || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-gray-600">
-                      {Object.keys(f.classes).length === 0 ? '—' : (
-                        <ul className="space-y-1">
-                          {Object.entries(f.classes).sort((a, b) => b[1] - a[1]).map(([c, n]) => (
-                            <li key={c}>
-                              <span className="font-medium text-gray-700">{c.replace(/_/g, ' ')}</span>
-                              <span className="text-gray-400"> ×{n}</span>
-                              {f.class_reasons?.[c]?.length ? (
-                                <ul className="ml-3 mt-0.5 list-disc list-inside text-xs text-gray-500 space-y-0.5">
-                                  {f.class_reasons[c].map((r, i) => (
-                                    <li key={i} title={r.confidence != null ? `confidence ${r.confidence}` : undefined}>{r.reason}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="font-semibold text-gray-900 mb-2">Orchestrator on / off</h3>
-          {!report.orchestrator.on || !report.orchestrator.off ? (
-            <p className="text-sm text-gray-500">
-              Add configurations on both sides of the <code>orchestrator</code> axis to compare orchestration impact.
-            </p>
-          ) : (
-            <div className="bg-white border rounded-lg p-4">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-gray-500 uppercase">
-                  <tr><th /><th className="py-1">orchestrator: on</th><th className="py-1">off</th><th className="py-1">Δ (on − off)</th></tr>
-                </thead>
-                <tbody>
-                  {([
-                    ['quality_mean', 'Quality'],
-                    ['trajectory_mean', 'Trajectory'],
-                    ['success_rate', 'Success rate'],
-                    ['tokens_mean', 'Effort (tok)'],
-                    ['cost_mean', 'Cost avg, $'],
-                    ['duration_mean', 'Wall-clock, s ⚠'],
-                  ] as const).map(([key, label]) => (
-                    <tr key={key} className="border-t">
-                      <td className="py-1.5 text-gray-600">{label}</td>
-                      <td className="py-1.5">{fmt(report.orchestrator.on?.[key])}</td>
-                      <td className="py-1.5">{fmt(report.orchestrator.off?.[key])}</td>
-                      <td className="py-1.5 font-medium">{fmt(report.orchestrator.delta?.[key])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="text-xs text-gray-400 mt-2">
-                on: {report.orchestrator.on.configs.join(', ')} · off: {report.orchestrator.off.configs.join(', ')}
-              </p>
-            </div>
-          )}
-        </section>
-      </div>
     </div>
   )
 }
