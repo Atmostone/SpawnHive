@@ -162,7 +162,7 @@ def test_build_report_full_shape():
 
     report = build_report(_exp(CONFIGS), runs, records, partial=False)
 
-    assert report["schema_version"] == 10
+    assert report["schema_version"] == 12
     assert report["partial"] is False
     assert report["n_terminal_runs"] == 13
     # No executable verdicts here → external/rq2 present but unavailable.
@@ -209,10 +209,12 @@ def test_build_report_full_shape():
 
     # SPA-76: no human calibration passed and no deterministic loop_analysis on
     # these records → every axis is an honest 'not_calibrated' (never fabricated).
+    # v11: the judge loop_detection axis is retired (counter SPA-75 carries it).
     ar = report["axis_reliability"]
     assert ar["available"] is False
     assert set(ar["axes"]) == {"efficiency", "tool_selection", "parameter_quality",
-                               "error_recovery", "goal_alignment", "loop_detection"}
+                               "error_recovery", "goal_alignment"}
+    assert "loop_detection" not in ar["axes"]
     assert all(a["status"] == "not_calibrated" and a["source"] == "none"
                for a in ar["axes"].values())
 
@@ -307,7 +309,7 @@ def test_build_report_external_pass_rate_and_rq2():
         _run("cfg-02", "case-c", 0, score=None, external_verdict=True),
     ]
     report = build_report(_exp(CONFIGS), runs, {}, partial=False)
-    assert report["schema_version"] == 10
+    assert report["schema_version"] == 12
 
     ext = report["external"]
     assert ext["available"] is True
@@ -368,6 +370,34 @@ def test_build_report_human_feedback_aggregate():
     row2 = next(r for r in hf["rows"] if r["config_key"] == "cfg-02")
     assert row2["n_rated"] == 0
     assert row2["cells"]["accuracy"]["n"] == 0
+
+
+def test_build_report_checker_human_agreement():
+    # v12: pair the executable-checker verdict (external_verdict) with the human
+    # gold verdict. 4 runs cover the 2×2; a 5th has a checker verdict but no human
+    # verdict (excluded).
+    runs, records = [], {}
+    for i, (ev, hv) in enumerate(
+        [(True, "approve"), (True, "reject"), (False, "reject"), (False, "approve")]
+    ):
+        r = _run("cfg-01", f"case-{i}", 0, status="success", score=7.0, external_verdict=ev)
+        runs.append(r)
+        records[r.task_id] = _record(human_feedback={"verdict": hv, "dimensions": []})
+    r5 = _run("cfg-01", "case-x", 0, status="success", score=6.0, external_verdict=True)
+    runs.append(r5)
+    records[r5.task_id] = _record()  # checker verdict but no human → excluded
+
+    report = build_report(_exp(CONFIGS), runs, records, partial=False)
+    ch = report["checker_human"]
+    assert ch["available"] is True
+    assert ch["n"] == 4
+    assert ch["cells"] == {
+        "pass_approve": 1, "pass_reject": 1, "fail_approve": 1, "fail_reject": 1,
+    }
+    # agreement = (pass_approve + fail_reject) / n = 2/4
+    assert ch["agreement"] == 0.5
+    # κ on {both_yes=1, a_only=1, b_only=1, both_no=1}: po=.5, pe=.5 → 0
+    assert ch["kappa"] == 0.0
 
 
 def test_build_report_cost_breakdown():
@@ -556,12 +586,13 @@ def test_build_report_loop_detection_structural_anchor():
     assert ld["n_counter_only"] == 1 and ld["n_judge_only"] == 0
     assert ld["kappa"] == 0.0
     assert ld["n_structural"] == 2
-    # SPA-76: with no human calibration, the loop axis is anchored by the SPA-75
-    # structural counter; here n_structural=2 < MIN_SAMPLES → 'directional' (a hint).
+    # v11: the judge loop_detection axis is retired from axis_reliability — the SPA-75
+    # counter still carries the loop signal in the Loop detection section (asserted
+    # above), but it no longer badges a displayed E-07 axis. With no human calibration
+    # and loop gone, no real reliability source remains.
     ar = report["axis_reliability"]
-    assert ar["available"] is True
-    assert ar["axes"]["loop_detection"]["source"] == "structural"
-    assert ar["axes"]["loop_detection"]["status"] == "directional"
+    assert "loop_detection" not in ar["axes"]
+    assert ar["available"] is False
     assert ar["axes"]["efficiency"]["status"] == "not_calibrated"
 
 
@@ -603,17 +634,14 @@ def test_axis_reliability_sources_and_priority():
     # human dim exists but n=2 < MIN_SAMPLES → directional (insufficient), still human-sourced
     assert (ax["error_recovery"]["status"], ax["error_recovery"]["source"]) == ("directional", "human")
     assert (ax["goal_alignment"]["status"], ax["goal_alignment"]["source"]) == ("not_calibrated", "none")
-    # a human rated the loop axis with enough data → human WINS over the structural anchor
-    assert (ax["loop_detection"]["status"], ax["loop_detection"]["source"]) == ("unreliable", "human")
-    assert ax["loop_detection"]["kappa"] == 0.05
+    # v11: the judge loop_detection axis is retired — never badged, even with a human κ.
+    assert "loop_detection" not in ax
 
-    # No human on the loop axis → fall back to the SPA-75 structural anchor.
+    # The structural loop anchor no longer surfaces a displayed axis (v11).
     cal2 = {"available": True, "dimensions": [
         {"key": "efficiency", "name": "Efficiency", "n": 10, "cohen_kappa": 0.72}]}
     ar2 = _axis_reliability(cal2, loop_detection, {})
-    assert (ar2["axes"]["loop_detection"]["status"], ar2["axes"]["loop_detection"]["source"]) == (
-        "unreliable", "structural")
-    assert ar2["axes"]["loop_detection"]["kappa"] == 0.33
+    assert "loop_detection" not in ar2["axes"]
     # a non-loop axis with no human source stays not_calibrated even when a loop anchor exists
     assert ar2["axes"]["goal_alignment"]["status"] == "not_calibrated"
 

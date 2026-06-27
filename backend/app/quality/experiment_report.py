@@ -30,7 +30,12 @@ from app.quality.ranking import build_matches
 from app.quality.stats import MIN_SAMPLES, mann_whitney_u, welch_t_test
 from app.quality.trajectory import AXES as TRAJECTORY_AXES
 
-SCHEMA_VERSION = 10  # v10: confound-controlled effort (SPA-77) — token/$ effort,
+SCHEMA_VERSION = 12  # v12: checker↔human agreement (Cohen's κ + raw) — the executable
+# checker vs the human gold verdict, surfaced beside judge↔human calibration
+# v11: retire the unreliable judge loop_detection axis — drop it
+# from the displayed E-07 axes AND from the trajectory aggregate (a quarantined axis
+# must not be weighed into conclusions, SPA-76); deterministic counter (SPA-75) stays
+# v10: confound-controlled effort (SPA-77) — token/$ effort,
 # difficulty-normalized per case; wall-clock demoted to a caveated secondary
 # v9: per-axis reliability gate (SPA-76) — E-17/loop-anchor κ badge
 # v8: loop anchor directional split (judge-only/counter-only) + Cohen's κ
@@ -96,6 +101,30 @@ def _run_steps(rec) -> Optional[float]:
     ts = (getattr(rec, "trajectory_profile", None) or {}).get("trace_stats") or {}
     st = ts.get("steps_total")
     return float(st) if st is not None else None
+
+
+# The judge loop_detection axis is retired from the trajectory aggregate (v11): it is
+# unreliable vs humans (κ≈0, SPA-76) and SPA-76 promises quarantined axes are "not
+# weighed in conclusions" — yet the stored overall_score averaged it in (trajectory.py
+# overall = mean of all 6 axes). The deterministic loop counter (SPA-75) carries the
+# loop signal instead.
+_AGG_EXCLUDED_AXES = {"loop_detection"}
+
+
+def _traj_score(rec, stored: Optional[float]) -> Optional[float]:
+    """Trajectory aggregate EXCLUDING the quarantined loop_detection axis (v11).
+    Recompute the mean from the stored per-axis scores; fall back to the stored
+    6-axis overall when the per-axis breakdown is unavailable."""
+    axes = (getattr(rec, "trajectory_profile", None) or {}).get("axes") if rec is not None else None
+    if axes:
+        vals = [
+            float(a["score"])
+            for a in axes
+            if a.get("key") not in _AGG_EXCLUDED_AXES and a.get("score") is not None
+        ]
+        if vals:
+            return sum(vals) / len(vals)
+    return stored
 
 
 def _binary_kappa(both_yes: int, a_only: int, b_only: int, both_no: int) -> Optional[float]:
@@ -170,6 +199,8 @@ def _axis_reliability(
     axes_out: dict[str, dict] = {}
     any_source = False
     for key, name, _desc in TRAJECTORY_AXES:
+        if key in _AGG_EXCLUDED_AXES:
+            continue  # v11: loop axis retired — its κ no longer badges a displayed axis
         label = axis_labels.get(key) or name
         hd = human_dims.get(key)
         h_n = int(hd.get("n") or 0) if hd else 0
@@ -295,7 +326,9 @@ def _group_means(
         "n_runs": len(settled),
         "success_rate": round(len(success) / len(settled), 3) if settled else None,
         "quality_mean": _mean([r.weighted_score for r in success]),
-        "trajectory_mean": _mean([r.trajectory_score for r in success]),
+        "trajectory_mean": _mean(
+            [_traj_score(records_by_task.get(r.task_id), r.trajectory_score) for r in success]
+        ),
         "cost_mean": _mean([float(r.cost_usd or 0) for r in settled]),
         "duration_mean": _mean([r.duration_seconds for r in settled]),
         "tokens_mean": _mean(tokens),
@@ -509,6 +542,8 @@ def build_report(
             key, score = ax.get("key"), ax.get("score")
             if key is None or score is None:
                 continue
+            if key in _AGG_EXCLUDED_AXES:
+                continue  # v11: judge loop axis retired from the heatmap/radar (SPA-76)
             if key not in axis_order:
                 axis_order.append(key)
                 axis_labels[key] = ax.get("name") or key
@@ -520,9 +555,10 @@ def build_report(
             vals = axis_samples.get(key, {}).get(ax_key) or []
             cells[ax_key] = {"mean": _mean(vals), "std": _std(vals), "n": len(vals)}
         # Success-only, consistent with the per-axis cells (success_runs) and the
-        # Summary "trajectory" column — see the weighted_score note above.
+        # Summary "trajectory" column — see the weighted_score note above. v11: the
+        # aggregate excludes the retired loop axis (_traj_score).
         overall = [
-            r.trajectory_score
+            _traj_score(records_by_task.get(r.task_id), r.trajectory_score)
             for r in by_config[key]
             if r.status == ExperimentRunStatus.SUCCESS.value
             and r.trajectory_score is not None
@@ -696,7 +732,9 @@ def build_report(
                 "run_index": idx,
                 "n": len(grp),
                 "quality_mean": _mean([r.weighted_score for r in succ]),
-                "trajectory_mean": _mean([r.trajectory_score for r in succ]),
+                "trajectory_mean": _mean(
+                    [_traj_score(records_by_task.get(r.task_id), r.trajectory_score) for r in succ]
+                ),
                 "cost_mean": _mean([float(r.cost_usd or 0) for r in grp]),
                 "tokens_mean": _mean(toks),  # SPA-77: token effort across repetitions
             }
@@ -716,9 +754,17 @@ def build_report(
     h_overall: dict[str, list[float]] = {}
     h_verdicts: dict[str, dict[str, int]] = {}
     any_human = False
+    # checker↔human (v12): the executable checker is the outcome ground truth on
+    # verifiable benches, but it is itself imperfect — pair its pass/fail verdict
+    # with the human approve/reject gold to surface where even the checker disagrees.
+    ch_cells = {"pass_approve": 0, "pass_reject": 0, "fail_approve": 0, "fail_reject": 0}
     for r in runs:
         rec = records_by_task.get(r.task_id)
         hf = (getattr(rec, "human_feedback", None) or {}) if rec is not None else {}
+        ev = getattr(r, "external_verdict", None)
+        hv = hf.get("verdict")
+        if ev is not None and hv in ("approve", "reject"):
+            ch_cells[("pass" if ev else "fail") + "_" + hv] += 1
         if not hf:
             continue
         any_human = True
@@ -764,6 +810,19 @@ def build_report(
         "dimensions": h_dim_order,
         "dimension_labels": h_dim_labels,
         "rows": human_rows,
+    }
+    # checker↔human agreement (v12): Cohen's κ + raw agreement on the verdict, where
+    # checker pass≈human approve and checker fail≈human reject.
+    ch_n = sum(ch_cells.values())
+    checker_human = {
+        "available": ch_n > 0,
+        "n": ch_n,
+        "kappa": _binary_kappa(
+            ch_cells["pass_approve"], ch_cells["pass_reject"],
+            ch_cells["fail_approve"], ch_cells["fail_reject"],
+        ),
+        "agreement": (ch_cells["pass_approve"] + ch_cells["fail_reject"]) / ch_n if ch_n else None,
+        "cells": ch_cells,
     }
 
     # --- cost breakdown per config --------------------------------------------
@@ -934,7 +993,7 @@ def build_report(
             "run_index": r.run_index,
             "status": r.status,
             "outcome": r.weighted_score,
-            "trajectory": r.trajectory_score,
+            "trajectory": _traj_score(records_by_task.get(r.task_id), r.trajectory_score),
             "cost": float(r.cost_usd or 0),
             "duration": r.duration_seconds,
             "tokens": _run_effort_tokens(records_by_task.get(r.task_id)),
@@ -977,7 +1036,7 @@ def build_report(
         if weighted:
             cfg_samples["weighted_score"] = weighted
         trajectory = [
-            r.trajectory_score
+            _traj_score(records_by_task.get(r.task_id), r.trajectory_score)
             for r in group_success
             if r.trajectory_score is not None
         ]
@@ -1083,6 +1142,7 @@ def build_report(
         "failure_modes": failure_modes,
         "orchestrator": orchestrator,
         "judge_calibration": calibration,
+        "checker_human": checker_human,
     }
 
 

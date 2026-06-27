@@ -41,7 +41,7 @@ export default function JudgeCalibrationPanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Scale className="h-5 w-5" />
-          Judge Calibration <span className="text-sm font-normal text-gray-400">(E-17)</span>
+          Judge Calibration
         </h2>
         <div className="flex items-center gap-3">
           <JudgeCalibrationBadge />

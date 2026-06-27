@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import TemplateMetricsTable from '@/components/analytics/TemplateMetricsTable'
 import TimelineChart from '@/components/analytics/TimelineChart'
 import ModelChart from '@/components/analytics/ModelChart'
-import TemplateCompareView from '@/components/analytics/TemplateCompareView'
+import ConfigCompareView from '@/components/analytics/ConfigCompareView'
 import JudgeCalibrationPanel from '@/components/quality/JudgeCalibrationPanel'
 import BiasReportPanel from '@/components/quality/BiasReportPanel'
 import RankingPanel from '@/components/quality/RankingPanel'
@@ -53,9 +53,16 @@ export default function Analytics() {
     staleTime: STALE_TIME,
   })
 
+  const configsQuery = useQuery({
+    queryKey: ['analytics', 'configs', period],
+    queryFn: () => analyticsApi.configs({ period }),
+    staleTime: STALE_TIME,
+  })
+
   const templates = templatesQuery.data ?? []
   const timeline = timelineQuery.data ?? []
   const models = modelsQuery.data ?? []
+  const configs = configsQuery.data ?? []
 
   const isLoading = templatesQuery.isLoading || timelineQuery.isLoading || modelsQuery.isLoading
   const allEmpty =
@@ -216,7 +223,9 @@ export default function Analytics() {
         </div>
       )}
 
-      {!isLoading && !allEmpty && tab === 'compare' && <TemplateCompareView data={templates} />}
+      {tab === 'compare' && (configsQuery.isLoading
+        ? <div className="bg-white rounded-lg border p-8 text-center text-gray-500">Loading…</div>
+        : <ConfigCompareView data={configs} />)}
     </div>
   )
 }

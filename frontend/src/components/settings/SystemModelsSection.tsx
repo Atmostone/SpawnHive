@@ -23,7 +23,7 @@ const KINDS: Array<{ key: keyof SystemModels; label: string; hint: string }> = [
   {
     key: 'quality_judge_model_id',
     label: 'Quality judge',
-    hint: 'LLM-as-judge for quality rubric scoring (E-02). Falls back to the orchestrator model when unset.',
+    hint: 'LLM-as-judge for quality rubric scoring. Falls back to the orchestrator model when unset.',
   },
 ]
 

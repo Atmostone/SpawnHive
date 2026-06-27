@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_workspace
 from app.database import get_db
+from app.models.experiment import Experiment, ExperimentRun, ExperimentRunStatus
 from app.models.task import Task, TaskStatus
 from app.models.template import Template
 from app.models.workspace import Workspace
@@ -93,6 +94,94 @@ async def template_analytics(
             "total_cost_usd": float(r.total_cost_usd or 0),
             "cost_per_task_usd": (float(r.total_cost_usd or 0) / count) if count else 0,
         })
+    return out_list
+
+
+@router.get("/configs")
+async def config_analytics(
+    period: str = Query(default="week"),
+    from_dt: Optional[str] = None,
+    to_dt: Optional[str] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-config aggregates across the workspace's experiments (experiment ×
+    config_key) — configs are the A/B unit people actually run, vs the legacy
+    per-template view. One row per (experiment, config_key)."""
+    cutoff = _resolve_period(period)
+    where = [Experiment.workspace_id == workspace.id]
+    if from_dt:
+        where.append(ExperimentRun.created_at >= datetime.fromisoformat(from_dt))
+    elif cutoff is not None:
+        where.append(ExperimentRun.created_at >= cutoff)
+    if to_dt:
+        where.append(ExperimentRun.created_at <= datetime.fromisoformat(to_dt))
+
+    s_success = ExperimentRunStatus.SUCCESS.value
+    s_failed = ExperimentRunStatus.FAILED.value
+    settled = case((ExperimentRun.status.in_([s_success, s_failed]), 1), else_=0)
+    success = case((ExperimentRun.status == s_success, 1), else_=0)
+    failed = case((ExperimentRun.status == s_failed, 1), else_=0)
+    ev_pass = case((ExperimentRun.external_verdict.is_(True), 1), else_=0)
+    ev_eval = case((ExperimentRun.external_verdict.isnot(None), 1), else_=0)
+
+    stmt = (
+        select(
+            ExperimentRun.experiment_id,
+            ExperimentRun.config_key,
+            Experiment.name.label("experiment_name"),
+            func.count(ExperimentRun.id).label("run_count"),
+            func.sum(settled).label("settled"),
+            func.sum(success).label("success"),
+            func.sum(failed).label("failed"),
+            func.avg(ExperimentRun.weighted_score).label("quality_mean"),
+            func.avg(ExperimentRun.trajectory_score).label("trajectory_mean"),
+            func.sum(ev_pass).label("ev_pass"),
+            func.sum(ev_eval).label("ev_eval"),
+            func.avg(ExperimentRun.duration_seconds).label("avg_time_seconds"),
+            func.avg(ExperimentRun.cost_usd).label("avg_cost_usd"),
+        )
+        .join(Experiment, Experiment.id == ExperimentRun.experiment_id)
+        .where(*where)
+        .group_by(ExperimentRun.experiment_id, ExperimentRun.config_key, Experiment.name)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    # Resolve per-config display labels from each experiment's configurations JSON.
+    exp_ids = {r.experiment_id for r in rows}
+    labels: dict = {}
+    if exp_ids:
+        cfg_rows = (
+            await db.execute(
+                select(Experiment.id, Experiment.configurations).where(Experiment.id.in_(exp_ids))
+            )
+        ).all()
+        for eid, configs in cfg_rows:
+            for c in (configs or []):
+                if isinstance(c, dict) and c.get("config_key"):
+                    labels[(eid, c["config_key"])] = c.get("label")
+
+    out_list = []
+    for r in rows:
+        settled_n = int(r.settled or 0)
+        eval_n = int(r.ev_eval or 0)
+        label = labels.get((r.experiment_id, r.config_key))
+        name = f"{r.experiment_name} · {r.config_key}"
+        if label:
+            name += f" ({label})"
+        out_list.append({
+            "config_id": f"{r.experiment_id}:{r.config_key}",
+            "config_name": name,
+            "run_count": int(r.run_count or 0),
+            "success_rate": (int(r.success or 0) / settled_n) if settled_n else 0.0,
+            "failure_rate": (int(r.failed or 0) / settled_n) if settled_n else 0.0,
+            "quality_mean": float(r.quality_mean) if r.quality_mean is not None else 0.0,
+            "trajectory_mean": float(r.trajectory_mean) if r.trajectory_mean is not None else 0.0,
+            "pass_rate": (int(r.ev_pass or 0) / eval_n) if eval_n else 0.0,
+            "avg_time_seconds": float(r.avg_time_seconds or 0),
+            "avg_cost_usd": float(r.avg_cost_usd or 0),
+        })
+    out_list.sort(key=lambda x: -x["run_count"])
     return out_list
 
 
