@@ -56,7 +56,7 @@ export default function EvidenceBankPanel({ taskId }: Props) {
   return (
     <div className="mt-2 border rounded-lg p-3 bg-gray-50 space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">Evidence bank score (E-08)</h4>
+        <h4 className="text-sm font-medium text-gray-700">Evidence bank score</h4>
         <button onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:underline">
           close
         </button>

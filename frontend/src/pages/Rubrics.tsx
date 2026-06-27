@@ -189,7 +189,7 @@ export default function Rubrics() {
       <p className="text-sm text-gray-500 mb-6">
         A rubric scores a task result on multiple independent dimensions (0–10), producing a quality
         profile instead of one number. Dimensions are scored by an LLM judge, by comparison against a
-        reference answer, or by an objective static-analysis probe (human feedback coming with E-05).
+        reference answer, or by an objective static-analysis probe (human feedback coming soon).
       </p>
 
       {rubrics.length === 0 ? (

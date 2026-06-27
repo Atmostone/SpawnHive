@@ -285,10 +285,10 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
                             {c.id} <span className="text-gray-400">{c.family || c.category}</span>
                           </span>
                           <span className="flex gap-1 shrink-0 text-[10px]">
-                            {c.gold.reference_answer && <span className="px-1 rounded bg-blue-100 text-blue-700" title="reference_answer (E-03)">ref</span>}
-                            {c.gold.rubric && <span className="px-1 rounded bg-purple-100 text-purple-700" title="rubric (E-02)">rub</span>}
-                            {c.gold.canonical_trajectory && <span className="px-1 rounded bg-green-100 text-green-700" title="canonical_trajectory (E-09)">traj</span>}
-                            {c.gold.capability_spec && <span className="px-1 rounded bg-amber-100 text-amber-700" title="capability_spec (E-13)">cap</span>}
+                            {c.gold.reference_answer && <span className="px-1 rounded bg-blue-100 text-blue-700" title="reference_answer">ref</span>}
+                            {c.gold.rubric && <span className="px-1 rounded bg-purple-100 text-purple-700" title="rubric">rub</span>}
+                            {c.gold.canonical_trajectory && <span className="px-1 rounded bg-green-100 text-green-700" title="canonical_trajectory">traj</span>}
+                            {c.gold.capability_spec && <span className="px-1 rounded bg-amber-100 text-amber-700" title="capability_spec">cap</span>}
                             {c.gold.external_eval && <span className="px-1 rounded bg-rose-100 text-rose-700" title="external_eval (executable checker)">exec</span>}
                           </span>
                         </div>
@@ -527,7 +527,7 @@ function ExperimentForm({ onClose }: { onClose: () => void }) {
             <p className="text-xs text-gray-500 mt-1">
               {evalMode === 'checker'
                 ? 'Cases with an executable checker (e.g. Toolathlon) are graded by ground truth; the outcome judge is skipped there.'
-                : 'Skip the executable checker — the E-02 outcome judge becomes the evaluator (open-result mode). Use to exercise the judge + outcome×trajectory view where there is no oracle. Preprocess still seeds the environment.'}
+                : 'Skip the executable checker — the outcome judge becomes the evaluator (open-result mode). Use to exercise the judge + outcome×trajectory view where there is no oracle. Preprocess still seeds the environment.'}
             </p>
           </div>
 

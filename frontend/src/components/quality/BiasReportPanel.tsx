@@ -38,7 +38,7 @@ export default function BiasReportPanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <ShieldCheck className="h-5 w-5" />
-          Bias Mitigation <span className="text-sm font-normal text-gray-400">(E-18)</span>
+          Bias Mitigation
         </h2>
         {isAdmin && (
           <button

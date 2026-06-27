@@ -694,6 +694,19 @@ export interface TemplateAnalytics {
   cost_per_task_usd: number
 }
 
+export interface ConfigAnalytics {
+  config_id: string
+  config_name: string
+  run_count: number
+  success_rate: number
+  failure_rate: number
+  quality_mean: number
+  trajectory_mean: number
+  pass_rate: number
+  avg_time_seconds: number
+  avg_cost_usd: number
+}
+
 export interface TimelinePoint {
   date: string | null
   task_count: number
@@ -719,6 +732,8 @@ function analyticsQs(params: Record<string, string | number | undefined>): strin
 export const analyticsApi = {
   templates: (params: { period?: string; from_dt?: string; to_dt?: string } = {}) =>
     request<TemplateAnalytics[]>(`/analytics/templates${analyticsQs(params)}`),
+  configs: (params: { period?: string; from_dt?: string; to_dt?: string } = {}) =>
+    request<ConfigAnalytics[]>(`/analytics/configs${analyticsQs(params)}`),
   timeline: (params: { days?: number } = {}) =>
     request<TimelinePoint[]>(`/analytics/timeline${analyticsQs(params)}`),
   models: (params: { period?: string } = {}) =>

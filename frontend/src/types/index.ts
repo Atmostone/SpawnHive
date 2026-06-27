@@ -1748,4 +1748,16 @@ export interface ExperimentReport {
       reliable: boolean
     }
   } | null
+  checker_human?: {
+    available: boolean
+    n: number
+    kappa?: number | null
+    agreement?: number | null
+    cells: {
+      pass_approve: number
+      pass_reject: number
+      fail_approve: number
+      fail_reject: number
+    }
+  }
 }

@@ -46,7 +46,7 @@ export default function RankingPanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Trophy className="h-5 w-5" />
-          Leaderboard <span className="text-sm font-normal text-gray-400">(E-19)</span>
+          Leaderboard
         </h2>
         <div className="flex items-center gap-2">
           <Segmented
@@ -81,7 +81,7 @@ export default function RankingPanel() {
       <p className="text-xs text-gray-500">
         Ranks {subject === 'model' ? 'models' : 'templates'} from head-to-head matches via{' '}
         {method === 'bt' ? 'Bradley-Terry' : 'Elo'} with bootstrap confidence intervals. Matches are
-        derived from stored pointwise scores — true pairwise judging arrives with E-21.
+        derived from stored pointwise scores — true pairwise judging arrives with the pairwise A/B judge.
       </p>
 
       {run.isError && (

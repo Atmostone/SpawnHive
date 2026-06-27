@@ -77,7 +77,7 @@ export default function RunAnalysis({
       <div className="space-y-4">
         {tab === 'trajectory' && (
           <>
-            <Dimmed when={verifiable} note="N/A for checker-graded tasks — the executable checker is the outcome ground truth (E-02 off)">
+            <Dimmed when={verifiable} note="N/A for checker-graded tasks — the executable checker is the outcome ground truth (the outcome judge is off)">
               <OutcomeScorePanel profile={profile ?? null} />
             </Dimmed>
             <CleanedTracePanel taskId={taskId} />
@@ -104,7 +104,7 @@ export default function RunAnalysis({
             <ExternalCheckerPanel taskId={taskId} verifiable={verifiable} />
             <FailureModePanel taskId={taskId} />
             <HallucinationPanel taskId={taskId} />
-            <Dimmed when={verifiable} note="N/A for checker-graded tasks — calibration pairs with the outcome judge (E-02), which is off here">
+            <Dimmed when={verifiable} note="N/A for checker-graded tasks — calibration pairs with the outcome judge, which is off here">
               <CalibrationPanel taskId={taskId} />
             </Dimmed>
           </>
