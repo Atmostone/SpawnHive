@@ -34,7 +34,7 @@ The legacy root `WORKAROUNDS.md` was migrated here.
 
 **Why:** with a long history the file becomes hundreds of MB and is held in memory (BytesIO).
 
-**Exit:** once a retention policy is in place (see R3 in production-readiness-tz) — old events get cleaned up, the cap can be lifted.
+**Exit:** once a retention policy is in place (the retention requirement) — old events get cleaned up, the cap can be lifted.
 
 ## 5. provider_api_key plaintext in DB (P4) — partially closed in R6
 
@@ -96,13 +96,13 @@ The legacy root `WORKAROUNDS.md` was migrated here.
 
 **Exit:** part of the security-hardening track (after R1–R5).
 
-## 14. Coverage gate at 59.7% (was 60%) after providers feature
+## 14. Coverage gate at 60% — now enforced in CI
 
-**What:** after the Providers+Models refactor, the new code (`api/providers.py`, `api/_resolve_model.py`, `api/workspaces.py`, the rewritten `api/templates.py`) added ~300 statements; new tests cover the happy path and key error branches but not every line. Total coverage settled at **59.68%**, ~0.3 pp under the legacy 60% target.
+**What:** after the Providers+Models refactor, the new code (`api/providers.py`, `api/_resolve_model.py`, `api/workspaces.py`, the rewritten `api/templates.py`) added ~300 statements; new tests cover the happy path and key error branches but not every line. Coverage briefly dipped just under the 60% bar while the tests were filling in.
 
-**Why:** the 60% target was a hand-set CLI gate, not a CI-enforced one; chasing the last 0.3 pp would mostly add tests against trivial branches in the new CRUD endpoints (`require_role` 403 paths, etc.).
+**Why:** the 60% target is the production-readiness §R4 acceptance bar. It is now wired into CI — `.github/workflows/ci.yml` runs `pytest --cov=app --cov-report=term-missing --cov-fail-under=60`, so a green build means coverage is at or above 60%. The gap was closed by expanding provider/model CRUD tests (`require_role` 403 paths, 422 validation, etc.).
 
-**Exit:** add a follow-up backlog item to expand provider/model CRUD tests (403/422 paths) and re-introduce `--cov-fail-under=60` in CI once we're comfortably above it.
+**Exit:** resolved — the gate is active in CI and the build is green. Keep the bar honest: raise `--cov-fail-under` as the suite grows rather than letting headroom rot.
 
 ## 16. E-08 on-demand endpoint can exceed the nginx proxy timeout
 

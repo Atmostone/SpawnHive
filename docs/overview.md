@@ -2,22 +2,22 @@
 
 ## What it is
 
-A self-hosted platform for orchestrating specialised AI agents. It takes a task → picks an agent template → spawns an isolated Docker container → the agent solves the task using its built-in tools and MCP servers → the result goes to review → the user approves/rejects.
+A self-hosted platform for **evaluating and comparing AI agents**. It turns scattered "agent runs" into a reproducible, multi-dimensional, statistically grounded verdict: which agent/model/prompt/configuration is better, by how much, at what cost — and **whether the evaluation itself can be trusted**. The orchestration loop (task → pick an agent template → spawn an isolated Docker container → the agent solves the task using its built-in tools and MCP servers → review) is the **mechanism that produces the runs to evaluate**, not the headline — every run becomes an immutable, multi-profile record that the eval pipeline scores along two axes (outcome and process), validates against humans, and rolls up into A/B reports with significance tests and a per-axis reliability gate.
 
 ## Who it's for
 
-- Developers and researchers who need several narrowly-specialised agents for different tasks (research, coding, writing, devops…) under a single control plane.
-- Teams who want self-hosting (privacy, control over models, customisation).
-- People who want a visual orchestration layer on top of litellm/MCP without vendor lock-in.
+- Developers and researchers who build, tune and compare agents and need more than "pass/fail" or a single eyeballed LLM score to decide which configuration wins.
+- Teams who want self-hosting (privacy, control over models, customisation) for both running and evaluating agents.
+- People who want a reproducible eval stand on top of litellm/MCP — multi-dimensional quality profiles, executable checkers, judge calibration and statistical A/B — without vendor lock-in.
 
 ## What makes it different
 
-- **Templates as agent roles**: each template is `(model, soul_md, tools, mcp_servers, limits)`. The LLM provider can be overridden per template.
-- **Structured Memory**: automatic extraction of entities/relations from task results, embedding-based dedup, relevant sub-graph injected into the agent.
-- **Bidirectional control**: the orchestrator can send feedback / abort / switch_model into a live agent container.
-- **MCP-first**: custom MCP servers plug in per template without code changes.
+- **Evaluation-first, two axes**: every run is scored on **outcome** (what was produced) **and** process/trajectory (how the agent worked — tool selection, parameters, error recovery, goal alignment, looping, efficiency), not a single point estimate.
+- **Reliability gate over the judge**: the platform formally measures judge↔human agreement (Cohen's κ) and **quarantines** the axes it cannot trust, so an unvalidated metric can't fake a "win" — measure and quarantine an unreliable judge first, then trust it to compare and improve agents.
+- **Three independent oracles** on the same runs: an executable checker (deterministic side-effect verification), an LLM judge, and a human — with bias mitigation (position / verbosity / self-preference) on the judge.
+- **Agent optimization, not just execution**: the Experiment Runner (SPA-40) A/B-tests models, prompts, toolsets and orchestration itself over a benchmark dataset — with heatmaps, Pareto frontier, leaderboards and statistical significance, always scored.
+- **Orchestration as the run engine**: templates as agent roles (`(model, soul_md, tools, mcp_servers, limits)`, provider overridable per template), structured memory, bidirectional control (feedback / abort / switch_model into a live container) and MCP-first custom servers — the substrate that generates diverse, reproducible runs to evaluate.
 - **Local-first**: everything runs in Docker Compose; nothing leaves the host.
-- **Agent optimization, not just execution**: the Experiment Runner (SPA-40) A/B-tests models, prompts, toolsets and orchestration itself over a benchmark dataset — with heatmaps, Pareto frontier, leaderboards and statistical significance.
 
 ## Tech stack
 
@@ -66,4 +66,4 @@ A self-hosted platform for orchestrating specialised AI agents. It takes a task 
 
 ## What's next
 
-See [`production-readiness-tz.md`](production-readiness-tz.md) — work to be done **before** the main `BACKLOG.md` starts. After that — backlog features (visual A2A graph, benchmarks, replay, explainability, etc.).
+Production-readiness hardening to be done **before** the main `BACKLOG.md` starts. After that — backlog features (visual A2A graph, benchmarks, replay, explainability, etc.).

@@ -1,6 +1,6 @@
 # Architecture
 
-> Snapshot as of 2026-05-04. Any PR that changes components or data flows must update this file.
+> Snapshot as of 2026-06-27. Any PR that changes components or data flows must update this file.
 
 ## Services (docker compose)
 
@@ -965,11 +965,11 @@ help" as one operation.
                                        (settings table) | EnvSecretsProvider (env)
 ```
 
-Production call-sites (as of 2026-05-04) all go through these plugins. The `LLM_PROVIDER`/`EMBEDDING_PROVIDER`/`AGENT_RUNTIME`/`NOTIFIER`/`SECRETS_PROVIDER` env vars pick the concrete implementation. Tests swap impls via `set_*_provider(impl|None)`.
+Production call-sites (as of 2026-06-27) all go through these plugins. The `LLM_PROVIDER`/`EMBEDDING_PROVIDER`/`AGENT_RUNTIME`/`NOTIFIER`/`SECRETS_PROVIDER` env vars pick the concrete implementation. Tests swap impls via `set_*_provider(impl|None)`.
 
-## Database (as of 2026-05-04, post-R1)
+## Database (as of 2026-06-27, post-R1)
 
-15 tables + 9 migrations. Full field/invariant description — see `data-model.md` (TODO).
+30 tables + 34 migrations. The key tables are described below (the full set lives in `backend/app/models/`); full field/invariant description — see `data-model.md` (TODO).
 
 | Table | Why |
 |-------|-----|
@@ -1128,4 +1128,4 @@ The page combines a 24h history replay with a live WS feed:
 
 ## Known architectural limitations
 
-See `workarounds.md` (migrated from the legacy root `WORKAROUNDS.md`) and `production-readiness-tz.md`.
+See `workarounds.md` (migrated from the legacy root `WORKAROUNDS.md`).
