@@ -37,6 +37,22 @@ const STATS: Term[] = [
     name: 'Reliability bands',
     desc: "How far a process-judge axis can be trusted, from real calibration: reliable (κ ≥ 0.6), directional (0.4–0.6 or thin data), unreliable (κ < 0.4), or not calibrated (no human or structural anchor). Axes below the bar are quarantined — shown but not weighed into conclusions.",
   },
+  {
+    name: 'ECE / Brier (confidence calibration)',
+    desc: "How well a model's stated confidence matches its actual hit rate. ECE (Expected Calibration Error) is the average gap between confidence and accuracy across buckets (0 = perfectly calibrated); Brier is the mean squared error of the probability (lower = better). They feed the reliability diagram.",
+  },
+  {
+    name: 'Pareto frontier',
+    desc: "The set of configs you can't improve on one axis (e.g. quality) without giving up another (cost/time). On the frontier = an optimal trade-off; a config behind it is beaten by some config on every axis at once. Used in the quality × cost × time analysis.",
+  },
+  {
+    name: 'Bradley-Terry / Elo',
+    desc: "Rating models built from pairwise 'which is better' matches. Each player (model/config) gets a strength number; the gap predicts win probability. Bradley-Terry fits all matches at once (MLE); Elo updates iteratively. They turn pairwise comparisons into a leaderboard.",
+  },
+  {
+    name: 'Bootstrap CI (confidence interval)',
+    desc: "Estimates the uncertainty of a rating/metric by re-sampling the data with replacement many times and recomputing each time; the spread gives the interval (e.g. a rating's 95% CI). Shows how stable a rating is on a small sample.",
+  },
 ]
 
 // Every evaluator / metric in the platform, described in plain language (no codes).
