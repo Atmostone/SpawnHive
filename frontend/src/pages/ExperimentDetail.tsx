@@ -437,7 +437,7 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
   return (
     <section>
       <h3 className="font-semibold text-gray-900 mb-2">
-        Judge ↔ human <span className="text-xs text-gray-400 font-normal">agreement with the human gold on this experiment's annotated runs</span>
+        Agreement with the human gold <span className="text-xs text-gray-400 font-normal">how each oracle compares to manual ratings on this experiment's annotated runs</span>
       </h3>
       {ch?.available && (
         <div className="bg-white border rounded-lg p-3 text-sm mb-2 flex flex-wrap items-center gap-x-5 gap-y-1">
@@ -458,6 +458,7 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
         </div>
       ) : (
         <div className="bg-white border rounded-lg p-4 space-y-3">
+          <div className="font-medium text-gray-700">Judge ↔ human</div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
             <span>Overall <span className="font-semibold text-gray-800">κ {k == null ? '—' : k.toFixed(2)}</span>
               {cal?.overall?.reliable ? <span className="text-green-700"> ✓ reliable</span> : <span className="text-amber-600"> ⚠ below {cal?.threshold_kappa}</span>}</span>
