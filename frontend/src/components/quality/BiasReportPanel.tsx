@@ -202,9 +202,9 @@ function Diagnostics({ m }: { m: BiasReportMetrics }) {
           <span className="text-gray-500">judge ≠ agent model — no self-preference risk</span>
         )}
       </div>
-      <div className="flex items-center gap-2 text-gray-400">
-        <span className="font-medium w-28 shrink-0">Position</span>
-        <span>n/a — {d.position_bias.reason}</span>
+      <div className="flex items-start gap-2 text-gray-500">
+        <span className="font-medium w-28 shrink-0 text-gray-700">Position</span>
+        <span>measured per-comparison in the <span className="font-medium">Pairwise A/B</span> tab (both-orders judging — flags a flip when the verdict depends on order), not in this aggregate report.</span>
       </div>
     </div>
   )

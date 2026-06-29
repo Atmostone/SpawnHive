@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { qualityApi } from '@/api/client'
 import { MessageSquarePlus, Check } from 'lucide-react'
-import type { QualityProfile, TrajectoryProfile, HumanFeedback, FeedbackBand } from '@/types'
+import type { QualityProfile, TrajectoryProfile, HumanFeedback, FeedbackBand, FeedbackVerdict } from '@/types'
 import { cn } from '@/lib/utils'
 
 /** Human feedback collection (E-05): rate the E-02 axes 1-10, comment, submit.
@@ -101,10 +101,15 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
     ),
   )
   const [overall, setOverall] = useState(existing?.overall_comment ?? '')
+  // Overall approve/reject verdict — the human's binary judgment of the run. This is
+  // the signal the checker↔human agreement (and the human heatmap verdict column)
+  // are built from; without it that calibration has no human side.
+  const [verdict, setVerdict] = useState<FeedbackVerdict | null>(existing?.verdict ?? null)
 
   const mutation = useMutation({
     mutationFn: () =>
       qualityApi.saveFeedback(taskId, {
+        verdict,
         overall_comment: overall.trim() || null,
         // Only dimensions the human actually rated — never the unrated (null) ones,
         // so we don't fabricate a score the annotator didn't give (calibration hygiene).
@@ -245,6 +250,34 @@ export default function HumanFeedbackForm({ taskId, profile, trajectoryProfile, 
           ))}
         </div>
       )}
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-gray-600">Verdict:</span>
+        <button
+          onClick={() => setVerdict(verdict === 'approve' ? null : 'approve')}
+          className={cn(
+            'px-3 py-1 rounded-lg text-sm border transition-colors',
+            verdict === 'approve' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50',
+          )}
+        >
+          ✓ Approve
+        </button>
+        <button
+          onClick={() => setVerdict(verdict === 'reject' ? null : 'reject')}
+          className={cn(
+            'px-3 py-1 rounded-lg text-sm border transition-colors',
+            verdict === 'reject' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50',
+          )}
+        >
+          ✗ Reject
+        </button>
+        {verdict && (
+          <button onClick={() => setVerdict(null)} className="text-xs text-gray-400 hover:underline">clear</button>
+        )}
+        <span className="text-[11px] text-gray-400">
+          {verifiable ? 'feeds checker↔human agreement' : 'feeds judge↔human / checker↔human agreement'}
+        </span>
+      </div>
 
       <textarea
         value={overall}

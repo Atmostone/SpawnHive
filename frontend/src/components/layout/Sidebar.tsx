@@ -14,7 +14,6 @@ import {
   BookMarked,
   Brain,
   Settings2,
-  ClipboardCheck,
   Database,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,7 +27,6 @@ const ITEMS: Record<string, { icon: LucideIcon; label: string }> = {
   '/activity': { icon: Activity, label: 'Activity Log' },
   '/analytics': { icon: BarChart3, label: 'Analytics' },
   '/cheatsheet': { icon: BookMarked, label: 'Cheat Sheet' },
-  '/calibration': { icon: ClipboardCheck, label: 'Calibration' },
   '/experiments': { icon: FlaskConical, label: 'Experiments' },
   '/data-lake': { icon: Database, label: 'Data Lake' },
   '/graph': { icon: Network, label: 'Graph' },

@@ -154,7 +154,12 @@ function relEffortStyle(v: number | null | undefined): string {
 // signal distinguishable under deuteranopia; the numeric q/t/human score printed in
 // the cell stays the primary cue, colour is only an accent.
 function cellHeat(mean: number | null | undefined): React.CSSProperties {
-  if (mean == null) return {}
+  // No score for the selected heat (run failed, or the judge produced no score):
+  // a subtle diagonal hatch reads as "no data" instead of a blank white cell that
+  // looks like a rendering bug.
+  if (mean == null) {
+    return { backgroundImage: 'repeating-linear-gradient(45deg, #eceef1 0, #eceef1 3px, transparent 3px, transparent 7px)' }
+  }
   const hue = Math.max(0, Math.min(120, mean * 12))
   return { backgroundColor: `hsl(${hue}, 85%, 85%)` }
 }
@@ -297,6 +302,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                 return (
                   <td key={cfg.config_key} onClick={() => onCell(cfg.config_key, c.case_key)}
                     style={heat === 'off' ? undefined : cellHeat(heatVal)}
+                    title={heat !== 'off' && heatVal == null && (counts.success || counts.failed) ? `no ${heat} score for this cell — run failed or the judge produced no score (hatched = no data)` : undefined}
                     className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
                     {/* 🔩 mechanical row: run outcome + executable checker verdict */}
                     <div className="flex items-center justify-center gap-1 text-xs">
@@ -466,7 +472,9 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
                 <th className="px-3 py-2" title="Cohen's kappa — chance-corrected agreement on the verdict (0–1; ≥ threshold = reliable)">κ</th>
                 <th className="px-3 py-2" title="Pearson correlation, judge vs human scores (−1…1; 1 = perfect linear agreement)">Pearson</th>
                 <th className="px-3 py-2" title="Spearman rank correlation, judge vs human scores (−1…1)">Spearman</th>
-                <th className="px-3 py-2" title="judge − human mean; 0 = unbiased, + = judge over-credits, − = under-credits (±0.5 signals bias)">Bias</th>
+                <th className="px-3 py-2" title="mean score the LLM judge gave on this dimension (annotated runs)">Judge avg</th>
+                <th className="px-3 py-2" title="mean score the human gave on this dimension (annotated runs)">Human avg</th>
+                <th className="px-3 py-2" title="Judge avg − Human avg; 0 = unbiased, + = judge over-credits, − = under-credits (±0.5 signals bias)">Bias</th>
                 <th className="px-3 py-2">Reliable</th>
               </tr>
             </thead>
@@ -478,6 +486,8 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
                   <td className="px-3 py-2">{d.cohen_kappa == null ? '—' : d.cohen_kappa.toFixed(2)}</td>
                   <td className="px-3 py-2">{d.pearson == null ? '—' : d.pearson.toFixed(2)}</td>
                   <td className="px-3 py-2">{d.spearman == null ? '—' : d.spearman.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-gray-600 font-medium">{d.judge_mean == null ? '—' : d.judge_mean.toFixed(1)}</td>
+                  <td className="px-3 py-2 text-gray-600 font-medium">{d.human_mean == null ? '—' : d.human_mean.toFixed(1)}</td>
                   <td className={`px-3 py-2 ${(d.mean_bias ?? 0) > 0.5 ? 'text-amber-600' : (d.mean_bias ?? 0) < -0.5 ? 'text-blue-600' : 'text-gray-500'}`}>
                     {d.mean_bias == null ? '—' : (d.mean_bias > 0 ? '+' : '') + d.mean_bias.toFixed(1)}
                   </td>
@@ -761,8 +771,8 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               trusted — <span className="text-green-700 font-semibold">✓</span> reliable (κ≥{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-amber-600 font-semibold">~</span> directional ({report.axis_reliability.directional_kappa}–{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-red-600 font-semibold">⚠</span> unreliable (κ&lt;{report.axis_reliability.directional_kappa}),{' '}
-              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ is chance-corrected agreement with a human or
-              the loop counter. <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
+              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ here is chance-corrected agreement with a human
+              (the loop axis instead anchors to the deterministic counter — see Loop detection). <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
               completeness, not weighed in conclusions.</span>
             </p>
           ) : report.axis_reliability ? (
@@ -822,12 +832,20 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           <h3 className="font-semibold text-gray-900 mb-2">
             Loop detection <span className="text-xs text-gray-400 font-normal">deterministic loop counter · repeated tool-calls over the FULL trace · success or failed · lower is better</span>
           </h3>
+          {ld.kappa != null && (
+            <p className="text-xs text-gray-500 mb-2 max-w-3xl">
+              <span className="font-medium">Judge↔counter agreement:</span> Cohen's κ {ld.kappa.toFixed(2)}
+              {ld.agreement != null && <> · {(ld.agreement * 100).toFixed(0)}% raw</>} · split {ld.n_judge_only ?? 0} judge-only / {ld.n_counter_only ?? 0} counter-only.
+              Framed as <span className="font-medium">different inputs</span> (trimmed + holistic judge vs full + tool-only counter), not pure miscalibration.
+            </p>
+          )}
           <div className="bg-white border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Configuration</th>
                   <th className="px-3 py-2" title="deterministic counter: repeated tool-calls counted over the FULL untrimmed trace — LLM-free; a precision-oriented structural lower bound (may miss semantic loops)">Loop rate (counted)</th>
+                  <th className="px-3 py-2" title="the LLM judge's loop_detection rate on the same runs — retired from conclusions, shown only for the judge↔counter comparison (κ above)">Loop rate (judge)</th>
                   <th className="px-3 py-2">Counted</th>
                 </tr>
               </thead>
@@ -839,6 +857,10 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                       title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
                       {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
                     </td>
+                    <td className="px-3 py-2 text-gray-600"
+                      title={(c.n_judge_only != null || c.n_counter_only != null) ? `${c.n_judge_only ?? 0} judge-only / ${c.n_counter_only ?? 0} counter-only${c.kappa != null ? ` · κ ${c.kappa.toFixed(2)}` : ''}` : 'no judge loop signal'}>
+                      {c.loop_rate != null ? `${(c.loop_rate * 100).toFixed(0)}%` : '—'}
+                    </td>
                     <td className="px-3 py-2 text-gray-500">{c.n_structural ?? 0}</td>
                   </tr>
                 ))}
@@ -849,7 +871,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             <span className="font-medium">Loop rate (counted)</span> is a deterministic, LLM-free detector: it counts repeated
             tool-calls — consecutive identical actions or repeated multi-step tool cycles — over the FULL untrimmed trace. It is a
             precision-oriented structural lower bound (tool-calls only; may miss semantic loops that vary their wording). The unreliable
-            judge <code>loop_detection</code> axis (κ≈0 vs humans) is retired in favour of this counter.
+            judge <code>loop_detection</code> axis (κ≈0 vs humans) is retired from conclusions in favour of this counter; the
+            <span className="font-medium"> Loop rate (judge)</span> column and the judge↔counter κ above are shown only to expose that
+            disagreement (different inputs), not used in conclusions.
           </p>
         </section>
         )
@@ -977,7 +1001,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       )}
 
 
-      {!report.external?.available && report.rq2?.available && (
+      {report.rq2?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
             RQ2 · verdict × judge{' '}
@@ -999,6 +1023,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <div className="bg-red-50 text-red-700 font-semibold py-3 rounded" title="checker failed & judge low — agree">{report.rq2.overall.cells.fail_low}</div>
             </div>
             <p className="text-[11px] text-gray-400 mt-2">
+              {verifiable && <span className="text-gray-500">On a verifiable bench the executable checker is the verdict; the outcome judge is the audited subject here. </span>}
               Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.
               The <span className="text-amber-700">fail × judge-high</span> cell is the over-credit signal — the judge rewarding a
               result the checker rejected. This is the outcome-judge analogue of the human-calibrated κ in <span className="font-medium">Judge ↔ human</span> below.

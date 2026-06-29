@@ -52,5 +52,5 @@ jobs:
         working-directory: backend
         env:
           PYTHONPATH: ${{ github.workspace }}/backend
-        # --cov-fail-under enforces the acceptance bar from production-readiness-tz §R4.
+        # --cov-fail-under enforces the 60% coverage acceptance bar (legacy production-readiness §R4).
         run: pytest --cov=app --cov-report=term-missing --cov-fail-under=60
