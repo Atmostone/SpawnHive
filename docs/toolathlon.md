@@ -132,7 +132,25 @@ each other's state. Upstream encodes this directly:
   network, tears all three down after the task, and throttles concurrency with a
   FIFO semaphore.
 
-Adopt the same scheme for parallel SpawnHive runs: per-run postgres + per-run network
-spawned by the runner (the compose `toolathlon_pg` then serves only ad-hoc/manual use
-and serialized pilots). Until that exists, treat Toolathlon benchmark runs as
-`max_parallel = 1`.
+SpawnHive ships a per-**lane** variant of this scheme (SPA-69). An experiment opts in
+via `Experiment.n_toolathlon_lanes` (1..`MAX_TOOLATHLON_LANES = 4`,
+`backend/app/quality/experiments.py`); `_lanes_enabled()` treats `NULL`/`< 1` as the
+legacy serial path on the single shared `toolathlon_pg`, which stays the default —
+existing experiments are untouched. With lanes enabled, the scheduler pins each run to
+a lane and stamps `Experiment.lane_index` (0..n-1), and `_pg_host_for_lane(lane_index)`
+routes that run's preprocess/eval/agent to host `toolathlon_pg_lane_<lane_index>` (only
+the host varies — db name, user and password stay identical, so the gym scripts need no
+changes; `None` falls back to `toolathlon_pg`).
+
+The lanes are N **static** per-lane `postgres:15` containers
+(`toolathlon_pg_lane_0..3` in `docker-compose.yml`), each an independent clone of the
+gym DB from the same `db/init.sql.gz` on its own named volume, behind the
+`toolathlon-lanes` compose profile:
+
+```bash
+docker compose --profile toolathlon-lanes up -d
+```
+
+The shared `toolathlon_pg` remains serial-only (concurrent runs on one DB corrupt each
+other's state, per above); it serves ad-hoc/manual use and serial runs (`NULL`/1 lane),
+while parallel runs fan out across the lane containers.

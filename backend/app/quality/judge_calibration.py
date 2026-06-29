@@ -178,6 +178,8 @@ def _compute_report(pairs: list[dict], *, threshold_kappa: float) -> dict:
             "spearman": spearman(judge_scores, human_scores),
             "cohen_kappa": kappa,
             "mean_bias": mean_bias(judge_scores, human_scores),
+            "judge_mean": round(sum(judge_scores) / n, 2) if n else None,
+            "human_mean": round(sum(human_scores) / n, 2) if n else None,
             "reliable": kappa is not None and kappa >= threshold_kappa,
             "status": "ok" if n >= MIN_SAMPLES else "insufficient_data",
         }

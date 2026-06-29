@@ -5,9 +5,11 @@ the mirror image of the result slots on `quality_records` (E-01). It lets us cur
 benchmark suites now — without waiting for the full public benchmark (E-23) — and
 aggregate results by suite × case × model.
 
-> Scope: this is **layers 1 (format) + 2 (loader + linkage)** only. The registry
-> table, the catalogue API/UI and public publication are **E-23**. The same case
-> files are what E-23 will index and publish, so there is no rework.
+> Scope: this is **layers 1 (format) + 2 (loader + linkage)** plus a thin
+> **read-only catalogue API** (SPA-54, see below) that the experiment dataset
+> picker browses. The registry table, case-store CRUD and public publication are
+> still **E-23**. The same case files are what E-23 will index and publish, so
+> there is no rework.
 
 ## Where cases live
 
@@ -15,7 +17,14 @@ aggregate results by suite × case × model.
 backend/benchmarks/<suite>/*.yaml        # or *.yml / *.json
 ```
 
-Git is the store and its history. One file = one case.
+Git is the store and its history. One file = one case. Suites currently in the
+store:
+
+- `capability-isolation` — hand-authored capability cases (`exact_compute`,
+  `fresh_data`, `private_data`, `local_state`).
+- `toolathlon` — imported Toolathlon gym tasks (`external_eval` gold, real MCP
+  tool environments).
+- `toolathlon-open` — open-ended Toolathlon variants.
 
 ## Case format
 
@@ -34,6 +43,9 @@ gold:                               # pluggable gold envelope — each key feeds
   reference_answer: "4481..."       # E-03 / outcome correctness (optional)
   rubric: null                      # E-02 rubric ref or inline (optional)
   canonical_trajectory: null        # E-09 (optional)
+environment:                        # optional — services/tools the case needs to run
+  required_services: [toolathlon_pg]  # backing services the orchestrator must provision
+  mcp_servers: [filesystem, terminal] # MCP servers to expose to the agent
 repro:                              # optional pins (reproducibility; E-20 seam)
   template_id: null
   model_id: null
@@ -75,6 +87,22 @@ docker compose exec api python -m app.cli.benchmark aggregate --suite capability
 To **compare models**, load the same suite once per model (`--model A`, then
 `--model B`) and read `aggregate` — the `by_model` breakdown is the comparison.
 Also exposed over HTTP: `GET /api/quality/capability/aggregate?suite=<suite>`.
+
+## Catalogue API (read-only)
+
+`backend/app/api/benchmarks.py` (SPA-54) exposes the file store over HTTP so the
+experiment dataset picker (`frontend/src/pages/Experiments.tsx`) can browse suites
+and inspect each case's gold signals instead of blind-typing a suite name. Both
+endpoints are workspace-scoped and read-only — case authoring stays file-based.
+
+- `GET /api/benchmarks/suites` — list every suite with its case count:
+  `[{ "name": "capability-isolation", "n_cases": 30 }, …]`.
+- `GET /api/benchmarks/suites/{suite}` — inspect one suite. Returns
+  `{ "suite", "n_cases", "cases": [...] }` where each case carries `id`, `title`,
+  `category`, `family`, `required_services`, `mcp_servers` and a `gold` map of
+  booleans (`reference_answer` / `rubric` / `canonical_trajectory` /
+  `capability_spec` / `external_eval`) — which signals are present, **not** the
+  gold values. Returns `404` for an unknown suite, `400` for a malformed case file.
 
 ## Linkage
 

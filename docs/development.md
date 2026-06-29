@@ -13,14 +13,14 @@ docker compose exec api alembic upgrade head
 ```
 
 UI: http://localhost:3002 — Vite dev (HMR). Frontend stack: React 18 + TypeScript + Vite + Tailwind + TanStack Query + Zustand + react-router-dom + reactflow + recharts (for the Analytics page).
-API: http://localhost:8001 — FastAPI behind nginx LB.
-OpenAPI: http://localhost:8001/docs.
+API: http://localhost:8002 — FastAPI behind nginx LB.
+OpenAPI: http://localhost:8002/docs.
 
 ## Services
 
 | Service | Host port | Purpose |
 |---------|-----------|---------|
-| nginx | 8001 | Reverse proxy / load balancer for the api replicas |
+| nginx | 8002 | Reverse proxy / load balancer for the api replicas |
 | api | — (expose 8000) | FastAPI; REST + WS only (orchestrator/scheduler are separate) |
 | orchestrator | — | Polling loop; holds advisory lock 8723451 |
 | scheduler | — | APScheduler; holds advisory lock 8723452 |
@@ -69,32 +69,32 @@ CI (`.github/workflows/ci.yml`) enforces `--cov-fail-under=60`. Conftest creates
 
 ```bash
 # Register / login — obtain a JWT
-TOK=$(curl -s -X POST http://localhost:8001/api/auth/register \
+TOK=$(curl -s -X POST http://localhost:8002/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"me@example.com","password":"strongpass1","display_name":"Me"}' \
   | jq -r .access_token)
 
 # Create a task
-curl -X POST http://localhost:8001/api/tasks \
+curl -X POST http://localhost:8002/api/tasks \
   -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" \
   -d '{"title":"do X","priority":"high","description":"…"}'
 
 # Move it to ready (orchestrator picks it up)
-curl -X PATCH http://localhost:8001/api/tasks/<id> \
+curl -X PATCH http://localhost:8002/api/tasks/<id> \
   -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" -d '{"status":"ready"}'
 
 # Approve after awaiting_approval
-curl -X PATCH http://localhost:8001/api/tasks/<id>/approve \
+curl -X PATCH http://localhost:8002/api/tasks/<id>/approve \
   -H "Authorization: Bearer $TOK"
 
 # Slash command via WS chat (token in query string)
 echo '{"content":"/status"}' \
-  | websocat "ws://localhost:8001/ws/chat?token=$TOK"
+  | websocat "ws://localhost:8002/ws/chat?token=$TOK"
 
 # Memory entities
-curl -H "Authorization: Bearer $TOK" http://localhost:8001/api/memory/entities | jq .
+curl -H "Authorization: Bearer $TOK" http://localhost:8002/api/memory/entities | jq .
 ```
 
 After R1, every endpoint except `/api/auth/*`, `/api/health`, `/api/v1/agent-webhook/*` returns 401 without `Authorization`.

@@ -1,6 +1,6 @@
 # API
 
-> As of 2026-05-04 (R1 + R2 + R6) — 50+ paths in OpenAPI. Source of truth — `/openapi.json` from the live API. This file is a topical map.
+> As of 2026-06-27 (R1 + R2 + R6) — 50+ paths in OpenAPI. Source of truth — `/openapi.json` from the live API. This file is a topical map.
 
 ## Auth & multi-tenancy (R1)
 
@@ -192,6 +192,7 @@ off` cells pin the template for the engine fast path) with evaluation always on.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/analytics/templates?period=day\|week\|month\|all&from_dt=&to_dt=` | Per-template aggregates |
+| GET | `/api/analytics/configs?period=day\|week\|month\|all&from_dt=&to_dt=` | Per-config aggregates across the workspace's experiments — one row per (experiment, `config_key`), the config-level A/B unit people actually run (vs the legacy per-template view). Each row: `{config_id ("{experiment_id}:{config_key}"), config_name, run_count, success_rate, failure_rate, quality_mean, trajectory_mean, pass_rate (external_verdict), avg_time_seconds, avg_cost_usd}`, sorted by `run_count` desc |
 | GET | `/api/analytics/timeline?days=` | Daily roll-up |
 | GET | `/api/analytics/models?period=` | Per-model |
 
@@ -310,6 +311,18 @@ Cases live in `backend/benchmarks/<suite>/*.yaml`; runs are tagged
 Full format + workflow in [`benchmarks.md`](benchmarks.md). The registry table /
 catalogue API / publication are E-23.
 
+### Benchmarks (`/api/benchmarks`) — SPA-54
+
+Read-only REST view over the file-based Benchmark Case Store (the same suites the
+CLI loads from `backend/benchmarks/<suite>/*.yaml`), so the experiment dataset
+picker can browse suites instead of blind-typing a name. Case authoring stays
+file-based.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/benchmarks/suites` | List suites with case counts: `[{name, n_cases}]` |
+| GET | `/api/benchmarks/suites/{suite}` | Inspect one suite (gold values are not exposed): `{suite, n_cases, cases:[{id, title, category, family, required_services[], mcp_servers[], gold:{reference_answer, rubric, canonical_trajectory, capability_spec, external_eval}}]}` — each `gold.*` is a boolean (which eval engines the case carries). 404 on unknown suite, 400 on a malformed case file |
+
 ### Scheduled jobs (`/api/scheduled-jobs`)
 
 | Method | Path | |
@@ -359,7 +372,7 @@ Workspace-scoped CRUD for LLM providers and their models. The `api_key` field is
 
 ## Future evolution
 
-See `production-readiness-tz.md`. In short:
+`/api/v1` is aspirational — the planned versioned surface. In short:
 - All endpoints will be reached primarily under `/api/v1/`.
 - Auth: `/api/v1/auth/{register,login,refresh,me}`.
 - Workspace: `X-Workspace-Id` header, scoping for every resource.
