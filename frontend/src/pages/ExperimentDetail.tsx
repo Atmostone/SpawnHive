@@ -154,7 +154,12 @@ function relEffortStyle(v: number | null | undefined): string {
 // signal distinguishable under deuteranopia; the numeric q/t/human score printed in
 // the cell stays the primary cue, colour is only an accent.
 function cellHeat(mean: number | null | undefined): React.CSSProperties {
-  if (mean == null) return {}
+  // No score for the selected heat (run failed, or the judge produced no score):
+  // a subtle diagonal hatch reads as "no data" instead of a blank white cell that
+  // looks like a rendering bug.
+  if (mean == null) {
+    return { backgroundImage: 'repeating-linear-gradient(45deg, #eceef1 0, #eceef1 3px, transparent 3px, transparent 7px)' }
+  }
   const hue = Math.max(0, Math.min(120, mean * 12))
   return { backgroundColor: `hsl(${hue}, 85%, 85%)` }
 }
@@ -297,6 +302,7 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
                 return (
                   <td key={cfg.config_key} onClick={() => onCell(cfg.config_key, c.case_key)}
                     style={heat === 'off' ? undefined : cellHeat(heatVal)}
+                    title={heat !== 'off' && heatVal == null && (counts.success || counts.failed) ? `no ${heat} score for this cell — run failed or the judge produced no score (hatched = no data)` : undefined}
                     className="border rounded-lg px-2 py-1.5 hover:brightness-95 cursor-pointer text-center">
                     {/* 🔩 mechanical row: run outcome + executable checker verdict */}
                     <div className="flex items-center justify-center gap-1 text-xs">
