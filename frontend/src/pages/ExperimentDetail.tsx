@@ -761,8 +761,8 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               trusted — <span className="text-green-700 font-semibold">✓</span> reliable (κ≥{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-amber-600 font-semibold">~</span> directional ({report.axis_reliability.directional_kappa}–{report.axis_reliability.reliable_kappa}),{' '}
               <span className="text-red-600 font-semibold">⚠</span> unreliable (κ&lt;{report.axis_reliability.directional_kappa}),{' '}
-              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ is chance-corrected agreement with a human or
-              the loop counter. <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
+              <span className="text-gray-400 font-semibold">n/a</span> not calibrated. κ here is chance-corrected agreement with a human
+              (the loop axis instead anchors to the deterministic counter — see Loop detection). <span className="font-medium">Greyed/struck (⚠) axes are below the reliability bar — shown for
               completeness, not weighed in conclusions.</span>
             </p>
           ) : report.axis_reliability ? (
@@ -822,12 +822,20 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           <h3 className="font-semibold text-gray-900 mb-2">
             Loop detection <span className="text-xs text-gray-400 font-normal">deterministic loop counter · repeated tool-calls over the FULL trace · success or failed · lower is better</span>
           </h3>
+          {ld.kappa != null && (
+            <p className="text-xs text-gray-500 mb-2 max-w-3xl">
+              <span className="font-medium">Judge↔counter agreement:</span> Cohen's κ {ld.kappa.toFixed(2)}
+              {ld.agreement != null && <> · {(ld.agreement * 100).toFixed(0)}% raw</>} · split {ld.n_judge_only ?? 0} judge-only / {ld.n_counter_only ?? 0} counter-only.
+              Framed as <span className="font-medium">different inputs</span> (trimmed + holistic judge vs full + tool-only counter), not pure miscalibration.
+            </p>
+          )}
           <div className="bg-white border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Configuration</th>
                   <th className="px-3 py-2" title="deterministic counter: repeated tool-calls counted over the FULL untrimmed trace — LLM-free; a precision-oriented structural lower bound (may miss semantic loops)">Loop rate (counted)</th>
+                  <th className="px-3 py-2" title="the LLM judge's loop_detection rate on the same runs — retired from conclusions, shown only for the judge↔counter comparison (κ above)">Loop rate (judge)</th>
                   <th className="px-3 py-2">Counted</th>
                 </tr>
               </thead>
@@ -839,6 +847,10 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                       title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
                       {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
                     </td>
+                    <td className="px-3 py-2 text-gray-600"
+                      title={(c.n_judge_only != null || c.n_counter_only != null) ? `${c.n_judge_only ?? 0} judge-only / ${c.n_counter_only ?? 0} counter-only${c.kappa != null ? ` · κ ${c.kappa.toFixed(2)}` : ''}` : 'no judge loop signal'}>
+                      {c.loop_rate != null ? `${(c.loop_rate * 100).toFixed(0)}%` : '—'}
+                    </td>
                     <td className="px-3 py-2 text-gray-500">{c.n_structural ?? 0}</td>
                   </tr>
                 ))}
@@ -849,7 +861,9 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             <span className="font-medium">Loop rate (counted)</span> is a deterministic, LLM-free detector: it counts repeated
             tool-calls — consecutive identical actions or repeated multi-step tool cycles — over the FULL untrimmed trace. It is a
             precision-oriented structural lower bound (tool-calls only; may miss semantic loops that vary their wording). The unreliable
-            judge <code>loop_detection</code> axis (κ≈0 vs humans) is retired in favour of this counter.
+            judge <code>loop_detection</code> axis (κ≈0 vs humans) is retired from conclusions in favour of this counter; the
+            <span className="font-medium"> Loop rate (judge)</span> column and the judge↔counter κ above are shown only to expose that
+            disagreement (different inputs), not used in conclusions.
           </p>
         </section>
         )
@@ -977,7 +991,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       )}
 
 
-      {!report.external?.available && report.rq2?.available && (
+      {report.rq2?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
             RQ2 · verdict × judge{' '}
@@ -999,6 +1013,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <div className="bg-red-50 text-red-700 font-semibold py-3 rounded" title="checker failed & judge low — agree">{report.rq2.overall.cells.fail_low}</div>
             </div>
             <p className="text-[11px] text-gray-400 mt-2">
+              {verifiable && <span className="text-gray-500">On a verifiable bench the executable checker is the verdict; the outcome judge is the audited subject here. </span>}
               Diagonal (green/red) = judge agrees with the executable checker; off-diagonal (amber) = disagreement.
               The <span className="text-amber-700">fail × judge-high</span> cell is the over-credit signal — the judge rewarding a
               result the checker rejected. This is the outcome-judge analogue of the human-calibrated κ in <span className="font-medium">Judge ↔ human</span> below.
