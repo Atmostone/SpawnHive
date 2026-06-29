@@ -466,7 +466,9 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
                 <th className="px-3 py-2" title="Cohen's kappa — chance-corrected agreement on the verdict (0–1; ≥ threshold = reliable)">κ</th>
                 <th className="px-3 py-2" title="Pearson correlation, judge vs human scores (−1…1; 1 = perfect linear agreement)">Pearson</th>
                 <th className="px-3 py-2" title="Spearman rank correlation, judge vs human scores (−1…1)">Spearman</th>
-                <th className="px-3 py-2" title="judge − human mean; 0 = unbiased, + = judge over-credits, − = under-credits (±0.5 signals bias)">Bias</th>
+                <th className="px-3 py-2" title="mean score the LLM judge gave on this dimension (annotated runs)">Judge avg</th>
+                <th className="px-3 py-2" title="mean score the human gave on this dimension (annotated runs)">Human avg</th>
+                <th className="px-3 py-2" title="Judge avg − Human avg; 0 = unbiased, + = judge over-credits, − = under-credits (±0.5 signals bias)">Bias</th>
                 <th className="px-3 py-2">Reliable</th>
               </tr>
             </thead>
@@ -478,6 +480,8 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
                   <td className="px-3 py-2">{d.cohen_kappa == null ? '—' : d.cohen_kappa.toFixed(2)}</td>
                   <td className="px-3 py-2">{d.pearson == null ? '—' : d.pearson.toFixed(2)}</td>
                   <td className="px-3 py-2">{d.spearman == null ? '—' : d.spearman.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-gray-600 font-medium">{d.judge_mean == null ? '—' : d.judge_mean.toFixed(1)}</td>
+                  <td className="px-3 py-2 text-gray-600 font-medium">{d.human_mean == null ? '—' : d.human_mean.toFixed(1)}</td>
                   <td className={`px-3 py-2 ${(d.mean_bias ?? 0) > 0.5 ? 'text-amber-600' : (d.mean_bias ?? 0) < -0.5 ? 'text-blue-600' : 'text-gray-500'}`}>
                     {d.mean_bias == null ? '—' : (d.mean_bias > 0 ? '+' : '') + d.mean_bias.toFixed(1)}
                   </td>
