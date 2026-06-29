@@ -1738,6 +1738,8 @@ export interface ExperimentReport {
       spearman?: number | null
       cohen_kappa?: number | null
       mean_bias?: number | null
+      judge_mean?: number | null
+      human_mean?: number | null
       reliable: boolean
       status: 'ok' | 'insufficient_data'
     }[]
