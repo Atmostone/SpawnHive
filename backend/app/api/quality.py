@@ -300,20 +300,34 @@ async def get_external_checker(
     unreliable (~21%)" narrative. ``available=false`` for plain (non-checker) runs.
     Scoped to the workspace via the parent experiment. The exit code itself is not
     stored (verdict = exit==0); the log tail carries the actual error."""
-    run = (
+    row = (
         await db.execute(
-            select(ExperimentRun)
+            select(ExperimentRun, Experiment)
             .join(Experiment, ExperimentRun.experiment_id == Experiment.id)
             .where(
                 ExperimentRun.task_id == uuid.UUID(task_id),
                 Experiment.workspace_id == workspace.id,
             )
         )
-    ).scalars().first()
-    if run is None or (
-        run.external_verdict is None and not run.eval_log and not run.preprocess_log
+    ).first()
+    if row is None or (
+        row[0].external_verdict is None
+        and not row[0].eval_log
+        and not row[0].preprocess_log
     ):
         return {"task_id": task_id, "available": False}
+    run, experiment = row
+    # The human-readable config label (e.g. "M3") lives on the experiment's
+    # configurations JSONB, keyed by config_key — surface it so the run breadcrumb
+    # shows the label, not just the auto "cfg-NN" key.
+    label = next(
+        (
+            c.get("label")
+            for c in (experiment.configurations or [])
+            if c.get("config_key") == run.config_key
+        ),
+        None,
+    )
     return {
         "task_id": task_id,
         "available": True,
@@ -322,6 +336,7 @@ async def get_external_checker(
         else ("pass" if run.external_verdict else "fail"),
         "case_key": run.case_key,
         "config_key": run.config_key,
+        "label": label,
         "launch_time": run.launch_time,
         "eval_log": run.eval_log,
         "preprocess_log": run.preprocess_log,
