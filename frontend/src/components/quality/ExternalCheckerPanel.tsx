@@ -78,7 +78,7 @@ export default function ExternalCheckerPanel({
             {data.case_key ? (
               <span className="text-gray-400">
                 {' '}
-                · {data.config_key} · {data.case_key}
+                · {data.label || data.config_key} · {data.case_key}
               </span>
             ) : null}
           </p>

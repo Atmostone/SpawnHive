@@ -109,8 +109,7 @@ export default function SummaryRadarPanel({
                 style={{ color: colorOf(r.config_key) }}
               />
               <span style={{ color: colorOf(r.config_key) }}>●</span>
-              <span className="text-gray-700">{r.config_key}</span>
-              <span className="text-gray-400">{r.label}</span>
+              <span className="text-gray-700">{r.label}</span>
             </label>
           ))}
         </div>
@@ -123,7 +122,7 @@ export default function SummaryRadarPanel({
               {shown.map((r) => (
                 <Radar
                   key={r.config_key}
-                  name={r.config_key}
+                  name={r.label || r.config_key}
                   dataKey={r.config_key}
                   stroke={colorOf(r.config_key)}
                   fill={colorOf(r.config_key)}

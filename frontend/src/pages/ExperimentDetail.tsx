@@ -228,21 +228,6 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
   const [heat, setHeat] = useState<HeatMode>(verifiable ? 'trajectory' : 'quality')
   const cases = detail.dataset_cases
   const cells = new Map(detail.matrix.map((c) => [`${c.config_key}|${c.case_key}`, c]))
-  const labelOf = new Map(detail.configurations.map((c) => [c.config_key, c.label || c.config_key]))
-  // Triangulation scatter: every cell with BOTH a judge (E-02 quality) and a human
-  // (E-05) score — point colored by the executable checker verdict so checker
-  // false-negatives (✗ checker, but high judge+human) jump off the y=x line.
-  const triPoints = detail.matrix
-    .filter((c) => c.quality_mean != null && c.human_mean != null)
-    .map((c) => {
-      const total = c.external_total ?? 0
-      return {
-        judge: c.quality_mean as number,
-        human: c.human_mean as number,
-        label: `${labelOf.get(c.config_key) ?? c.config_key} · ${c.case_key}`,
-        checker: total === 0 ? 'none' : (c.external_pass ?? 0) >= total ? 'pass' : 'fail',
-      }
-    })
   if (detail.matrix.length === 0) {
     return (
       <div className="text-sm text-gray-500 p-4 max-w-2xl space-y-1">
@@ -283,8 +268,8 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
           <tr>
             <th className="text-left text-xs text-gray-500 px-2 sticky top-0 left-0 bg-white z-20">case \ config</th>
             {detail.configurations.map((cfg) => (
-              <th key={cfg.config_key} className="text-xs text-gray-500 font-normal px-2 whitespace-nowrap sticky top-0 bg-white z-10" title={cfg.label}>
-                {cfg.config_key} <span className="text-gray-400">{cfg.label}</span>
+              <th key={cfg.config_key} className="text-xs text-gray-500 font-normal px-2 whitespace-nowrap sticky top-0 bg-white z-10" title={cfg.config_key}>
+                {cfg.label}
               </th>
             ))}
           </tr>
@@ -359,39 +344,6 @@ function ProgressTab({ detail, onCell }: { detail: ExperimentDetailType; onCell:
         </tbody>
       </table>
       <div className="text-xs text-gray-400 mt-2">🔩 run outcome + ✔pass/total executable checker (✓ success · ✗ failed · ⚙ preprocessing · … running · ⏳ evaluating · · pending · s skipped) · ⚖️ LLM judge (q = outcome quality · t = process trajectory) · 🧑 human (mean score + ✓/✗ verdict) · ±σ = spread across runs · hover q/t for the per-dimension/axis breakdown — click a cell for run details</div>
-      {anyHuman && triPoints.length >= 2 && (
-        <div className="mt-6 border-t pt-4">
-          <div className="text-sm font-medium text-gray-700 mb-1">
-            ⚖️ Judge ↔ 🧑 Human
-            <span className="text-xs text-gray-400 font-normal"> · per cell · quality vs human · points on the dashed diagonal = agreement</span>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart margin={{ top: 10, right: 20, bottom: 24, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" dataKey="judge" name="judge" domain={[0, 10]} tick={{ fontSize: 11 }}
-                label={{ value: '⚖️ judge quality', position: 'insideBottom', offset: -12, fontSize: 11 }} />
-              <YAxis type="number" dataKey="human" name="human" domain={[0, 10]} tick={{ fontSize: 11 }}
-                label={{ value: '🧑 human', angle: -90, position: 'insideLeft', fontSize: 11 }} />
-              <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 10, y: 10 }]} stroke="#9ca3af" strokeDasharray="4 4" />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }}
-                content={({ payload }) => (payload && payload.length ? (
-                  <div className="bg-white border rounded px-2 py-1 text-xs shadow">
-                    <div className="font-medium">{payload[0].payload.label}</div>
-                    <div>⚖️ {payload[0].payload.judge} · 🧑 {payload[0].payload.human} · checker {payload[0].payload.checker}</div>
-                  </div>
-                ) : null)} />
-              <Scatter data={triPoints}>
-                {triPoints.map((p, i) => (
-                  <Cell key={i} fill={p.checker === 'fail' ? '#dc2626' : p.checker === 'pass' ? '#16a34a' : '#3b82f6'} />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
-          <div className="text-xs text-gray-400 mt-1">
-            {verifiable ? '🟢 checker ✓ · 🔴 checker ✗ · ' : ''}🔵 no checker · dashed = perfect agreement. Points well ABOVE the diagonal where 🔴 = checker false-negatives (judge + human say good, checker failed).
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -507,7 +459,66 @@ function JudgeHumanCalibration({ cal, checkerHuman }: {
   )
 }
 
-function ReportTab({ id, isTerminal }: { id: string; isTerminal: boolean }) {
+// Judge↔Human per-cell triangulation scatter (moved here from the Progress tab so
+// it sits under "Agreement with the human gold"): every cell with both a judge (E-02
+// quality) and a human (E-05) score, colored by the executable checker verdict so
+// checker false-negatives (✗ checker, high judge+human) jump off the y=x line.
+function JudgeHumanScatter({ matrix, configurations, verifiable }: {
+  matrix: ExperimentDetailType['matrix']
+  configurations: ExperimentDetailType['configurations']
+  verifiable: boolean
+}) {
+  const anyHuman = matrix.some((c) => (c.human_rated ?? 0) > 0)
+  const labelOf = new Map(configurations.map((c) => [c.config_key, c.label || c.config_key]))
+  const triPoints = matrix
+    .filter((c) => c.quality_mean != null && c.human_mean != null)
+    .map((c) => {
+      const total = c.external_total ?? 0
+      return {
+        judge: c.quality_mean as number,
+        human: c.human_mean as number,
+        label: `${labelOf.get(c.config_key) ?? c.config_key} · ${c.case_key}`,
+        checker: total === 0 ? 'none' : (c.external_pass ?? 0) >= total ? 'pass' : 'fail',
+      }
+    })
+  if (!(anyHuman && triPoints.length >= 2)) return null
+  return (
+    <section>
+      <h3 className="font-semibold text-gray-900 mb-2">
+        ⚖️ Judge ↔ 🧑 Human <span className="text-xs text-gray-400 font-normal">per cell · quality vs human · points on the dashed diagonal = agreement</span>
+      </h3>
+      <div className="bg-white border rounded-lg p-3">
+        <ResponsiveContainer width="100%" height={300}>
+          <ScatterChart margin={{ top: 10, right: 20, bottom: 24, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" dataKey="judge" name="judge" domain={[0, 10]} tick={{ fontSize: 11 }}
+              label={{ value: '⚖️ judge quality', position: 'insideBottom', offset: -12, fontSize: 11 }} />
+            <YAxis type="number" dataKey="human" name="human" domain={[0, 10]} tick={{ fontSize: 11 }}
+              label={{ value: '🧑 human', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+            <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 10, y: 10 }]} stroke="#9ca3af" strokeDasharray="4 4" />
+            <Tooltip cursor={{ strokeDasharray: '3 3' }}
+              content={({ payload }) => (payload && payload.length ? (
+                <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                  <div className="font-medium">{payload[0].payload.label}</div>
+                  <div>⚖️ {payload[0].payload.judge} · 🧑 {payload[0].payload.human} · checker {payload[0].payload.checker}</div>
+                </div>
+              ) : null)} />
+            <Scatter data={triPoints}>
+              {triPoints.map((p, i) => (
+                <Cell key={i} fill={p.checker === 'fail' ? '#dc2626' : p.checker === 'pass' ? '#16a34a' : '#3b82f6'} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+        <div className="text-xs text-gray-400 mt-1">
+          {verifiable ? '🟢 checker ✓ · 🔴 checker ✗ · ' : ''}🔵 no checker · dashed = perfect agreement. Points well ABOVE the diagonal where 🔴 = checker false-negatives (judge + human say good, checker failed).
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function ReportTab({ id, isTerminal, detail }: { id: string; isTerminal: boolean; detail: ExperimentDetailType }) {
   const queryClient = useQueryClient()
   const [method, setMethod] = useState<'bt' | 'elo'>('bt')
   const [refreshing, setRefreshing] = useState(false)
@@ -526,15 +537,16 @@ function ReportTab({ id, isTerminal }: { id: string; isTerminal: boolean }) {
     }
   }
   if (isLoading || !report) return <div className="text-sm text-gray-500 p-4">Assembling report…</div>
-  return <ReportView report={report} method={method} setMethod={setMethod} onRefresh={onRefresh} refreshing={refreshing} />
+  return <ReportView report={report} method={method} setMethod={setMethod} onRefresh={onRefresh} refreshing={refreshing} detail={detail} />
 }
 
-function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
+function ReportView({ report, method, setMethod, onRefresh, refreshing, detail }: {
   report: ExperimentReport
   method: 'bt' | 'elo'
   setMethod: (m: 'bt' | 'elo') => void
   onRefresh: () => void
   refreshing: boolean
+  detail: ExperimentDetailType
 }) {
   const colorByConfig = new Map(
     report.summary.per_config.map((c, i) => [c.config_key, CONFIG_COLORS[i % CONFIG_COLORS.length]]),
@@ -610,8 +622,8 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
             <tbody>
               {report.summary.per_config.map((c) => (
                 <tr key={c.config_key} className="border-t">
-                  <td className="px-3 py-2 font-medium" style={{ color: colorByConfig.get(c.config_key) }}>
-                    {c.config_key} <span className="text-gray-500 font-normal">{c.label}</span>
+                  <td className="px-3 py-2 font-medium" style={{ color: colorByConfig.get(c.config_key) }} title={c.config_key}>
+                    {c.label}
                   </td>
                   <td className="px-3 py-2">{c.n_runs}</td>
                   <td className="px-3 py-2">{c.success_rate != null ? `${(c.success_rate * 100).toFixed(0)}%` : '—'}</td>
@@ -677,7 +689,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tbody>
                 {report.heatmap.rows.map((row) => (
                   <tr key={row.config_key}>
-                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
+                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.config_key}>{row.label}</td>
                     {report.heatmap.dimensions.map((d) => {
                       const cell = row.cells[d]
                       return (
@@ -743,7 +755,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tbody>
                 {report.trajectory_heatmap.rows.map((row) => (
                   <tr key={row.config_key}>
-                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
+                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.config_key}>{row.label}</td>
                     {report.trajectory_heatmap.axes.map((a) => {
                       const cell = row.cells[a]
                       const q = report.axis_reliability?.axes?.[a]?.status === 'unreliable'
@@ -787,6 +799,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       </section>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       {!verifiable && report.quality_gate?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
@@ -808,7 +821,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   const failed = Object.entries(c.failed_dimensions).sort((a, b) => b[1] - a[1])
                   return (
                     <tr key={c.config_key} className="border-t align-top">
-                      <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                      <td className="px-3 py-2 font-medium" title={c.config_key}>{c.label}</td>
                       <td className="px-3 py-2 font-semibold">{c.pass_rate != null ? `${(c.pass_rate * 100).toFixed(0)}%` : '—'}</td>
                       <td className="px-3 py-2 text-green-700">{c.n_pass}</td>
                       <td className="px-3 py-2 text-gray-500">{c.n}</td>
@@ -853,7 +866,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tbody>
                 {ld.per_config.map((c) => (
                   <tr key={c.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className="px-3 py-2 font-medium" title={c.config_key}>{c.label}</td>
                     <td className={`px-3 py-2 font-semibold ${(c.structural_loop_rate ?? 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}
                       title={c.n_structural ? `${c.n_structural_loop} of ${c.n_structural} runs (counted)` : 'no deterministic data'}>
                       {c.structural_loop_rate != null ? `${(c.structural_loop_rate * 100).toFixed(0)}%` : '—'}
@@ -879,6 +892,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
         )
       })()}
+      </div>
 
       {report.longitudinal?.available && (
         <section>
@@ -914,6 +928,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
         </section>
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       {report.human_feedback?.available && (
         <section>
           <h3 className="font-semibold text-gray-900 mb-2">
@@ -936,7 +951,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tbody>
                 {report.human_feedback.rows.map((row) => (
                   <tr key={row.config_key}>
-                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.label}>{row.config_key}</td>
+                    <td className="text-xs font-medium px-2 whitespace-nowrap" title={row.config_key}>{row.label}</td>
                     {report.human_feedback!.dimensions.map((d) => {
                       const cell = row.cells[d]
                       return (
@@ -989,7 +1004,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
               <tbody>
                 {report.trajectory_match.per_config.map((c) => (
                   <tr key={c.config_key} className="border-t">
-                    <td className="px-3 py-2 font-medium">{c.config_key} <span className="text-gray-500 font-normal">{c.label}</span></td>
+                    <td className="px-3 py-2 font-medium" title={c.config_key}>{c.label}</td>
                     <td className="px-3 py-2">{c.match_rate != null ? `${(c.match_rate * 100).toFixed(0)}%` : '—'}</td>
                     <td className="px-3 py-2">{fmt(c.score_mean, 2)}</td>
                     <td className="px-3 py-2 text-gray-500">{c.n_scored}</td>
@@ -1032,6 +1047,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
           </div>
         </section>
       )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SummaryRadarPanel
@@ -1131,7 +1147,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                   ) : null)} />
                 <Legend />
                 {report.summary.per_config.map((c) => (
-                  <Scatter key={c.config_key} name={c.config_key}
+                  <Scatter key={c.config_key} name={c.label || c.config_key}
                     data={report.scatter.filter((p) => p.config_key === c.config_key && p.status !== 'failed' && p.outcome != null && p.trajectory != null)}
                     fill={colorByConfig.get(c.config_key)} />
                 ))}
@@ -1175,7 +1191,7 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
                 {report.leaderboard.players.map((p) => (
                   <tr key={p.player} className="border-t">
                     <td className="px-3 py-2 font-bold">{p.rank}</td>
-                    <td className="px-3 py-2 font-medium">{p.player} <span className="text-gray-500 font-normal">{p.label}</span></td>
+                    <td className="px-3 py-2 font-medium" title={p.player}>{p.label}</td>
                     <td className="px-3 py-2">{p.rating.toFixed(0)}</td>
                     <td className="px-3 py-2 text-gray-500">
                       {p.ci_low != null ? `${p.ci_low.toFixed(0)} – ${p.ci_high?.toFixed(0)}` : '—'}
@@ -1190,6 +1206,8 @@ function ReportView({ report, method, setMethod, onRefresh, refreshing }: {
       </section>
 
       <JudgeHumanCalibration cal={report.judge_calibration} checkerHuman={report.checker_human} />
+
+      <JudgeHumanScatter matrix={detail.matrix} configurations={detail.configurations} verifiable={verifiable} />
 
       <section>
         <h3 className="font-semibold text-gray-900 mb-2">Statistical significance <span className="text-xs text-gray-400 font-normal">Welch t-test (primary) + Mann-Whitney U (approx); ★ = p &lt; 0.05</span></h3>
@@ -1278,6 +1296,7 @@ function RunsTab({ id, detail, filter }: {
   // Verifiable bench (executable checker = outcome ground truth): the outcome
   // judge (E-02) is the audited subject, not the eval — hide its score column. (SPA-68)
   const verifiable = detail.matrix.some((c) => (c.external_total ?? 0) > 0)
+  const labelOf = new Map(detail.configurations.map((c) => [c.config_key, c.label]))
   const { data: rows = [] } = useQuery({
     queryKey: ['experiment-results', id, config, caseKey],
     queryFn: () =>
@@ -1293,7 +1312,7 @@ function RunsTab({ id, detail, filter }: {
           className="px-2 py-1.5 border rounded text-sm bg-white">
           <option value="">all configurations</option>
           {detail.configurations.map((c) => (
-            <option key={c.config_key} value={c.config_key}>{c.config_key} — {c.label}</option>
+            <option key={c.config_key} value={c.config_key}>{c.label}</option>
           ))}
         </select>
         <select value={caseKey} onChange={(e) => setCaseKey(e.target.value)}
@@ -1342,7 +1361,7 @@ function RunsTab({ id, detail, filter }: {
                       )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-gray-700">
-                      {r.config_key} · {r.case_key} · #{r.run_index + 1}
+                      {labelOf.get(r.config_key) || r.config_key} · {r.case_key} · #{r.run_index + 1}
                     </td>
                     <td className="px-3 py-2">
                       <span className={
@@ -1549,7 +1568,7 @@ export default function ExperimentDetail() {
       {tab === 'progress' && (
         <ProgressTab detail={detail} onCell={(config, caseKey) => { setRunsFilter({ config, case: caseKey }); setTab('runs') }} />
       )}
-      {tab === 'report' && <ReportTab id={id} isTerminal={isTerminal} />}
+      {tab === 'report' && <ReportTab id={id} isTerminal={isTerminal} detail={detail} />}
       {tab === 'runs' && <RunsTab id={id} detail={detail} filter={runsFilter} />}
 
       {showClone && (
