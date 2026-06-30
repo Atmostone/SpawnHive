@@ -1451,6 +1451,7 @@ export interface ExternalCheckerLogs {
   verdict?: 'pass' | 'fail' | null
   case_key?: string
   config_key?: string
+  label?: string | null
   launch_time?: string | null
   eval_log?: string | null
   preprocess_log?: string | null
