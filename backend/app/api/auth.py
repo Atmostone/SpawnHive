@@ -61,6 +61,9 @@ class TokenOut(BaseModel):
 
 @router.post("/register", response_model=TokenOut)
 async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    if not get_settings().allow_open_registration:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "registration disabled")
+
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")

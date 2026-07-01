@@ -27,11 +27,11 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:${POSTGRES_PASSWORD:-password}@postgres:5432/spawnhive
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DATA_DIR=/data
       - HOST_DATA_DIR=${PWD}/data
       # The /run endpoint claims the first batch synchronously (here in the api
@@ -61,11 +61,11 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:${POSTGRES_PASSWORD:-password}@postgres:5432/spawnhive
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DATA_DIR=/data
       - HOST_DATA_DIR=${PWD}/data
       - REDIS_URL=redis://redis:6379/0
@@ -92,7 +92,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://spawnhive:password@postgres:5432/spawnhive
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:${POSTGRES_PASSWORD:-password}@postgres:5432/spawnhive
       - REDIS_URL=redis://redis:6379/0
       - DATA_DIR=/data
       - HOST_DATA_DIR=${PWD}/data
@@ -127,7 +127,7 @@ services:
     environment:
       - POSTGRES_DB=spawnhive
       - POSTGRES_USER=spawnhive
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -149,8 +149,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - miniodata:/data
     ports:
