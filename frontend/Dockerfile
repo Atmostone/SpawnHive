@@ -18,4 +18,6 @@ RUN npm run build
 # --- Production serve ---
 FROM nginx:alpine AS prod
 COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
+# Full reverse-proxy config: serves the SPA + proxies /api and /ws + TLS + ACME.
+COPY nginx.prod.conf /etc/nginx/nginx.conf
+EXPOSE 80 443
