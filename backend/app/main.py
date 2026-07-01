@@ -232,9 +232,22 @@ async def seed_default_rubrics():
         logging.getLogger(__name__).info("Seeded 5 default rubrics")
 
 
+# The public dev default shipped in .env.example — must never sign tokens in prod.
+_JWT_DEV_PLACEHOLDER = "dev-only-replace-me-with-64-byte-hex-in-production"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    _settings = get_settings()
+    if _settings.require_strong_secrets and (
+        not _settings.jwt_secret or _settings.jwt_secret == _JWT_DEV_PLACEHOLDER
+    ):
+        raise RuntimeError(
+            "JWT_SECRET is empty or the public dev placeholder while "
+            "REQUIRE_STRONG_SECRETS is set. Generate one: "
+            'python -c "import secrets; print(secrets.token_hex(64))"'
+        )
     await seed_settings()
     await seed_default_provider()
     await seed_templates()
@@ -255,7 +268,10 @@ app = FastAPI(title="SpawnHive", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
+    allow_origins=(
+        [o.strip() for o in get_settings().cors_allowed_origins.split(",") if o.strip()]
+        or ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"]
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

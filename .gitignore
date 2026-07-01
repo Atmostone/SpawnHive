@@ -22,6 +22,11 @@ dist/
 # Environment
 .env
 .env.local
+.env.prod
+
+# Secrets / deploy access — NEVER commit (repo is public)
+.deploy_info
+.keys
 
 # Data (persistent volumes — runtime artifacts, never committed)
 data/workspaces/
