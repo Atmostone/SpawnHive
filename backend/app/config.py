@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24  # 24h
 
+    # Deployment (SPA-78). All default to current dev behavior; prod sets them in .env.
+    # CORS: comma-separated allowed origins; empty → the dev localhost list (app.main).
+    cors_allowed_origins: str = ""
+    # Public demos close self-service signup (the demo account is provisioned out of band).
+    allow_open_registration: bool = True
+    # When true, boot refuses an empty or the public dev-placeholder JWT_SECRET.
+    # Off by default so local dev (which ships the placeholder) is unaffected.
+    require_strong_secrets: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

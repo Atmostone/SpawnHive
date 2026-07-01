@@ -1,0 +1,133 @@
+# Production/demo overlay for SpawnHive (SPA-78).
+#
+# Usage (from the repo root on the server, with a filled-in .env):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# (or just run ./deploy.sh, which also builds the agent image first)
+#
+# Overrides the dev setup: runs migrations before the app, drops --reload and the
+# source bind-mounts, adds restart policies + bounded logging, replaces the two dev
+# HTTP entrypoints (Vite dev-server + api-nginx) with a single TLS nginx edge +
+# certbot, and stops publishing internal ports. Nothing here disturbs local dev,
+# which uses `docker compose up` (base + docker-compose.override.yml) instead.
+#
+# NOTE: explicit `-f` invocation does NOT auto-load docker-compose.override.yml,
+# so the dev 3003 port override is bypassed in prod.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # One-shot schema migration. The app waits for this to complete, so a fresh DB
+  # is migrated before lifespan seeding runs (which would otherwise hit missing tables).
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://spawnhive:${POSTGRES_PASSWORD:-password}@postgres:5432/spawnhive
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spawnhive-net
+    restart: "no"
+    logging: *logging
+
+  api:
+    # No --reload in prod.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Drop the dev source/test bind-mounts; keep only the runtime mounts.
+    volumes: !override
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging: *logging
+
+  orchestrator:
+    volumes: !override
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging: *logging
+
+  scheduler:
+    volumes: !override
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shared:/data/shared
+      - ./data/workspaces:/data/workspaces
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging: *logging
+
+  # The dev api-nginx (plaintext :8002 gateway) is replaced by the frontend edge below.
+  nginx:
+    profiles: ["disabled"]
+
+  # Public TLS edge: serves the built SPA and reverse-proxies /api + /ws to api:8000,
+  # plus the ACME http-01 challenge on :80. Built from frontend/Dockerfile `prod`
+  # stage (static bundle + frontend/nginx.prod.conf). Reloads every 6h to pick up
+  # renewed certs.
+  frontend:
+    build:
+      target: prod
+    command: >
+      /bin/sh -c "while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes: !override
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    depends_on: !override
+      - api
+    restart: unless-stopped
+    logging: *logging
+
+  # Let's Encrypt certificate issuance + auto-renewal (webroot ACME). Shares the
+  # cert + webroot volumes with the edge. Initial issuance is done by
+  # scripts/init-letsencrypt.sh; this loop just keeps them renewed.
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+    restart: unless-stopped
+    logging: *logging
+
+  postgres:
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    restart: unless-stopped
+    logging: *logging
+
+  qdrant:
+    restart: unless-stopped
+    logging: *logging
+
+  minio:
+    # Do not publish the admin console (9001) on the public VPS; reach it via SSH tunnel.
+    ports: !override []
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  certbot-conf:
+  certbot-www:
