@@ -45,3 +45,12 @@ Thumbs.db
 
 # Docker / logs
 *.log
+
+# Local-only compose override (per-machine port remap)
+docker-compose.override.yml
+
+# Private material — never in the public repo
+.claude/
+research/
+reports/
+final_reports/
